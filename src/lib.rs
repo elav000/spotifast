@@ -42,6 +42,7 @@ pub mod new_releases;
 pub mod notch;
 pub mod opener;
 pub mod paths;
+pub mod playback_output;
 pub mod player;
 pub mod playlist_cover;
 pub mod power;

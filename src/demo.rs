@@ -1091,6 +1091,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             app.open(Page::Album(id));
         }
     }
+    if let Some(page) = page.filter(|page| page.starts_with("jellyfin")) {
+        app.jellyfin.demo(page);
+        app.user = None;
+    }
     if let Some(page) = page.and_then(Page::decode) {
         app.open(page);
     }
@@ -11535,6 +11539,41 @@ mod tests {
             app.track_cache[&id].name, "Cached name",
             "the cached song is kept"
         );
+        app.backend.shutdown();
+    }
+    #[test]
+    fn jellyfin_navigation_works_without_a_spotify_grant() {
+        use crate::jellyfin::browser::{BrowserAction, Provider, View};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-only");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let library = accessible_node(&tree, "My music", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(library, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(app.jellyfin.view, View::Albums { .. }));
+        assert!(app.user.is_none());
+        app.jellyfin.demo("jellyfin-albums");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let album = accessible_node(&tree, "Fragments", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(album, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(app.jellyfin.view, View::Tracks { .. }));
+        app.actions
+            .push(Action::Jellyfin(BrowserAction::Select(Provider::Spotify)));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Sign in with Spotify", Role::Button);
         app.backend.shutdown();
     }
 }

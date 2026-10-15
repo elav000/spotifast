@@ -2,12 +2,19 @@
 //! Claims and guarded audio writes run on playback threads, never the UI.
 use crate::{provider::Provider, sink::AudioControl};
 use librespot_playback::audio_backend::SinkResult;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Default, Debug)]
 pub struct LocalOutput {
     state: Mutex<State>,
+    requested: AtomicU64,
 }
+
+/// One explicit play intent. Reserving it is nonblocking and does not silence
+/// the current owner while replacement audio is still loading.
+#[derive(Clone, Copy, Debug)]
+pub struct OutputRequest(u64);
 
 #[derive(Default)]
 struct State {
@@ -39,6 +46,14 @@ pub(crate) struct WriteGuard<'a> {
 }
 
 impl LocalOutput {
+    pub fn request(&self) -> OutputRequest {
+        OutputRequest(self.requested.fetch_add(1, Ordering::SeqCst) + 1)
+    }
+
+    pub fn is_current(&self, request: OutputRequest) -> bool {
+        self.requested.load(Ordering::SeqCst) == request.0
+    }
+
     pub fn owner(&self) -> Option<Provider> {
         self.state
             .lock()
@@ -54,7 +69,22 @@ impl LocalOutput {
         control: Arc<AudioControl>,
         interruptible: bool,
     ) -> SinkResult<Lease> {
+        self.claim_requested(provider, control, interruptible, self.request())
+    }
+
+    pub(crate) fn claim_requested(
+        &self,
+        provider: Provider,
+        control: Arc<AudioControl>,
+        interruptible: bool,
+        request: OutputRequest,
+    ) -> SinkResult<Lease> {
         let mut state = self.state.lock().unwrap_or_else(|p| p.into_inner());
+        if self.requested.load(Ordering::SeqCst) != request.0 {
+            return Err(librespot_playback::audio_backend::SinkError::NotConnected(
+                "Playback was superseded by a newer play request.".into(),
+            ));
+        }
         if let Some((_, previous)) = &state.owner
             && !Arc::ptr_eq(previous, &control)
         {
@@ -95,6 +125,22 @@ mod tests {
         output
             .claim(provider, AudioControl::new(100), true)
             .unwrap()
+    }
+
+    #[test]
+    fn a_slow_load_cannot_take_output_from_a_newer_play_request() {
+        let output = LocalOutput::default();
+        let first = claim(&output, Provider::Spotify);
+        let loading = output.request();
+        assert!(output.writing(first).is_some());
+        let newer = claim(&output, Provider::Spotify);
+        assert!(
+            output
+                .claim_requested(Provider::Jellyfin, AudioControl::new(100), true, loading,)
+                .is_err()
+        );
+        assert!(output.writing(newer).is_some());
+        assert_eq!(output.owner(), Some(Provider::Spotify));
     }
 
     #[test]

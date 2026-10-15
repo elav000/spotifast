@@ -151,6 +151,7 @@ pub struct Tapped {
     )>,
     lease: Option<crate::playback_output::Lease>,
     start_error: Option<librespot_playback::audio_backend::SinkError>,
+    output_request: Option<crate::playback_output::OutputRequest>,
     inner: Box<dyn Sink>,
     control: Arc<crate::sink::AudioControl>,
     tap: Arc<AudioTap>,
@@ -181,6 +182,7 @@ impl Tapped {
             output: None,
             lease: None,
             start_error: None,
+            output_request: None,
             inner,
             control,
             tap,
@@ -205,6 +207,27 @@ impl Tapped {
         self.output = Some((output, provider, interruptible));
         self
     }
+
+    pub fn set_output_request(&mut self, request: crate::playback_output::OutputRequest) {
+        self.output_request = Some(request);
+    }
+
+    pub fn owns_output(&self) -> bool {
+        self.output.as_ref().is_none_or(|(output, _, _)| {
+            self.lease
+                .is_some_and(|lease| output.writing(lease).is_some())
+        })
+    }
+
+    /// Direct playback workers can handle start failures immediately;
+    /// librespot must instead receive them from its first write.
+    pub fn start_checked(&mut self) -> SinkResult<()> {
+        self.start()?;
+        match self.start_error.take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
 }
 
 /// Full-scale level for samples leaving `Tapped`.
@@ -226,7 +249,13 @@ impl Sink for Tapped {
     fn start(&mut self) -> SinkResult<()> {
         self.start_error = None;
         if let Some((output, provider, interruptible)) = &self.output {
-            match output.claim(*provider, self.control.clone(), *interruptible) {
+            let claimed = match self.output_request {
+                Some(request) => {
+                    output.claim_requested(*provider, self.control.clone(), *interruptible, request)
+                }
+                None => output.claim(*provider, self.control.clone(), *interruptible),
+            };
+            match claimed {
                 Ok(lease) => self.lease = Some(lease),
                 Err(error) => {
                     // Like RodioSink's device-open error, report this at the

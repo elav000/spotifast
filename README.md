@@ -1,4 +1,4 @@
-> **elav000 fork:** Jellyfin browsing is available without a Spotify account. See [setup and implementation status](docs/_reference/jellyfin-fork.md). Jellyfin audio playback is still in development.
+> **elav000 fork:** Jellyfin browsing and original FLAC, WAV and MP3 playback are available without a Spotify account. See [setup and implementation status](docs/_reference/jellyfin-fork.md). The download links below are for upstream releases, which do not include Jellyfin.
 
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">
@@ -30,8 +30,8 @@ framework behind a family of native desktop apps. It plays music through
 The interface includes complete
 [translations for all supported languages](docs/_reference/translating.md#languages-and-coverage).
 
-**Playback needs Spotify Premium.** Free accounts can browse and search, but
-cannot play music through Spotifast.
+**Spotify playback needs Spotify Premium.** Free accounts can browse and search, but
+cannot play Spotify music through Spotifast.
 
 ![Spotifast Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
 

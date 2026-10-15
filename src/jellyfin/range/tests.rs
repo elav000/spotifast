@@ -286,3 +286,54 @@ fn wav_resampling_preserves_the_tail_and_wav_mp3_seek_produces_audio() {
         assert!((20000..26000).contains(&frames), "{frames}");
     }
 }
+
+#[test]
+fn flac_seeks_return_the_same_samples_as_sequential_decoding() {
+    let server = Server::new(
+        include_bytes!("../../testdata/jellyfin-noise.flac").to_vec(),
+        vec![],
+    );
+    let mut decoder =
+        crate::jellyfin::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
+    let mut original = Vec::new();
+    while let Some(pcm) = decoder.next_pcm().unwrap() {
+        original.extend(pcm);
+    }
+    // Alternate directions and use a time inside a FLAC block, not just its
+    // boundary. Counting remaining frames alone would miss wrong audio.
+    for milliseconds in [7123, 1250, 4000] {
+        decoder.seek_ms(milliseconds).unwrap();
+        let mut sought = Vec::new();
+        while let Some(pcm) = decoder.next_pcm().unwrap() {
+            sought.extend(pcm);
+        }
+        let first_sample = (milliseconds * 44100 / 1000) as usize * 2;
+        assert_eq!(sought, original[first_sample..], "seek {milliseconds} ms");
+    }
+}
+
+#[test]
+fn resampled_wav_seek_preserves_sample_alignment_after_filter_startup() {
+    let server = Server::new(
+        include_bytes!("../../testdata/jellyfin-tone.wav").to_vec(),
+        vec![],
+    );
+    let mut decoder =
+        crate::jellyfin::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
+    let mut original = Vec::new();
+    while let Some(pcm) = decoder.next_pcm().unwrap() {
+        original.extend(pcm);
+    }
+    decoder.seek_ms(500).unwrap();
+    let mut sought = Vec::new();
+    while let Some(pcm) = decoder.next_pcm().unwrap() {
+        sought.extend(pcm);
+    }
+    let expected = &original[44100..];
+    assert_eq!(sought.len(), expected.len());
+    // Resetting the sinc filter intentionally drops its pre-seek history.
+    // Beyond that short startup, the resampled signal must align exactly.
+    for (actual, expected) in sought[256..].iter().zip(&expected[256..]) {
+        assert!((actual - expected).abs() < 0.00001);
+    }
+}

@@ -145,6 +145,13 @@ impl AudioTap {
 
 /// Runs the equalizer and taps the signal before passing it to the real sink.
 pub struct Tapped {
+    output: Option<(
+        Arc<crate::playback_output::LocalOutput>,
+        crate::provider::Provider,
+        bool,
+    )>,
+    lease: Option<crate::playback_output::Lease>,
+    start_error: Option<librespot_playback::audio_backend::SinkError>,
     inner: Box<dyn Sink>,
     control: Arc<crate::sink::AudioControl>,
     tap: Arc<AudioTap>,
@@ -172,6 +179,9 @@ impl Tapped {
         normalisation: Arc<std::sync::atomic::AtomicU64>,
     ) -> Self {
         Self {
+            output: None,
+            lease: None,
+            start_error: None,
             inner,
             control,
             tap,
@@ -181,6 +191,20 @@ impl Tapped {
             limiter: crate::limiter::Limiter::new(f64::from(SAMPLE_RATE)),
             normalisation,
         }
+    }
+
+    /// Join the application's exclusive output. Standalone diagnostics may
+    /// omit this; all in-app providers must share the same coordinator.
+    /// `interruptible` requires an output queue registered with AudioControl,
+    /// as RodioSink does. Other backends must stop before losing ownership.
+    pub fn with_output(
+        mut self,
+        output: Arc<crate::playback_output::LocalOutput>,
+        provider: crate::provider::Provider,
+        interruptible: bool,
+    ) -> Self {
+        self.output = Some((output, provider, interruptible));
+        self
     }
 }
 
@@ -201,15 +225,67 @@ fn full_scale(volume: f64, applied: bool) -> Option<f64> {
 
 impl Sink for Tapped {
     fn start(&mut self) -> SinkResult<()> {
-        self.inner.start()
+        self.start_error = None;
+        if let Some((output, provider, interruptible)) = &self.output {
+            match output.claim(*provider, self.control.clone(), *interruptible) {
+                Ok(lease) => self.lease = Some(lease),
+                Err(error) => {
+                    // Like RodioSink's device-open error, report this at the
+                    // first write. Librespot cannot recover from start errors.
+                    self.start_error = Some(error);
+                    return Ok(());
+                }
+            }
+        }
+        let result = self.inner.start();
+        if result.is_err()
+            && let (Some((output, _, _)), Some(lease)) = (&self.output, self.lease.take())
+        {
+            output.release(lease);
+        }
+        result
     }
 
     fn stop(&mut self) -> SinkResult<()> {
-        self.tap.clear();
-        self.inner.stop()
+        // A delayed stop from an old provider must not clear the new owner's
+        // visualizer. Keep ownership while draining the current device.
+        let output = self.output.as_ref().map(|(output, _, _)| output.clone());
+        let guard = output
+            .as_ref()
+            .and_then(|output| self.lease.and_then(|lease| output.writing(lease)));
+        if output.is_none() || guard.is_some() {
+            self.tap.clear();
+        }
+        let result = self.inner.stop();
+        drop(guard);
+        if let (Some(output), Some(lease)) = (output, self.lease.take()) {
+            output.release(lease);
+        }
+        result
     }
 
     fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        if let Some(error) = self.start_error.take() {
+            return Err(error);
+        }
+        let output = self.output.as_ref().map(|(output, _, _)| output.clone());
+        let _guard = output
+            .as_ref()
+            .and_then(|output| self.lease.and_then(|lease| output.writing(lease)));
+        if output.is_some() && _guard.is_none() {
+            // Retain decoder backpressure while the previous engine handles
+            // its pause/stop. Dropping cached packets at full speed would
+            // otherwise race through its queue and emit unwanted skips.
+            let frames = packet
+                .samples()
+                .map_err(|error| {
+                    librespot_playback::audio_backend::SinkError::OnWrite(error.to_string())
+                })?
+                .len()
+                / NUM_CHANNELS as usize;
+            std::thread::sleep(Duration::from_secs_f64(frames as f64 / SAMPLE_RATE as f64));
+            return Ok(());
+        }
         if self.control.take_processing_reset() {
             self.eq.reset();
             self.limiter = crate::limiter::Limiter::new(f64::from(SAMPLE_RATE));
@@ -245,6 +321,14 @@ impl Sink for Tapped {
             raw => raw,
         };
         self.inner.write(packet, converter)
+    }
+}
+
+impl Drop for Tapped {
+    fn drop(&mut self) {
+        if let (Some((output, _, _)), Some(lease)) = (&self.output, self.lease) {
+            output.release(lease);
+        }
     }
 }
 
@@ -702,6 +786,71 @@ mod tests {
                 &mut Converter::new(None),
             )
             .unwrap();
+    }
+
+    #[test]
+    fn provider_takeover_blocks_old_audio_and_ignores_its_delayed_stop() {
+        let output = Arc::new(crate::playback_output::LocalOutput::default());
+        let tap = AudioTap::new();
+        let (mut spotify, spotify_samples) =
+            recorded_tap(crate::sink::AudioControl::new(100), crate::eq::shared());
+        spotify.tap = tap.clone();
+        spotify = spotify.with_output(output.clone(), crate::provider::Provider::Spotify, true);
+        spotify.start().unwrap();
+        write_level(&mut spotify, 0.1);
+        let before = spotify_samples.lock().unwrap().len();
+
+        let (mut jellyfin, jellyfin_samples) =
+            recorded_tap(crate::sink::AudioControl::new(100), crate::eq::shared());
+        jellyfin.tap = tap.clone();
+        jellyfin = jellyfin.with_output(output.clone(), crate::provider::Provider::Jellyfin, true);
+        jellyfin.start().unwrap();
+        write_level(&mut jellyfin, 0.25);
+        let visible = tap.window(512, 0);
+        assert!(visible.iter().any(|sample| sample.abs() > 0.1));
+        write_level(&mut spotify, 0.9);
+        assert_eq!(spotify_samples.lock().unwrap().len(), before);
+        assert_eq!(tap.window(512, 0), visible);
+        spotify.stop().unwrap();
+        assert_eq!(output.owner(), Some(crate::provider::Provider::Jellyfin));
+        assert_eq!(tap.window(512, 0), visible);
+        assert!(!jellyfin_samples.lock().unwrap().is_empty());
+
+        // An explicit start may take ownership back. Browsing alone never
+        // starts a sink and therefore cannot change output ownership.
+        spotify.start().unwrap();
+        write_level(&mut spotify, 0.1);
+        assert!(spotify_samples.lock().unwrap().len() > before);
+        let before = jellyfin_samples.lock().unwrap().len();
+        write_level(&mut jellyfin, 0.25);
+        assert_eq!(jellyfin_samples.lock().unwrap().len(), before);
+        drop(jellyfin);
+        assert_eq!(output.owner(), Some(crate::provider::Provider::Spotify));
+        spotify.stop().unwrap();
+        assert_eq!(output.owner(), None);
+    }
+
+    #[test]
+    fn unsupported_takeover_reports_on_write_without_starting_the_new_output() {
+        let output = Arc::new(crate::playback_output::LocalOutput::default());
+        let (old, _) = recorded_tap(crate::sink::AudioControl::new(100), crate::eq::shared());
+        let mut old = old.with_output(output.clone(), crate::provider::Provider::Spotify, false);
+        old.start().unwrap();
+        let (new, samples) = recorded_tap(crate::sink::AudioControl::new(100), crate::eq::shared());
+        let mut new = new.with_output(output.clone(), crate::provider::Provider::Jellyfin, true);
+        new.start().unwrap();
+        let error = new.write(
+            AudioPacket::Samples(vec![0.5; 882]),
+            &mut Converter::new(None),
+        );
+        assert!(error.is_err());
+        assert!(samples.lock().unwrap().is_empty());
+        assert_eq!(output.owner(), Some(crate::provider::Provider::Spotify));
+        old.stop().unwrap();
+        new.start().unwrap();
+        write_level(&mut new, 0.5);
+        assert!(!samples.lock().unwrap().is_empty());
+        assert_eq!(output.owner(), Some(crate::provider::Provider::Jellyfin));
     }
 
     #[test]

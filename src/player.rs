@@ -31,8 +31,8 @@ use librespot_metadata::{
     audio::{AudioItem, UniqueFields},
 };
 use librespot_playback::{
-    audio_backend::Sink,
-    config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
+    audio_backend::{self, Sink},
+    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
@@ -44,6 +44,7 @@ use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
+    pub output: Arc<crate::playback_output::LocalOutput>,
     pub device_name: String,
     pub bitrate_kbps: u16,
     pub normalisation: bool,
@@ -853,6 +854,7 @@ fn sink_builder(
     let tap = Arc::clone(&config.tap);
     let eq = Arc::clone(&config.eq);
     let notify_device = Arc::clone(&notify);
+    let output = Arc::clone(&config.output);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -867,6 +869,25 @@ fn sink_builder(
             id: id.as_str().to_string(),
         });
     });
+    if let Some(builder) = librespot_backend(config.backend.as_deref()) {
+        // Apply volume after the tap so visualizers are independent of
+        // volume, including at zero.
+        let applied = mixer.get_soft_volume();
+        let normalisation = Arc::clone(&normalisation);
+        return (
+            Box::new(move || {
+                let sink = builder(device, AudioFormat::S16);
+                Box::new(
+                    Tapped::new(sink, audio, tap, applied, true, eq, normalisation).with_output(
+                        output,
+                        crate::provider::Provider::Spotify,
+                        false,
+                    ),
+                ) as Box<dyn Sink>
+            }),
+            Box::new(NoOpVolume),
+        );
+    }
     let volume = mixer.get_soft_volume();
     // The output applies volume to queued audio. The wrapper reads the same
     // value to calculate the pre-volume limiter ceiling.
@@ -877,15 +898,13 @@ fn sink_builder(
                 RodioSink::new(device, report, volume, buffer_ms, Arc::clone(&audio))
                     .on_device(saved),
             );
-            Box::new(Tapped::new(
-                sink,
-                audio,
-                tap,
-                ceiling,
-                false,
-                eq,
-                normalisation,
-            )) as Box<dyn Sink>
+            Box::new(
+                Tapped::new(sink, audio, tap, ceiling, false, eq, normalisation).with_output(
+                    output,
+                    crate::provider::Provider::Spotify,
+                    true,
+                ),
+            ) as Box<dyn Sink>
         }),
         Box::new(NoOpVolume),
     )
@@ -1837,6 +1856,7 @@ mod tests {
     #[test]
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
+            output: Arc::default(),
             buffer_ms: crate::sink::DEFAULT_BUFFER_MS,
             tap: AudioTap::new(),
             eq: crate::eq::shared(),

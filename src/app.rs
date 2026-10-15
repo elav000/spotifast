@@ -191,6 +191,7 @@ struct QueueShufflePending {
 /// The playing item as the interface sees it, whichever device plays it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NowPlaying {
+    pub provider: crate::provider::Provider,
     pub local: bool,
     pub device_name: Option<String>,
     /// Spotify's device type, such as "Smartphone", for the device's icon.
@@ -358,6 +359,8 @@ struct Immersive {
 
 pub struct App {
     pub jellyfin: crate::jellyfin::browser::Browser,
+    pub jellyfin_player: crate::jellyfin::transport::Transport,
+    jellyfin_epoch: u64,
     pub(crate) local_output: std::sync::Arc<crate::playback_output::LocalOutput>,
     pub dirs: AppDirs,
     pub(crate) storage_usage: crate::storage::Usage,
@@ -1138,6 +1141,12 @@ impl App {
             std::sync::Arc::default(),
         );
         let local_output = engine_config.output.clone();
+        let jellyfin_player = crate::jellyfin::transport::Transport::new(
+            dirs.clone(),
+            waker.clone(),
+            engine_config.clone(),
+            options.restore_sign_in,
+        );
         let backend = Backend::spawn(
             dirs.clone(),
             engine_config,
@@ -1209,6 +1218,8 @@ impl App {
 
         let palette = settings.fixed_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
+            jellyfin_player,
+            jellyfin_epoch: 0,
             local_output,
             jellyfin: crate::jellyfin::browser::Browser::new(
                 dirs.clone(),
@@ -2256,6 +2267,9 @@ impl App {
 
     /// Playback state shown by the UI, including a recent local request.
     pub fn believed_playing(&self) -> bool {
+        if self.jellyfin_player.controls_output() {
+            return self.jellyfin_player.snapshot().playing;
+        }
         if let Some((playing, at)) = self.optimistic_playing
             && at.elapsed() < PLAYBACK_HOLD
         {
@@ -2271,7 +2285,7 @@ impl App {
     /// Current item for menus, using cached track details when available.
     pub fn now_playing_item(&self) -> Option<PlayableItem> {
         let now = self.now_playing()?;
-        if now.is_episode {
+        if now.is_episode || now.provider != crate::provider::Provider::Spotify {
             return None;
         }
         if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
@@ -2311,6 +2325,9 @@ impl App {
     }
 
     pub fn now_playing(&self) -> Option<NowPlaying> {
+        if let Some(now) = self.jellyfin_now_playing() {
+            return Some(now);
+        }
         if let Some(now) = &self.frame_now {
             return Some(now.clone());
         }
@@ -2321,7 +2338,8 @@ impl App {
 
     fn refresh_frame_now(&mut self) {
         self.frame_now = self
-            .requested_track_preview()
+            .jellyfin_now_playing()
+            .or_else(|| self.requested_track_preview())
             .or_else(|| self.now_playing_live())
             .or_else(|| self.resume_preview());
     }
@@ -2377,6 +2395,7 @@ impl App {
                 _ => self.local.playback == Playback::Playing,
             };
             return Some(NowPlaying {
+                provider: crate::provider::Provider::Spotify,
                 local: true,
                 device_name: None,
                 device_kind: None,
@@ -2498,6 +2517,7 @@ impl App {
             ),
         };
         Some(NowPlaying {
+            provider: crate::provider::Provider::Spotify,
             local: false,
             device_name: device.map(|device| device.name.clone()),
             device_kind: device.map(|device| device.kind.clone()),
@@ -2538,6 +2558,7 @@ impl App {
     fn cached_track_preview(&self, uri: &str, position_ms: u32) -> Option<NowPlaying> {
         let track = self.track_cache.get(util::uri_id(uri)?)?;
         Some(NowPlaying {
+            provider: crate::provider::Provider::Spotify,
             local: true,
             device_name: None,
             device_kind: None,
@@ -2601,6 +2622,9 @@ impl App {
     }
 
     pub fn any_play_pending(&self) -> bool {
+        if self.jellyfin_player.controls_output() {
+            return self.jellyfin_player.snapshot().loading;
+        }
         self.pending_fresh() && !self.pending_play_keys.is_empty()
     }
 
@@ -2848,10 +2872,38 @@ impl App {
         self.applied_proxy.clone()
     }
 
+    pub(crate) fn prepare_jellyfin_playback(&mut self) {
+        self.supersede_play_search();
+        self.queued_play = None;
+        self.intent_track = None;
+        self.optimistic_playing = None;
+        self.clear_play_pending();
+        if self.local.is_active() {
+            self.backend.player(PlayerCommand::Pause);
+        }
+    }
+
+    fn reconfigure_jellyfin_playback(&mut self) {
+        let config = engine_config(
+            &self.dirs,
+            &self.settings,
+            self.applied_proxy.clone(),
+            self.winamp.tap.clone(),
+            self.winamp.eq.clone(),
+            self.local_output.clone(),
+        );
+        self.jellyfin_player.reconfigure(config);
+    }
+
     fn handle_events(&mut self) {
         let events = self.backend.poll();
         self.handle_backend_events(events);
         self.jellyfin.poll(&self.applied_proxy);
+        let epoch = self.jellyfin_player.epoch();
+        if self.jellyfin_epoch != epoch {
+            self.jellyfin_epoch = epoch;
+            self.session_dirty = true;
+        }
     }
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
@@ -3930,12 +3982,14 @@ impl App {
                 }
             }
         }
-        if let Some(seed) = autoplay_seed(
-            self.local_list.as_deref(),
-            self.settings.autoplay,
-            &self.local,
-            &state,
-        ) {
+        if !self.jellyfin_player.controls_output()
+            && let Some(seed) = autoplay_seed(
+                self.local_list.as_deref(),
+                self.settings.autoplay,
+                &self.local,
+                &state,
+            )
+        {
             log::info!("the list ended; playing what Spotify follows {seed} with");
             self.local_list = None;
             self.backend.player(PlayerCommand::Load(LoadSpec {
@@ -4442,7 +4496,7 @@ impl App {
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
-        if now.is_episode || self.offline {
+        if now.is_episode || now.provider != crate::provider::Provider::Spotify || self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
         }
@@ -5380,6 +5434,7 @@ impl App {
     ) {
         if self.last_proxy_applied == 0 {
             self.applied_proxy = config;
+            self.reconfigure_jellyfin_playback();
         }
         if !self.proxy_form_edited
             && self.proxy_request == 0
@@ -5435,6 +5490,7 @@ impl App {
             Ok(restarted) => {
                 self.last_proxy_applied = request;
                 self.applied_proxy = config;
+                self.reconfigure_jellyfin_playback();
                 self.applied_proxy_preferences = preferences;
                 self.save_settings();
                 if restarted && self.local_ready {
@@ -7271,6 +7327,9 @@ impl App {
     }
 
     fn refresh_queue(&mut self, force: bool) {
+        if self.jellyfin_player.controls_output() {
+            return;
+        }
         if !self.is_connected() || !self.network_reachable {
             return;
         }
@@ -7525,11 +7584,16 @@ impl App {
         let mut seen = std::collections::HashSet::new();
         let mut uris = Vec::new();
         let queued = self.queue.get();
-        let rows = self.now_playing().map(|now| now.uri).into_iter().chain(
-            queued
-                .iter()
-                .flat_map(|queue| queue.queue.iter().map(|item| item.uri().to_string())),
-        );
+        let rows = self
+            .now_playing()
+            .filter(|now| now.provider == crate::provider::Provider::Spotify)
+            .map(|now| now.uri)
+            .into_iter()
+            .chain(
+                queued
+                    .iter()
+                    .flat_map(|queue| queue.queue.iter().map(|item| item.uri().to_string())),
+            );
         for uri in rows {
             if seen.insert(uri.clone()) {
                 uris.push(uri);
@@ -7933,6 +7997,7 @@ impl App {
         let mut batch = Vec::new();
         for uri in uris {
             if uri.is_empty()
+                || !uri.starts_with("spotify:")
                 || self.saved.contains_key(&uri)
                 || self.saved_pending.contains(&uri)
                 || uri.starts_with("spotify:local")
@@ -10529,6 +10594,7 @@ impl App {
         if self.soloist_waiting() && !self.soloist_recovering() {
             return;
         }
+        self.jellyfin_player.suspend();
         // Whatever starts now outranks a play-search still in flight.
         self.supersede_play_search();
         // A play from a row names its row again after this.
@@ -11040,6 +11106,10 @@ impl App {
     }
 
     fn toggle_play(&mut self) {
+        if self.jellyfin_player.controls_output() {
+            self.jellyfin_player.toggle();
+            return;
+        }
         let playing = self.now_playing().map(|now| now.playing);
         match self.target() {
             Target::Local => {
@@ -11111,6 +11181,10 @@ impl App {
     }
 
     fn seek(&mut self, position_ms: u32) {
+        if self.jellyfin_player.controls_output() {
+            self.jellyfin_player.seek(u64::from(position_ms));
+            return;
+        }
         // Dragging the bar under the remembered song moves the point a press
         // of play will resume from; there is no stream to seek yet.
         if self.now_playing_live().is_none() && self.resume_track.is_some() {
@@ -11163,6 +11237,12 @@ impl App {
 
     fn set_volume(&mut self, percent: u8, settle: bool) {
         let percent = percent.min(100);
+        if self.jellyfin_player.controls_output() {
+            self.jellyfin_player.set_volume(percent);
+            self.settings.volume = percent_to_volume(percent);
+            self.settings_dirty = true;
+            return;
+        }
         if self.has_soloist_output_volume() && self.targets_own_soloist() {
             self.backend.soloist_output_volume.set(percent);
             self.pending_remote_volume = None;
@@ -12444,6 +12524,23 @@ impl App {
         {
             return;
         }
+        if matches!(&action, Action::Jellyfin(_))
+            || (self.jellyfin_player.controls_output()
+                && matches!(
+                    &action,
+                    Action::TogglePlay
+                        | Action::Next
+                        | Action::Previous
+                        | Action::Seek(_)
+                        | Action::SeekBy(_)
+                        | Action::SetVolume(_)
+                        | Action::PreviewVolume(_)
+                        | Action::ToggleMute
+                        | Action::ClearQueue
+                ))
+        {
+            self.session_dirty = true;
+        }
         if matches!(
             &action,
             Action::Open(_)
@@ -12480,6 +12577,14 @@ impl App {
         }
         match action {
             Action::Jellyfin(action) => self.apply_jellyfin_action(action),
+            Action::ToggleShuffle
+            | Action::SetShuffle(_)
+            | Action::SetRepeat(_)
+            | Action::CycleRepeat
+            | Action::ToggleSaved(_)
+            | Action::ToggleDevicesPopup
+            | Action::ToggleLyricsPanel
+                if self.jellyfin_player.controls_output() => {}
             Action::Open(page) => self.open(page),
             Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
             Action::PrepareTint(url) => {
@@ -12657,6 +12762,12 @@ impl App {
                 self.play_request(PlayRequest::context(uri), true);
             }
             Action::TogglePlay => self.toggle_play(),
+            Action::Next if self.jellyfin_player.controls_output() => {
+                self.jellyfin_player.step(true)
+            }
+            Action::Previous if self.jellyfin_player.controls_output() => {
+                self.jellyfin_player.step(false)
+            }
             Action::Next if self.resume_only() => {
                 self.step_resume(true);
             }
@@ -13135,6 +13246,9 @@ impl App {
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
             }
+            Action::ClearQueue if self.jellyfin_player.controls_output() => {
+                self.jellyfin_player.clear_queue()
+            }
             Action::ClearQueue => self.clear_queue(),
             Action::SaveQueueAsPlaylist => self.save_queue_as_playlist(),
             Action::SaveRadio(seed) => self.save_radio(&seed),
@@ -13309,7 +13423,11 @@ impl App {
                 if self.show_queue_panel {
                     self.show_lyrics_panel = false;
                     self.show_friends_panel = false;
-                    self.refresh_queue(true);
+                    if self.jellyfin.provider == crate::provider::Provider::Spotify
+                        && !self.jellyfin_player.controls_output()
+                    {
+                        self.refresh_queue(true);
+                    }
                 }
             }
             Action::ToggleLyricsPanel => {
@@ -13642,6 +13760,7 @@ impl App {
                     std::sync::Arc::clone(&self.winamp.eq),
                     self.local_output.clone(),
                 );
+                self.jellyfin_player.reconfigure(config.clone());
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
                     self.toast(gettext(self.locale, "Restarting local playback"));
@@ -14887,7 +15006,10 @@ impl App {
     fn save_session(&mut self) {
         self.session_dirty = false;
         self.last_session_save = Instant::now();
-        if let Some(now) = self.now_playing() {
+        if let Some(now) = self
+            .now_playing()
+            .filter(|now| now.provider == crate::provider::Provider::Spotify)
+        {
             // A paused song from a sorted view has no context to report, but
             // its playlist is still what it plays from (#1013).
             let same_song = self.resume_track.as_deref() == Some(now.uri.as_str());
@@ -14898,6 +15020,15 @@ impl App {
             self.resume_position_ms = now.position_ms;
         }
         if !self.offline {
+            match self.jellyfin_player.encode_session() {
+                Ok(Some(bytes)) => self.files.write(
+                    &self.dirs.state.join("jellyfin-playback.json"),
+                    bytes,
+                    fastframe_file::Access::Default,
+                ),
+                Ok(None) => {}
+                Err(error) => log::warn!("{error}"),
+            }
             let session = SessionState {
                 soloist_onboarding: self.soloist_onboarding,
                 soloist_output_volume: Some(self.backend.soloist_output_volume.percent()),
@@ -14968,6 +15099,7 @@ impl App {
         }
         self.save_state();
         self.flush_files();
+        self.jellyfin_player.stop();
         self.backend.shutdown();
     }
 }
@@ -19650,6 +19782,30 @@ mod tests {
         );
     }
 
+    #[test]
+    fn jellyfin_does_not_replace_spotify_resume_or_saved_library_requests() {
+        let mut app = headless_app();
+        app.offline = true;
+        app.resume_track = Some("spotify:track:remembered".into());
+        app.resume_position_ms = 12_345;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
+            "track0".into(),
+        ));
+        let now = app.now_playing().unwrap();
+        assert_eq!(now.provider, crate::provider::Provider::Jellyfin);
+        assert!(app.now_playing_item().is_none());
+        app.save_session();
+        assert_eq!(
+            app.resume_track.as_deref(),
+            Some("spotify:track:remembered")
+        );
+        assert_eq!(app.resume_position_ms, 12_345);
+        app.request_contains(vec![now.uri.clone()]);
+        assert!(!app.saved_pending.contains(&now.uri));
+        app.backend.shutdown();
+    }
+
     /// Dragging the bar before pressing play moves where play will land.
     #[test]
     fn seeking_the_remembered_song_moves_the_resume_point() {
@@ -19709,6 +19865,7 @@ mod tests {
         assert_eq!(play(&mut app, "spotify:episode:new", None), 0);
 
         app.frame_now = Some(NowPlaying {
+            provider: crate::provider::Provider::Spotify,
             local: true,
             device_name: None,
             device_kind: None,
@@ -34779,6 +34936,7 @@ mod tests {
             let mut app = headless_app();
             let ctx = egui::Context::default();
             let mut now = NowPlaying {
+                provider: crate::provider::Provider::Spotify,
                 local: true,
                 device_name: None,
                 device_kind: None,

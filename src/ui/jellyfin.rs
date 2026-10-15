@@ -1,4 +1,4 @@
-//! Provider selection and a separate, read-only Jellyfin browser.
+//! Provider selection, separate Jellyfin browsing and playback actions.
 use crate::{
     app::App,
     jellyfin::browser::{BrowserAction as A, Provider, Rows, View},
@@ -77,10 +77,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.label(RichText::new("Connect your music server. No Spotify account needed.").color(palette.secondary));
             }
             ui.add_space(18.0);
+            if app.jellyfin_player.snapshot().item.is_some() && !app.jellyfin_player.controls_output()
+                && ui.button("Resume Jellyfin").clicked() { actions.push(A::Resume); }
             if let Some(error) = &browser.error {
                 ui.label(RichText::new(error).color(palette.danger));
                 if browser.rows.is_some() { ui.label("Showing the last saved results."); }
                 ui.add_space(10.0);
+            }
+            if let Some(error) = app.jellyfin_player.snapshot().error {
+                ui.label(RichText::new(error).color(palette.danger));
             }
             if browser.source.is_none() {
                 Frame::new().fill(palette.panel).corner_radius(12).inner_margin(24).show(ui, |ui| {
@@ -153,7 +158,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             ui.label(RichText::new(format!("{}–{} of {}", if items.is_empty() { 0 } else { start + 1 }, start + items.len() as u32, total)).small().color(palette.secondary));
                             ui.add_space(10.0);
                             let tracks = matches!(browser.view, View::Tracks { .. });
-                            if tracks { ui.label(RichText::new("Browsing preview · Playback is coming next").small().color(palette.secondary)); ui.add_space(12.0); }
+                            if tracks {
+                                if let Some(first) = items.first()
+                                    && ui.add_enabled(!browser.busy && *start == 0, egui::Button::new("Play album")).on_hover_text("Play the album from its beginning. Return to the first page to use this button.").clicked() {
+                                    actions.push(A::Play(first.id.clone()));
+                                }
+                                ui.add_space(12.0);
+                            }
                             for item in items.iter().filter(|item| {
                                 item.name.as_deref().unwrap_or("").to_lowercase().contains(&filter)
                                     || item.artists.iter().any(|artist| artist.to_lowercase().contains(&filter))
@@ -163,9 +174,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                     Frame::new().fill(palette.panel).corner_radius(6).inner_margin(Margin::symmetric(14, 10)).show(ui, |ui| {
                                         ui.set_min_width((ui.available_width() - 28.0).max(0.0));
                                         ui.horizontal(|ui| {
+                                            if theme::icon_button(ui, theme::Icon::PlayFilled, 16.0, palette.secondary, palette.text, &format!("Play {name}")).clicked() { actions.push(A::Play(item.id.clone())); }
                                             ui.label(RichText::new(item.index_number.map(|n| n.to_string()).unwrap_or_default()).color(palette.secondary));
                                             ui.vertical(|ui| { ui.label(RichText::new(name).strong()); ui.label(RichText::new(item.artists.join(", ")).small().color(palette.secondary)); });
                                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                                ui.add_enabled_ui(app.jellyfin_player.snapshot().item.is_some(), |ui| {
+                                                    if theme::icon_button(ui, theme::Icon::ListPlus, 16.0, palette.secondary, palette.text, &format!("Add {name} to Jellyfin queue")).clicked() { actions.push(A::Queue(item.id.clone())); }
+                                                });
                                                 if let Some(ms) = item.duration_ms() { ui.label(format!("{}:{:02}", ms / 60000, ms / 1000 % 60)); }
                                             });
                                         });
@@ -196,6 +211,77 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             for action in actions { emit(app, action); }
         });
+}
+
+pub fn queue_panel(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let state = app.jellyfin_player.snapshot();
+    let mut actions = Vec::new();
+    egui::Panel::right("jellyfin-queue")
+        .default_size(300.0)
+        .size_range(240.0..=500.0)
+        .resizable(true)
+        .frame(Frame::new().fill(palette.panel).inner_margin(16))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Jellyfin queue");
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        actions.push(Action::ToggleQueuePanel);
+                    }
+                });
+            });
+            ui.add_space(12.0);
+            if let Some(item) = &state.item {
+                ui.label(RichText::new("Now playing").color(palette.secondary));
+                ui.label(RichText::new(item.name.as_deref().unwrap_or("Untitled")).strong());
+                ui.label(item.artists.join(", "));
+                ui.add_space(18.0);
+                if !state.queue_complete && state.loading {
+                    ui.spinner();
+                    ui.label("Loading the complete album…");
+                }
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if !state.queued.is_empty() {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Playing next").color(palette.secondary));
+                            if ui.button("Clear queue").clicked() {
+                                actions.push(Action::Jellyfin(A::ClearQueue));
+                            }
+                        });
+                        for (index, item) in state.queued.iter().enumerate() {
+                            if ui
+                                .selectable_label(false, item.name.as_deref().unwrap_or("Untitled"))
+                                .on_hover_text(item.artists.join(", "))
+                                .clicked()
+                            {
+                                actions.push(Action::Jellyfin(A::PlayManual(index)));
+                            }
+                            ui.add_space(6.0);
+                        }
+                        ui.add_space(12.0);
+                    }
+                    ui.label(RichText::new("Next up · Album order").color(palette.secondary));
+                    for (index, item) in state.tracks.iter().enumerate().skip(state.index + 1) {
+                        let title = item.name.as_deref().unwrap_or("Untitled");
+                        if ui
+                            .selectable_label(false, title)
+                            .on_hover_text(item.artists.join(", "))
+                            .clicked()
+                        {
+                            actions.push(Action::Jellyfin(A::PlayQueue(index)));
+                        }
+                        ui.add_space(6.0);
+                    }
+                    if state.queue_complete && state.index + 1 >= state.tracks.len() {
+                        ui.label("End of album");
+                    }
+                });
+            } else {
+                ui.label("Play an album or track to start your Jellyfin queue.");
+            }
+        });
+    app.actions.extend(actions);
 }
 
 fn card(

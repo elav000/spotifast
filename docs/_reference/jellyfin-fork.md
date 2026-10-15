@@ -27,8 +27,11 @@ Jellyfin pages show saved results while refreshing. A server failure leaves the
 last results visible with a warning; Refresh retries. These caches are disposable
 and source/account scoped. There is no unified library. Switching providers does
 not send a playback command; existing Spotify playback can continue while you
-browse Jellyfin. Jellyfin playback is not integrated, and track rows deliberately
-have no Play button yet.
+browse Jellyfin. Play an album or individual track to start Jellyfin playback.
+The shared player bar provides Play/Pause, Seek, Volume and Next/Previous.
+Jellyfin has a separate queue: manually added songs play before the remaining
+album, duplicates are preserved, and Clear removes only manually queued songs.
+Switching browsing providers leaves playback running.
 
 `src/provider.rs` defines browsing selection. `src/jellyfin/` owns Jellyfin client
 and presentation data; its worker is mounted under `backend::jellyfin` for network,
@@ -75,15 +78,15 @@ No live server credentials are used by the automated local HTTP contract tests.
 - Provider selection before Spotify login, protected source/user-scoped
   credentials and separate cached browsing are implemented.
 - Keep selected browsing provider separate from playback ownership. Changing a
-  view must not interrupt sound. The shared processing path now has exclusive
-  local output leases, ready for Jellyfin playback integration.
+  view must not interrupt sound. The shared processing path has exclusive
+  local output leases and request tickets so an older load cannot steal output.
 - Use stable provider/source/item references. Never persist expiring stream URLs
   as identity or manufacture Spotify URIs for Jellyfin items.
 - Add disposable provider/source/user-scoped snapshots for fast startup. Reuse
   atomic writes and cache budgets where useful, but never infer equivalence
   from matching album names or item IDs across providers.
 - Original FLAC, WAV and MP3 decoding is proven through the existing
-  EQ/output/visualizer classes. Transport and queue integration is next.
+  EQ/output/visualizer classes. The app uses the same path for its separate Jellyfin transport and queue.
 - Unified browsing, mixed queues, local-file browsing, downloads and a possible
   unified library are later decisions, not prerequisites.
 
@@ -93,7 +96,9 @@ Focused request tests: `cargo test --locked --lib jellyfin::`.
 The probe requires manual Quick Connect approval. Automated tests cover pending
 and approved exchanges, music-only filtering, paging and ordering, reverse-proxy
 paths, credential headers, range construction, rejected redirects and redacted
-errors. They do not verify live Jellyfin compatibility or audio playback.
+errors. Transport tests additionally cover queue priority, duplicates, Previous, cancellation,
+seek state and paused session restoration. Deterministic UI tests exercise the
+shared controls and queue. Live server and device checks remain manual.
 
 ## Keeping the fork current
 
@@ -122,22 +127,23 @@ a Jellyfin server. Combine with `--demo-shot`, `--demo-size` and `--demo-show li
 The new native credential round-trip check uses a temporary dummy token and is
 opt-in: `cargo test --locked --lib backend::jellyfin::tests::native_store_round_trip -- --ignored --exact`.
 
-## Audio playback experiment
+## Audio playback
 
 The application's Spotify sinks now join a shared `LocalOutput` coordinator.
 Each start acquires a fresh lease. A later owner fades and discards the old
 device queue; stale writes are paced and discarded before EQ or visualization.
 Delayed stops and drops cannot release a newer lease or clear its visualizer.
 The coordinator is retained across audio-settings engine replacements and is
-independent of the selected browsing provider. Future in-app Jellyfin sinks must
-join this same coordinator through `Tapped::with_output`. This is the output
-safety foundation, not yet a full provider transport/queue controller.
+independent of the selected browsing provider. In-app Jellyfin sinks
+join this same coordinator through `Tapped::with_output`. The Jellyfin transport
+uses a dedicated worker for credentials, album resolution, decoding and output.
 Automatic takeover currently requires the normal RodioSink output. Optional
 librespot backends must stop on their playback thread before another provider
 can acquire output; a claim while one remains active is rejected without
-opening the new device. The app controller will need to arrange that stop.
+opening the new device. The controller pauses local Spotify playback before starting Jellyfin; a backend
+that has not released output produces a playback error rather than overlapping sound.
 
-The app browser is still read-only. A separate development probe now verifies
+The app browser exposes playback and queue actions. A separate development probe verifies
 original FLAC, MP3 and PCM/WAV through the existing `Tapped` EQ/visualizer/limiter
 and `RodioSink` device path. It reads the account saved by the app from protected
 storage, without changing that account or provider selection.
@@ -150,7 +156,7 @@ cargo run --locked --example jellyfin_audio_spike -- "My music" --audible
 ```
 
 Stop other local audio before the audible diagnostic. It is a standalone probe,
-not the future coordinator for mutually exclusive provider playback. The probe
+independent of the app coordinator for mutually exclusive provider playback. The probe
 uses the system proxy; no manual proxy credentials are read or copied.
 
 By default it selects the first track of the first album. `--format=flac`,
@@ -180,8 +186,8 @@ Current limits: mono/stereo 8–192 kHz; the blocking reader can take up to its
 20-second request timeout to return after cancellation during an in-flight
 request. Retrying a failed range is tested; seamless decoder-level stall recovery
 is not implemented. Full process memory (including demuxer metadata/artwork) has
-not been profiled. Shared queue, transport UI and provider output ownership are
-still to be integrated before exposing in-app Play controls.
+not been profiled. Jellyfin playback does not yet offer transcoding, downloads, shuffle, repeat,
+lyrics or artwork in the shared player bar.
 
 ### Current boundaries
 
@@ -194,15 +200,33 @@ flowchart TD
     JW <--> Cache[Disposable source/account page cache]
     JW <--> Keys[Protected Jellyfin sign-in]
     SB --> Spotify[Existing Spotify backend and librespot]
-    Keys --> Probe[Standalone development audio probe]
+    Keys --> Transport[Jellyfin transport and separate queue]
     JS --> Range[Bounded HTTP range reader]
     Range --> Decoder[FLAC / MP3 / PCM WAV decoder]
-    Decoder --> Probe
-    Probe --> DSP[Existing EQ / visualizer / limiter / output]
-    Spotify --> DSP
-    Decoder -. planned app integration .-> Owner[Provider playback coordinator]
+    Decoder --> Transport
+    Transport --> Owner[Exclusive local output coordinator]
+    Spotify --> Owner
+    Owner --> DSP[Shared EQ / visualizer / limiter / output]
 ```
 
 Each provider remains authoritative. No canonical or unified library is added.
 Shared presentation models and widgets can be extracted incrementally, while
 provider-specific references and actions remain explicit.
+
+## Playback restoration and fork updates
+
+`jellyfin-playback.json` stores the current song, album context, manual queue,
+previous-song history and position under `AppDirs.state`. It contains catalog
+metadata and stable identities, never credentials or stream URLs. Restoration
+requires the same saved source and account and always starts paused. Choose
+Resume Jellyfin to take playback ownership. Signing out clears the playback
+session. The Spotify resume session remains separate.
+
+The updater checks `elav000/spotifast`, so an upstream release cannot silently
+replace this fork. Signed fork releases are not configured yet: the inherited
+publisher key must be replaced with the fork's own release key and matching
+release-workflow secret before publishing updates. Signature verification remains
+required. Integrate upstream source changes using the workflow above.
+
+Playback demo pages are `jellyfin-playing` and `jellyfin-queue`, in addition to
+the browser fixtures above. They never open an audio device or read sign-in data.

@@ -35,6 +35,16 @@ use crate::backend::AuthStatus;
 use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
+fn playback_queue_panel(app: &mut App, ui: &mut egui::Ui) {
+    if app.jellyfin_player.controls_output()
+        || (app.jellyfin.provider == crate::provider::Provider::Jellyfin && !app.is_connected())
+    {
+        jellyfin::queue_panel(app, ui);
+    } else {
+        queue::side_panel(app, ui);
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;
@@ -45,8 +55,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     if app.jellyfin.enabled {
         jellyfin::provider_bar(app, ui);
         if app.jellyfin.provider == crate::jellyfin::browser::Provider::Jellyfin {
-            if app.is_connected() && app.user.is_some() {
+            if app.jellyfin_player.snapshot().item.is_some()
+                || (app.is_connected() && app.user.is_some())
+            {
                 player_bar::show(app, ui);
+            }
+            if app.show_queue_panel {
+                playback_queue_panel(app, ui);
             }
             jellyfin::show(app, ui);
             caption_buttons(ui, &app.palette, app.locale);
@@ -58,6 +73,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
         || (app.is_connected() && app.user.is_none());
     if !signed_in {
+        if app.jellyfin_player.controls_output() {
+            player_bar::show(app, ui);
+            if app.show_queue_panel {
+                jellyfin::queue_panel(app, ui);
+            }
+        }
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);
         update::show(app, ctx);
@@ -86,7 +107,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             sidebar::show(app, ui);
         }
         if app.show_queue_panel {
-            queue::side_panel(app, ui);
+            playback_queue_panel(app, ui);
         }
         if app.show_lyrics_panel {
             lyrics::side_panel(app, ui);

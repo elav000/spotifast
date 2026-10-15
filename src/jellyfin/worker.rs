@@ -348,8 +348,42 @@ fn valid_source(source: &Source) -> bool {
         && crate::jellyfin::validate_id(&source.server_id).is_ok()
 }
 
-/// Explicit development diagnostic. Reads the same saved Jellyfin account as
-/// the app; does not alter credentials, provider choice or cached browsing.
+/// Non-secret saved identity, checked before restoring provider state.
+pub(crate) fn saved_playback_source(dirs: &AppDirs) -> Result<Source, String> {
+    let source: Source = std::fs::read(dirs.state.join("jellyfin-account.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(valid_source)
+        .ok_or("Sign into Jellyfin in the app first.")?;
+    if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
+        .ok()
+        .as_deref()
+        == Some(&source.id)
+    {
+        return Err("Saved Jellyfin sign-in was revoked.".into());
+    }
+    Ok(source)
+}
+
+/// Decoder-worker credential lookup, bound to the account selected at click
+/// time. No protected-store call or authenticated request reaches the UI.
+pub(crate) fn saved_playback_session(
+    dirs: &AppDirs,
+    expected: &Source,
+    proxy: &crate::settings::ProxyConfig,
+) -> Result<(Client, Token), String> {
+    let source = saved_playback_source(dirs)?;
+    if &source != expected {
+        return Err("The Jellyfin account changed. Choose the track again.".into());
+    }
+    let token = credentials(source.clone(), CredentialOp::Read)?
+        .ok_or("Saved Jellyfin sign-in is unavailable.")?;
+    let client = Client::new(&source.server_url, &source.device_id, proxy)
+        .map_err(|error| error.to_string())?;
+    Ok((client, token))
+}
+
+/// Explicit development diagnostic, separate from the application transport.
 pub fn probe_saved_playback(
     dirs: &AppDirs,
     proxy: &crate::settings::ProxyConfig,
@@ -396,6 +430,38 @@ mod tests {
             user_id: "user1".into(),
             device_id: "device1".into(),
         }
+    }
+
+    #[test]
+    fn playback_rejects_replaced_and_revoked_accounts_before_credential_lookup() {
+        let source = source();
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target/jellyfin-account-tests")
+            .join(&source.id);
+        std::fs::create_dir_all(&root).unwrap();
+        let dirs = AppDirs {
+            config: root.clone(),
+            state: root.clone(),
+            cache: root.clone(),
+        };
+        std::fs::write(
+            root.join("jellyfin-account.json"),
+            serde_json::to_vec(&source).unwrap(),
+        )
+        .unwrap();
+        let mut other = source.clone();
+        other.user_id = "other-user".into();
+        let error = saved_playback_session(&dirs, &other, &crate::settings::ProxyConfig::Off)
+            .err()
+            .unwrap();
+        assert!(error.contains("account changed"));
+        std::fs::write(root.join("jellyfin-revoked"), &source.id).unwrap();
+        let error = saved_playback_session(&dirs, &source, &crate::settings::ProxyConfig::Off)
+            .err()
+            .unwrap();
+        assert!(error.contains("revoked"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

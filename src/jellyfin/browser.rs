@@ -284,6 +284,12 @@ pub enum BrowserAction {
     Cancel,
     SignOut,
     Browse { view: View, start: u32 },
+    Play(String),
+    PlayQueue(usize),
+    Queue(String),
+    PlayManual(usize),
+    ClearQueue,
+    Resume,
 }
 
 impl crate::app::App {
@@ -294,9 +300,73 @@ impl crate::app::App {
                 .select(provider, &self.applied_jellyfin_proxy()),
             BrowserAction::ServerInput(value) => self.jellyfin.server_input = value,
             BrowserAction::Filter(value) => self.jellyfin.filter = value,
-            BrowserAction::Connect => self.jellyfin.connect(&self.applied_jellyfin_proxy()),
+            BrowserAction::Connect => {
+                self.jellyfin_player.stop();
+                self.jellyfin.connect(&self.applied_jellyfin_proxy());
+            }
             BrowserAction::Cancel => self.jellyfin.cancel(&self.applied_jellyfin_proxy()),
-            BrowserAction::SignOut => self.jellyfin.sign_out(&self.applied_jellyfin_proxy()),
+            BrowserAction::SignOut => {
+                self.jellyfin_player.stop();
+                self.jellyfin.sign_out(&self.applied_jellyfin_proxy());
+            }
+            BrowserAction::Play(id) => {
+                let (
+                    Some(source),
+                    View::Tracks { album_id, .. },
+                    Some(Rows::Items {
+                        items,
+                        start,
+                        total,
+                    }),
+                ) = (
+                    &self.jellyfin.source,
+                    &self.jellyfin.view,
+                    &self.jellyfin.rows,
+                )
+                else {
+                    return;
+                };
+                let Some(item) = items.iter().find(|item| item.id == id).cloned() else {
+                    return;
+                };
+                let source = source.clone();
+                let album_id = album_id.clone();
+                let tracks = (*start == 0 && items.len() as u32 == *total).then(|| items.clone());
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.configure(crate::app::engine_config(
+                    &self.dirs,
+                    &self.settings,
+                    self.applied_jellyfin_proxy(),
+                    self.winamp.tap.clone(),
+                    self.winamp.eq.clone(),
+                    self.local_output.clone(),
+                ));
+                self.jellyfin_player.play(source, album_id, item, tracks);
+            }
+            BrowserAction::PlayQueue(index) => {
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.play_index(index);
+            }
+            BrowserAction::Queue(id) => {
+                if !matches!(self.jellyfin.view, View::Tracks { .. }) {
+                    return;
+                }
+                if let (Some(source), Some(Rows::Items { items, .. })) =
+                    (&self.jellyfin.source, &self.jellyfin.rows)
+                    && let Some(item) = items.iter().find(|item| item.id == id)
+                {
+                    self.jellyfin_player.enqueue(source, item.clone());
+                }
+            }
+            BrowserAction::PlayManual(index) => {
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.play_queued(index);
+            }
+            BrowserAction::ClearQueue => self.jellyfin_player.clear_queue(),
+            BrowserAction::Resume => {
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.resume();
+            }
             BrowserAction::Browse { view, start } => {
                 self.jellyfin
                     .browse(view, start, &self.applied_jellyfin_proxy())

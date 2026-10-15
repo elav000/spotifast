@@ -26,7 +26,7 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     // next one.
     appimage: true,
     ..UpdateConfig::new(
-        "crmne/spotifast",
+        "elav000/spotifast",
         "Spotifast",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
@@ -46,6 +46,7 @@ mod tests {
     #[test]
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
+        assert_eq!(CONFIG.repository, "elav000/spotifast");
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
     }
 

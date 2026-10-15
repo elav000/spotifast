@@ -84,6 +84,28 @@ pub struct Item {
     pub run_time_ticks: Option<u64>,
     pub index_number: Option<u32>,
     pub parent_index_number: Option<u32>,
+    pub container: Option<String>,
+    pub media_streams: Option<Vec<MediaStream>>,
+    pub media_sources: Option<Vec<MediaSourceInfo>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub struct MediaStream {
+    #[serde(rename = "Type")]
+    pub kind: Option<String>,
+    pub codec: Option<String>,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u32>,
+    pub bit_depth: Option<u32>,
+    pub bit_rate: Option<u64>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub struct MediaSourceInfo {
+    pub container: Option<String>,
+    pub media_streams: Option<Vec<MediaStream>>,
 }
 
 impl Item {
@@ -249,6 +271,18 @@ impl Client {
         .await
     }
 
+    /// Paged, library-scoped audio listing for diagnostics and future Songs views.
+    pub async fn audio_tracks(
+        &self,
+        user: &str,
+        library: &str,
+        start: u32,
+        token: &Token,
+    ) -> Result<Page<Item>, Error> {
+        self.items(user, library, "Audio", "SortName", start, token)
+            .await
+    }
+
     async fn items(
         &self,
         user: &str,
@@ -268,7 +302,7 @@ impl Client {
             .append_pair("ParentId", parent)
             .append_pair("IncludeItemTypes", kind)
             .append_pair("Recursive", "true")
-            .append_pair("Fields", "Artists,AlbumId")
+            .append_pair("Fields", "Artists,AlbumId,MediaStreams,MediaSources")
             .append_pair("SortBy", sort)
             .append_pair("SortOrder", "Ascending")
             .append_pair("StartIndex", &start.to_string())
@@ -409,3 +443,8 @@ pub(crate) fn validate_id(value: &str) -> Result<(), Error> {
 mod tests;
 
 pub mod browser;
+
+pub mod decode;
+pub mod range;
+
+pub mod spike;

@@ -150,6 +150,9 @@ symphonia = { version = "0.5", default-features = false, features = ["mp3", "fla
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
 # queue only; fastframe-audio below owns the device stream.
 rodio = { version = "0.21", default-features = false }
+# Decode Jellyfin originals with the same Symphonia version already used by
+# librespot. WAV/PCM joins its existing FLAC and MP3 support; no second engine.
+symphonia = { version = "0.5.5", default-features = false, features = ["flac", "mp3", "wav", "pcm"] }
 # `socks` is SOCKS5 proxy support for the Web API, artwork, lyrics, and
 # update checks. HTTP proxies work without it. `system-proxy` reads the OS
 # proxy on macOS and Windows when the mode is System; Linux uses environment

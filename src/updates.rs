@@ -22,7 +22,7 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     // before downloading an update, using the release workflow's public key.
     publisher_key: Some(include_str!("../assets/update-public-key.hex")),
     ..UpdateConfig::new(
-        "crmne/spotifast",
+        "elav000/spotifast",
         "Spotifast",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
@@ -42,6 +42,7 @@ mod tests {
     #[test]
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
+        assert_eq!(CONFIG.repository, "elav000/spotifast");
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
     }
 

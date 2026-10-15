@@ -11,10 +11,35 @@ Spotify client; its releases do not include this experimental work.
 
 ## Current implementation
 
-`src/jellyfin/` implements Quick Connect, music-library discovery, paged albums
-and album tracks, and authenticated original-audio request construction. It is
-independent of Spotify models, grants and playback. No application page or
-Jellyfin decoder is integrated yet.
+The app opens to Jellyfin by default. The provider selector is available before
+Spotify sign-in. Enter your server address, choose **Connect with Quick Connect**,
+and approve the displayed code in a signed-in Jellyfin client. Browse music
+libraries, albums and ordered album tracks, with page navigation and a filter for
+the current page. Spotify keeps its existing sign-in and browsing flow.
+
+Your selected provider is remembered. Jellyfin sign-in uses the system credential
+store, so the app can restore it after restart. Sign out removes the account's
+cached pages and revokes local restoration even if protected-store deletion fails.
+The first version supports one saved Jellyfin account. New Jellyfin UI text is
+currently English.
+
+Jellyfin pages show saved results while refreshing. A server failure leaves the
+last results visible with a warning; Refresh retries. These caches are disposable
+and source/account scoped. There is no unified library. Switching providers does
+not send a playback command; existing Spotify playback can continue while you
+browse Jellyfin. Jellyfin playback is not integrated, and track rows deliberately
+have no Play button yet.
+
+`src/provider.rs` defines browsing selection. `src/jellyfin/` owns Jellyfin client
+and presentation data; its worker is mounted under `backend::jellyfin` for network,
+credential and disk work. `src/ui/jellyfin.rs` draws the separate browser and emits
+actions applied in `App`, following upstream's UI contract.
+
+Non-secret state files are `jellyfin-account.json`, `browsing-provider.json` and
+`jellyfin-revoked` under `AppDirs.state`. Tokens use the separate protected-store
+service `rocks.spotifast.Spotifast.jellyfin`, keyed by source and user. Metadata
+pages live under `AppDirs.cache/jellyfin/<source-id>/`, with a versioned envelope
+that also validates server/user identity. No token is serialized into those files.
 
 Run the connection/browsing diagnostic without a Spotify account:
 
@@ -30,8 +55,9 @@ exits. Ctrl-C cancels it. Quick Connect currently uses POST initiation, matching
 the NativeAmp reference implementation; compatibility with older servers needs
 live verification.
 
-The token stays in process memory and is discarded on exit. There is no password
-form, saved credential, catalog cache or download. Requests use the system proxy
+The diagnostic token stays in process memory and is discarded on exit. The
+diagnostic does not save credentials or caches; the app does. Neither has a
+password form or downloads. Requests use the system proxy
 in this diagnostic; the client API accepts Spotifast's proxy configuration.
 Tokens travel in authorization headers. Redirects are rejected, so configure the
 final server address directly. Do not log request objects or authorization
@@ -46,8 +72,8 @@ No live server credentials are used by the automated local HTTP contract tests.
 
 - Separate provider browsing first. Spotify and Jellyfin remain authoritative
   for their own catalogs. There is no unified library or canonical catalog.
-- Next add provider selection available before Spotify login, protected
-  source/user-scoped credentials and Jellyfin browsing UI.
+- Provider selection before Spotify login, protected source/user-scoped
+  credentials and separate cached browsing are implemented.
 - Keep selected browsing provider separate from playback ownership. Changing a
   view must not interrupt sound. Enforce one owner of local output when Jellyfin
   playback is integrated.
@@ -86,5 +112,12 @@ published history without an explicit decision. Dependency updates should come
 from upstream first when possible. Keep the connection/browsing and audio work in
 separate commits so failures can be isolated and reverted.
 
-Jellyfin-only use is the primary workflow for this fork. Spotify login must be
-optional when provider selection and the Jellyfin app page are integrated.
+Jellyfin-only use is the primary workflow for this fork. Spotify login is optional.
+
+
+Deterministic UI fixtures use `--features demo` with `--demo-page jellyfin`,
+`jellyfin-connect`, `jellyfin-approval`, `jellyfin-albums`, `jellyfin-tracks`, or
+`jellyfin-error`. They contain invented data and never read credentials or contact
+a Jellyfin server. Combine with `--demo-shot`, `--demo-size` and `--demo-show light`.
+The new native credential round-trip check uses a temporary dummy token and is
+opt-in: `cargo test --locked --lib backend::jellyfin::tests::native_store_round_trip -- --ignored --exact`.

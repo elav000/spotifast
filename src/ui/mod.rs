@@ -7,6 +7,7 @@ pub mod collection;
 pub(crate) mod devices;
 mod dialogs;
 pub mod home;
+pub mod jellyfin;
 mod keys;
 pub mod library;
 pub mod login;
@@ -38,6 +39,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     keys::handle(app, ctx);
     for path in winamp::dropped_skins(ctx) {
         app.actions.push(Action::InstallSkin(path));
+    }
+    if app.jellyfin.enabled {
+        jellyfin::provider_bar(app, ui);
+        if app.jellyfin.provider == crate::jellyfin::browser::Provider::Jellyfin {
+            if app.is_connected() && app.user.is_some() {
+                player_bar::show(app, ui);
+            }
+            jellyfin::show(app, ui);
+            caption_buttons(ui, &app.palette, app.locale);
+            fastframe_titlebar::resize(ui);
+            return;
+        }
     }
     let signed_in = app.is_connected() && app.user.is_some();
     let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)

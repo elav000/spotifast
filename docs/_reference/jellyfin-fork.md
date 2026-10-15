@@ -121,3 +121,75 @@ Deterministic UI fixtures use `--features demo` with `--demo-page jellyfin`,
 a Jellyfin server. Combine with `--demo-shot`, `--demo-size` and `--demo-show light`.
 The new native credential round-trip check uses a temporary dummy token and is
 opt-in: `cargo test --locked --lib backend::jellyfin::tests::native_store_round_trip -- --ignored --exact`.
+
+## Audio playback experiment
+
+The app browser is still read-only. A separate development probe now verifies
+original FLAC, MP3 and PCM/WAV through the existing `Tapped` EQ/visualizer/limiter
+and `RodioSink` device path. It reads the account saved by the app from protected
+storage, without changing that account or provider selection.
+
+```sh
+# Silent network/decode/EQ/tap check. Optional library name.
+cargo run --locked --example jellyfin_audio_spike -- "My music" --format=flac
+# Short low-volume device check, including a seek to 90% of the track.
+cargo run --locked --example jellyfin_audio_spike -- "My music" --audible
+```
+
+Stop other local audio before the audible diagnostic. It is a standalone probe,
+not the future coordinator for mutually exclusive provider playback. The probe
+uses the system proxy; no manual proxy credentials are read or copied.
+
+By default it selects the first track of the first album. `--format=flac`,
+`--format=mp3` or `--format=wav` instead looks for that container in the first 500
+tracks of the selected library. The diagnostic decodes about three seconds,
+seeks to 90%, then decodes another three seconds. It prints catalog format,
+decoded rate/channels, first-PCM and seek latency, range statistics, and whether
+the post-EQ visualizer tap received samples. Only `--audible` opens an audio device.
+
+Catalog DTOs now request container and stream metadata, including codec, sample
+rate, channels and bit depth. They retain no raw provider URLs or HTTP headers
+from `MediaSources`. The decoder probes the bytes rather than trusting the file
+name or catalog hint.
+
+The reader retains one validated 256 KiB range and stages at most one replacement
+range. It checks 206/Content-Range, size, total length and supplied entity
+validators, rejects redirects and whole-file 200 responses, and leaves its cursor
+unchanged when a range fails. Seeking uses the demuxer's index/timestamps and
+resets decoder/resampler state; a byte-range offset is never treated as a time.
+MP3 uses fast, approximate demuxer seeking: its exact mode scans prior frames over
+HTTP and was too slow on a live large MP3. FLAC and WAV use accurate seeking.
+PCM enters the existing sink in 10 ms chunks to retain its bounded queue. Mono
+is duplicated to stereo, and other input rates are converted to 44.1 kHz before
+entering the current DSP. This is not a bit-perfect/high-resolution output claim.
+
+Current limits: mono/stereo 8–192 kHz; the blocking reader can take up to its
+20-second request timeout to return after cancellation during an in-flight
+request. Retrying a failed range is tested; seamless decoder-level stall recovery
+is not implemented. Full process memory (including demuxer metadata/artwork) has
+not been profiled. Shared queue, transport UI and provider output ownership are
+still to be integrated before exposing in-app Play controls.
+
+### Current boundaries
+
+```mermaid
+flowchart TD
+    Providers[Provider selection] --> JB[Jellyfin browser]
+    Providers --> SB[Spotify views]
+    JB --> JW[Jellyfin background worker]
+    JW <--> JS[Jellyfin server catalog]
+    JW <--> Cache[Disposable source/account page cache]
+    JW <--> Keys[Protected Jellyfin sign-in]
+    SB --> Spotify[Existing Spotify backend and librespot]
+    Keys --> Probe[Standalone development audio probe]
+    JS --> Range[Bounded HTTP range reader]
+    Range --> Decoder[FLAC / MP3 / PCM WAV decoder]
+    Decoder --> Probe
+    Probe --> DSP[Existing EQ / visualizer / limiter / output]
+    Spotify --> DSP
+    Decoder -. planned app integration .-> Owner[Provider playback coordinator]
+```
+
+Each provider remains authoritative. No canonical or unified library is added.
+Shared presentation models and widgets can be extracted incrementally, while
+provider-specific references and actions remain explicit.

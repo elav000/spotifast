@@ -1565,6 +1565,7 @@ mod tests {
 
     fn now(title: &str, subtitle: &str, duration_ms: u32) -> NowPlaying {
         NowPlaying {
+            provider: crate::provider::Provider::Spotify,
             local: true,
             device_name: None,
             device_kind: None,

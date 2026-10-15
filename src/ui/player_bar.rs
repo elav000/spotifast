@@ -564,7 +564,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
 
-    if !now.is_episode {
+    if !now.is_episode && now.provider == crate::provider::Provider::Spotify {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
         // A liked heart stays green under the pointer, like shuffle.
         let (icon, color, hover, tooltip) = if saved {
@@ -707,6 +707,9 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
+    if now.is_some_and(|now| now.provider != crate::provider::Provider::Spotify) {
+        cell.disable();
+    }
     let shuffle_button = theme::icon_button(
         &mut cell,
         Icon::Shuffle,
@@ -810,6 +813,9 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         ),
     };
     let mut cell = centered(ui, slot(widths[4]));
+    if now.is_some_and(|now| now.provider != crate::provider::Provider::Spotify) {
+        cell.disable();
+    }
     if theme::icon_button(
         &mut cell,
         repeat_icon,
@@ -965,29 +971,32 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         ));
     }
     ui.add_space(4.0);
-    let remote = now.is_some_and(|now| !now.local);
-    // Playing elsewhere, the button shows that device's own icon.
-    let icon = now
-        .filter(|now| !now.local)
-        .and_then(|now| now.device_kind.as_deref())
-        .map_or(Icon::Speaker, super::devices::device_icon);
-    let devices = theme::icon_button(
-        ui,
-        icon,
-        18.0,
-        if remote {
-            palette.accent
-        } else {
-            palette.secondary
-        },
-        palette.text,
-        &gettext(app.locale, "Connect to a device"),
-    );
-    ui.ctx().data_mut(|data| {
-        data.insert_temp(egui::Id::new(super::devices::BUTTON_RECT_ID), devices.rect)
-    });
-    if devices.clicked() {
-        app.actions.push(Action::ToggleDevicesPopup);
+    let spotify = now.is_none_or(|now| now.provider == crate::provider::Provider::Spotify);
+    if spotify {
+        let remote = now.is_some_and(|now| !now.local);
+        // Playing elsewhere, the button shows that device's own icon.
+        let icon = now
+            .filter(|now| !now.local)
+            .and_then(|now| now.device_kind.as_deref())
+            .map_or(Icon::Speaker, super::devices::device_icon);
+        let devices = theme::icon_button(
+            ui,
+            icon,
+            18.0,
+            if remote {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            palette.text,
+            &gettext(app.locale, "Connect to a device"),
+        );
+        ui.ctx().data_mut(|data| {
+            data.insert_temp(egui::Id::new(super::devices::BUTTON_RECT_ID), devices.rect)
+        });
+        if devices.clicked() {
+            app.actions.push(Action::ToggleDevicesPopup);
+        }
     }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
     let queue_button = theme::icon_button(
@@ -1007,7 +1016,7 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
     }
     // A dragged song dropped on the queue button queues it, same as the
     // "Add to queue" menu item.
-    if let Some(track) = queue_button.dnd_release_payload::<DragTrack>() {
+    if spotify && let Some(track) = queue_button.dnd_release_payload::<DragTrack>() {
         app.actions.push(Action::QueueMany {
             songs: track
                 .items
@@ -1016,19 +1025,20 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
                 .collect(),
         });
     }
-    if theme::icon_button(
-        ui,
-        Icon::Mic,
-        18.0,
-        if app.show_lyrics_panel {
-            palette.accent
-        } else {
-            palette.secondary
-        },
-        palette.text,
-        &gettext(app.locale, "Lyrics"),
-    )
-    .clicked()
+    if spotify
+        && theme::icon_button(
+            ui,
+            Icon::Mic,
+            18.0,
+            if app.show_lyrics_panel {
+                palette.accent
+            } else {
+                palette.secondary
+            },
+            palette.text,
+            &gettext(app.locale, "Lyrics"),
+        )
+        .clicked()
     {
         app.actions.push(Action::ToggleLyricsPanel);
     }

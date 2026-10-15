@@ -239,3 +239,22 @@ fn original_stream_ranges_and_credentials_are_separate_from_identity() {
     );
     assert!(client.stream_request("../admin", &token(), None).is_err());
 }
+
+#[test]
+fn media_details_round_trip_without_persisting_provider_urls_or_headers() {
+    let item: Item = serde_json::from_value(serde_json::json!({
+        "Id":"track1", "Container":"wav", "Artists":[],
+        "MediaStreams":[{"Type":"Audio","Codec":"pcm_s24le","SampleRate":96000,"Channels":2,"BitDepth":24}],
+        "MediaSources":[{"Container":"wav","RequiredHttpHeaders":{"Authorization":"secret-token"},"TranscodingUrl":"/stream?api_key=secret-token","Path":"private-server-path"}]
+    })).unwrap();
+    assert_eq!(
+        item.media_streams.as_ref().unwrap()[0].codec.as_deref(),
+        Some("pcm_s24le")
+    );
+    assert_eq!(item.media_streams.as_ref().unwrap()[0].bit_depth, Some(24));
+    let cached = serde_json::to_string(&item).unwrap();
+    assert!(!cached.contains("secret-token"));
+    assert!(!cached.contains("private-server-path"));
+    let old: Item = serde_json::from_str(r#"{"Id":"old-track"}"#).unwrap();
+    assert!(old.container.is_none());
+}

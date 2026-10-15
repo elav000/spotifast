@@ -368,6 +368,9 @@ impl Browser {
                     run_time_ticks: None,
                     index_number: None,
                     parent_index_number: None,
+                    container: None,
+                    media_streams: None,
+                    media_sources: None,
                 })
                 .collect();
             self.rows = Some(Rows::Items {
@@ -400,6 +403,9 @@ impl Browser {
                     run_time_ticks: Some(2_400_000_000),
                     index_number: Some(i as u32 + 1),
                     parent_index_number: Some(1),
+                    container: None,
+                    media_streams: None,
+                    media_sources: None,
                 })
                 .collect();
                 self.rows = Some(Rows::Items {

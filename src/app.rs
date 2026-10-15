@@ -365,6 +365,7 @@ struct Immersive {
 }
 
 pub struct App {
+    pub jellyfin: crate::jellyfin::browser::Browser,
     pub dirs: AppDirs,
     pub(crate) storage_usage: crate::storage::Usage,
     pub(crate) clearing_audio_cache: bool,
@@ -1216,6 +1217,11 @@ impl App {
 
         let palette = settings.fixed_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
+            jellyfin: crate::jellyfin::browser::Browser::new(
+                dirs.clone(),
+                waker.clone(),
+                options.restore_sign_in,
+            ),
             custom_themes: theme::Catalog::default(),
             storage_usage: crate::storage::Usage::default(),
             clearing_audio_cache: false,
@@ -2855,9 +2861,14 @@ impl App {
 
     // ---- frame ---------------------------------------------------------------
 
+    pub(crate) fn applied_jellyfin_proxy(&self) -> crate::settings::ProxyConfig {
+        self.applied_proxy.clone()
+    }
+
     fn handle_events(&mut self) {
         let events = self.backend.poll();
         self.handle_backend_events(events);
+        self.jellyfin.poll(&self.applied_proxy);
     }
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
@@ -12580,6 +12591,7 @@ impl App {
             self.supersede_play_search();
         }
         match action {
+            Action::Jellyfin(action) => self.apply_jellyfin_action(action),
             Action::Open(page) => self.open(page),
             Action::OpenSongRadio { uri, track } => self.open_song_radio(&uri, &track),
             Action::PrepareTint(url) => {

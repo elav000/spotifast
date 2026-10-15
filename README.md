@@ -1,4 +1,4 @@
-> **elav000 fork:** Experimental Jellyfin provider work is underway. See the [implementation status and connection probe](docs/_reference/jellyfin-fork.md). Jellyfin is not yet integrated into the app UI or playback.
+> **elav000 fork:** Jellyfin browsing is available without a Spotify account. See [setup and implementation status](docs/_reference/jellyfin-fork.md). Jellyfin audio playback is still in development.
 
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">

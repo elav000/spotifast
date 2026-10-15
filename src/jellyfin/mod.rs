@@ -8,7 +8,7 @@ use std::ops::Range;
 use std::time::Duration;
 
 use reqwest::{Client as HttpClient, Method, Request, Url};
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::settings::ProxyConfig;
 
@@ -31,7 +31,7 @@ pub enum Error {
 }
 
 /// Opaque credential. Persist only through a protected credential store.
-pub struct Token(String);
+pub struct Token(pub(crate) String);
 
 impl Token {
     pub fn new(value: String) -> Result<Self, Error> {
@@ -56,14 +56,14 @@ pub struct Account {
     pub token: Token,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct ServerInfo {
     pub id: String,
     pub server_name: Option<String>,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct MusicLibrary {
     pub id: String,
@@ -72,7 +72,7 @@ pub struct MusicLibrary {
 }
 
 /// Jellyfin IDs stay Jellyfin IDs, never synthetic Spotify URIs.
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
     pub id: String,
@@ -92,7 +92,7 @@ impl Item {
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Page<T> {
     pub items: Vec<T>,
@@ -394,7 +394,7 @@ fn validate_header_value(value: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_id(value: &str) -> Result<(), Error> {
+pub(crate) fn validate_id(value: &str) -> Result<(), Error> {
     if value.is_empty()
         || !value
             .bytes()
@@ -407,3 +407,5 @@ fn validate_id(value: &str) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests;
+
+pub mod browser;

@@ -3,7 +3,7 @@
 use crate::resample::Resampler;
 use symphonia::core::{
     audio::SampleBuffer,
-    codecs::{Decoder, DecoderOptions},
+    codecs::{CODEC_TYPE_MP3, Decoder, DecoderOptions},
     errors::Error,
     formats::{FormatOptions, FormatReader, SeekMode, SeekTo},
     io::{MediaSource, MediaSourceStream},
@@ -23,6 +23,7 @@ pub struct AudioDecoder {
     input_frames: u64,
     output_frames: u64,
     finished: bool,
+    mp3: bool,
 }
 
 impl AudioDecoder {
@@ -69,6 +70,7 @@ impl AudioDecoder {
             input_frames: 0,
             output_frames: 0,
             finished: false,
+            mp3: parameters.codec == CODEC_TYPE_MP3,
         })
     }
 
@@ -83,12 +85,22 @@ impl AudioDecoder {
             .map(|frames| frames.saturating_mul(1000) / u64::from(self.sample_rate))
     }
 
+    /// MP3 uses the demuxer's coarse seek to avoid scanning the whole file
+    /// over HTTP. Its position is approximate; WAV and FLAC remain accurate.
+    pub fn approximate_seeks(&self) -> bool {
+        self.mp3
+    }
+
     pub fn seek_ms(&mut self, milliseconds: u64) -> Result<(), String> {
         let timestamp = milliseconds.saturating_mul(u64::from(self.sample_rate)) / 1000;
         let seeked = self
             .format
             .seek(
-                SeekMode::Accurate,
+                if self.mp3 {
+                    SeekMode::Coarse
+                } else {
+                    SeekMode::Accurate
+                },
                 SeekTo::TimeStamp {
                     ts: timestamp,
                     track_id: self.track,

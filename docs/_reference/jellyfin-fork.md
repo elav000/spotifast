@@ -157,6 +157,8 @@ range. It checks 206/Content-Range, size, total length and supplied entity
 validators, rejects redirects and whole-file 200 responses, and leaves its cursor
 unchanged when a range fails. Seeking uses the demuxer's index/timestamps and
 resets decoder/resampler state; a byte-range offset is never treated as a time.
+MP3 uses fast, approximate demuxer seeking: its exact mode scans prior frames over
+HTTP and was too slow on a live large MP3. FLAC and WAV use accurate seeking.
 PCM enters the existing sink in 10 ms chunks to retain its bounded queue. Mono
 is duplicated to stereo, and other input rates are converted to 44.1 kHz before
 entering the current DSP. This is not a bit-perfect/high-resolution output claim.

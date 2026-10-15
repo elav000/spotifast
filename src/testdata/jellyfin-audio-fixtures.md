@@ -14,4 +14,4 @@ ffmpeg -f lavfi -i 'sine=frequency=440:sample_rate=44100:duration=1' -ac 2 -c:a 
 The FLAC deliberately exceeds multiple 256 KiB ranges, so first-sample and seek
 tests can prove the reader does not download the whole file first. The WAV
 exercises mono-to-stereo conversion and 48 kHz to 44.1 kHz resampling, including
-the filter tail. The MP3 exercises byte probing and accurate-seek preroll.
+the filter tail. The MP3 exercises byte probing and seek preroll.

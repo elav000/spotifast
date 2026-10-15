@@ -27,6 +27,7 @@ pub struct Report {
     pub channels: usize,
     pub first_pcm_ms: u128,
     pub seek_ms: u128,
+    pub approximate_seek: bool,
     pub duration_ms: u64,
     pub file_bytes: u64,
     pub bytes_at_first_pcm: u64,
@@ -123,6 +124,7 @@ pub(crate) fn run_for_user(
         .duration_ms()
         .or_else(|| item.duration_ms())
         .ok_or("Audio duration is unavailable for this seek probe.")?;
+    let approximate_seek = decoder.approximate_seeks();
     let rate = decoder.sample_rate();
     let channels = decoder.channels();
     let control = AudioControl::new(100);
@@ -190,6 +192,7 @@ pub(crate) fn run_for_user(
         channels,
         first_pcm_ms,
         seek_ms,
+        approximate_seek,
         duration_ms,
         file_bytes,
         bytes_at_first_pcm,

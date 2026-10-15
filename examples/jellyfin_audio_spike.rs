@@ -37,8 +37,8 @@ fn main() -> anyhow::Result<()> {
         report.first_pcm_ms, report.bytes_at_first_pcm, report.file_bytes
     );
     println!(
-        "Seek to 90%: {} ms; duration: {} ms",
-        report.seek_ms, report.duration_ms
+        "Seek to 90%: {} ms (approximate: {}); duration: {} ms",
+        report.seek_ms, report.approximate_seek, report.duration_ms
     );
     println!(
         "Transfer: {} requests, {} bytes; largest range: {} bytes",

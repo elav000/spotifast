@@ -137,6 +137,10 @@ impl AudioControl {
         if self.waiting_for_track.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.discard_output();
+    }
+
+    fn discard_output(&self) {
         let (sink, envelope) = {
             let target = self.target.lock().unwrap_or_else(PoisonError::into_inner);
             (target.sink.upgrade(), target.envelope.clone())
@@ -155,6 +159,14 @@ impl AudioControl {
         }
         self.reset_output.store(true, Ordering::SeqCst);
         self.reset_processing.store(true, Ordering::SeqCst);
+    }
+
+    /// Discard queued output when another provider takes the device.
+    pub(crate) fn relinquish_output(&self) {
+        // The output lease blocks this provider's writes. Preserve any
+        // pre-existing track-load gate, but do not invent one that would
+        // keep a later pause/resume silent.
+        self.discard_output();
     }
 
     /// Opens the write gate once librespot has left the old decoder behind.
@@ -1356,6 +1368,20 @@ mod tests {
             assert!(output.by_ref().take(100).all(|sample| sample == 1.0));
             assert!(!control.take_reset());
         }
+    }
+
+    #[test]
+    fn provider_handoff_preserves_an_existing_track_load_gate() {
+        let control = AudioControl::new(DEFAULT_BUFFER_MS);
+        control.relinquish_output();
+        assert!(!control.waiting_for_track());
+        assert!(control.take_processing_reset());
+        control.interrupt();
+        control.relinquish_output();
+        assert!(control.waiting_for_track());
+        assert!(!control.take_processing_reset());
+        control.track_changed();
+        assert!(control.take_processing_reset());
     }
 
     #[test]

@@ -7136,6 +7136,7 @@ mod authorization_tests {
             ProxyConfig::Off,
             crate::vis::AudioTap::new(),
             crate::eq::shared(),
+            Arc::default(),
         );
         let http = Http::new(reqwest::Client::new());
         let art = ArtLoader::new(http.clone(), runtime.handle().clone(), dirs.art_cache_dir());

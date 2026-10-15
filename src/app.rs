@@ -261,6 +261,7 @@ struct Listening {
 
 pub struct App {
     pub jellyfin: crate::jellyfin::browser::Browser,
+    pub(crate) local_output: std::sync::Arc<crate::playback_output::LocalOutput>,
     pub dirs: AppDirs,
     pub settings: Settings,
     /// Proxy policy actually handed to network workers. Manual form edits are
@@ -805,7 +806,9 @@ impl App {
             applied_proxy.clone(),
             std::sync::Arc::clone(&tap),
             std::sync::Arc::clone(&eq),
+            std::sync::Arc::default(),
         );
+        let local_output = engine_config.output.clone();
         let backend = Backend::spawn(
             dirs.clone(),
             engine_config,
@@ -867,6 +870,7 @@ impl App {
 
         let palette = settings.cached_palette().unwrap_or_else(Palette::dark);
         let mut app = Self {
+            local_output,
             jellyfin: crate::jellyfin::browser::Browser::new(
                 dirs.clone(),
                 waker.clone(),
@@ -10422,6 +10426,7 @@ impl App {
                     self.applied_proxy.clone(),
                     std::sync::Arc::clone(&self.winamp.tap),
                     std::sync::Arc::clone(&self.winamp.eq),
+                    self.local_output.clone(),
                 );
                 self.backend.send(Command::RestartEngine(config));
                 if self.local_ready {
@@ -11718,8 +11723,10 @@ pub fn engine_config(
     proxy: crate::settings::ProxyConfig,
     tap: std::sync::Arc<crate::vis::AudioTap>,
     eq: crate::eq::SharedEq,
+    output: std::sync::Arc<crate::playback_output::LocalOutput>,
 ) -> EngineConfig {
     EngineConfig {
+        output,
         tap,
         eq,
         device_name: settings.device_name.trim().to_string(),

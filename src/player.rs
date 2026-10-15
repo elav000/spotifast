@@ -44,6 +44,7 @@ use crate::vis::{AudioTap, Tapped};
 
 #[derive(Clone, Debug)]
 pub struct EngineConfig {
+    pub output: Arc<crate::playback_output::LocalOutput>,
     pub device_name: String,
     pub bitrate_kbps: u16,
     pub normalisation: bool,
@@ -703,6 +704,7 @@ fn sink_builder(
     let buffer_ms = config.buffer_ms;
     let tap = Arc::clone(&config.tap);
     let eq = Arc::clone(&config.eq);
+    let output = Arc::clone(&config.output);
     let report: ErrorHook = Arc::new(move |message: String| {
         let snapshot = {
             let mut current = state.lock().unwrap_or_else(|p| p.into_inner());
@@ -719,15 +721,13 @@ fn sink_builder(
         return (
             Box::new(move || {
                 let sink = builder(device, AudioFormat::S16);
-                Box::new(Tapped::new(
-                    sink,
-                    audio,
-                    tap,
-                    applied,
-                    true,
-                    eq,
-                    normalisation,
-                )) as Box<dyn Sink>
+                Box::new(
+                    Tapped::new(sink, audio, tap, applied, true, eq, normalisation).with_output(
+                        output,
+                        crate::provider::Provider::Spotify,
+                        false,
+                    ),
+                ) as Box<dyn Sink>
             }),
             Box::new(NoOpVolume),
         );
@@ -745,15 +745,13 @@ fn sink_builder(
                 buffer_ms,
                 Arc::clone(&audio),
             ));
-            Box::new(Tapped::new(
-                sink,
-                audio,
-                tap,
-                ceiling,
-                false,
-                eq,
-                normalisation,
-            )) as Box<dyn Sink>
+            Box::new(
+                Tapped::new(sink, audio, tap, ceiling, false, eq, normalisation).with_output(
+                    output,
+                    crate::provider::Provider::Spotify,
+                    true,
+                ),
+            ) as Box<dyn Sink>
         }),
         Box::new(NoOpVolume),
     )
@@ -1644,6 +1642,7 @@ mod tests {
     #[test]
     fn device_id_is_stable_hex() {
         let config = EngineConfig {
+            output: Arc::default(),
             buffer_ms: crate::sink::DEFAULT_BUFFER_MS,
             tap: AudioTap::new(),
             eq: crate::eq::shared(),

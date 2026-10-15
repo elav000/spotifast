@@ -20,6 +20,7 @@ pub mod history;
 pub mod http;
 pub mod i18n;
 pub mod images;
+pub mod jellyfin;
 pub mod liked;
 pub mod limiter;
 pub mod link;

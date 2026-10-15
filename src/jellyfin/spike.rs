@@ -48,6 +48,7 @@ pub(crate) fn run_for_user(
     proxy: &ProxyConfig,
     audible: bool,
     user: &str,
+    container: Option<&str>,
 ) -> Result<Report, String> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -62,6 +63,28 @@ pub(crate) fn run_for_user(
             .iter()
             .find(|library| library_name.is_none_or(|name| library.name.eq_ignore_ascii_case(name)))
             .ok_or("No matching music library.")?;
+        if let Some(container) = container {
+            for start in (0..500).step_by(100) {
+                let page = client
+                    .audio_tracks(user, &library.id, start, &token)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                let complete = page.start_index + page.items.len() as u32
+                    >= page.total_record_count
+                    || page.items.is_empty();
+                if let Some(item) = page.items.into_iter().find(|item| {
+                    item.container
+                        .as_deref()
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case(container))
+                }) {
+                    return Ok(item);
+                }
+                if complete {
+                    break;
+                }
+            }
+            return Err("No matching format in the first 500 tracks of this library.".into());
+        }
         let albums = client
             .albums(user, &library.id, 0, &token)
             .await
@@ -98,6 +121,7 @@ pub(crate) fn run_for_user(
     let bytes_at_first_pcm = metrics.snapshot().bytes;
     let duration_ms = decoder
         .duration_ms()
+        .or_else(|| item.duration_ms())
         .ok_or("Audio duration is unavailable for this seek probe.")?;
     let rate = decoder.sample_rate();
     let channels = decoder.channels();

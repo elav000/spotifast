@@ -185,6 +185,9 @@ impl AudioDecoder {
                 None => stereo,
             };
             self.output_frames += (pcm.len() / 2) as u64;
+            if pcm.is_empty() {
+                continue;
+            }
             return Ok(Some(pcm));
         }
     }

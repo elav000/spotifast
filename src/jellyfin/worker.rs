@@ -355,6 +355,7 @@ pub fn probe_saved_playback(
     proxy: &crate::settings::ProxyConfig,
     library_name: Option<&str>,
     audible: bool,
+    container: Option<&str>,
 ) -> Result<crate::jellyfin::spike::Report, String> {
     let source: Source = std::fs::read(dirs.state.join("jellyfin-account.json"))
         .ok()
@@ -379,6 +380,7 @@ pub fn probe_saved_playback(
         proxy,
         audible,
         &source.user_id,
+        container,
     )
 }
 

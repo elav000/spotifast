@@ -2,10 +2,16 @@
 fn main() -> anyhow::Result<()> {
     let arguments: Vec<String> = std::env::args().skip(1).collect();
     let audible = arguments.iter().any(|argument| argument == "--audible");
+    let container = arguments
+        .iter()
+        .find_map(|argument| argument.strip_prefix("--format="));
+    if container.is_some_and(|kind| !["flac", "mp3", "wav"].contains(&kind)) {
+        anyhow::bail!("Supported format filters: --format=flac, --format=mp3, --format=wav");
+    }
     let library = arguments
         .iter()
-        .find(|argument| argument.as_str() != "--audible");
-    println!("Testing the first track of the first album in the selected library.");
+        .find(|argument| !argument.starts_with("--"));
+    println!("Testing one track from the selected library (first album, or requested format).");
     if audible {
         println!(
             "Playing about six seconds at low volume, including a seek to 90%. Close other local players first."
@@ -18,6 +24,7 @@ fn main() -> anyhow::Result<()> {
         &spotifast::settings::ProxyConfig::System,
         library.map(String::as_str),
         audible,
+        container,
     )
     .map_err(anyhow::Error::msg)?;
     println!("Track: {}", report.title);

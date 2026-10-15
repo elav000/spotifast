@@ -271,6 +271,18 @@ impl Client {
         .await
     }
 
+    /// Paged, library-scoped audio listing for diagnostics and future Songs views.
+    pub async fn audio_tracks(
+        &self,
+        user: &str,
+        library: &str,
+        start: u32,
+        token: &Token,
+    ) -> Result<Page<Item>, Error> {
+        self.items(user, library, "Audio", "SortName", start, token)
+            .await
+    }
+
     async fn items(
         &self,
         user: &str,

@@ -348,6 +348,40 @@ fn valid_source(source: &Source) -> bool {
         && crate::jellyfin::validate_id(&source.server_id).is_ok()
 }
 
+/// Explicit development diagnostic. Reads the same saved Jellyfin account as
+/// the app; does not alter credentials, provider choice or cached browsing.
+pub fn probe_saved_playback(
+    dirs: &AppDirs,
+    proxy: &crate::settings::ProxyConfig,
+    library_name: Option<&str>,
+    audible: bool,
+) -> Result<crate::jellyfin::spike::Report, String> {
+    let source: Source = std::fs::read(dirs.state.join("jellyfin-account.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .filter(valid_source)
+        .ok_or("Sign into Jellyfin in the app first.")?;
+    if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
+        .ok()
+        .as_deref()
+        == Some(&source.id)
+    {
+        return Err("Saved Jellyfin sign-in was revoked.".into());
+    }
+    let token = credentials(source.clone(), CredentialOp::Read)?
+        .ok_or("Saved Jellyfin sign-in is unavailable.")?;
+    let client = Client::new(&source.server_url, &source.device_id, proxy)
+        .map_err(|error| error.to_string())?;
+    crate::jellyfin::spike::run_for_user(
+        client,
+        token,
+        library_name,
+        proxy,
+        audible,
+        &source.user_id,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

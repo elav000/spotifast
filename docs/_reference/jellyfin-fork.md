@@ -75,15 +75,15 @@ No live server credentials are used by the automated local HTTP contract tests.
 - Provider selection before Spotify login, protected source/user-scoped
   credentials and separate cached browsing are implemented.
 - Keep selected browsing provider separate from playback ownership. Changing a
-  view must not interrupt sound. Enforce one owner of local output when Jellyfin
-  playback is integrated.
+  view must not interrupt sound. The shared processing path now has exclusive
+  local output leases, ready for Jellyfin playback integration.
 - Use stable provider/source/item references. Never persist expiring stream URLs
   as identity or manufacture Spotify URIs for Jellyfin items.
 - Add disposable provider/source/user-scoped snapshots for fast startup. Reuse
   atomic writes and cache budgets where useful, but never infer equivalence
   from matching album names or item IDs across providers.
-- Prove one FLAC through the existing EQ/output/visualizer path before expanding
-  transport and queue behavior. The Rust decoder is still to be selected.
+- Original FLAC, WAV and MP3 decoding is proven through the existing
+  EQ/output/visualizer classes. Transport and queue integration is next.
 - Unified browsing, mixed queues, local-file browsing, downloads and a possible
   unified library are later decisions, not prerequisites.
 
@@ -123,6 +123,19 @@ The new native credential round-trip check uses a temporary dummy token and is
 opt-in: `cargo test --locked --lib backend::jellyfin::tests::native_store_round_trip -- --ignored --exact`.
 
 ## Audio playback experiment
+
+The application's Spotify sinks now join a shared `LocalOutput` coordinator.
+Each start acquires a fresh lease. A later owner fades and discards the old
+device queue; stale writes are paced and discarded before EQ or visualization.
+Delayed stops and drops cannot release a newer lease or clear its visualizer.
+The coordinator is retained across audio-settings engine replacements and is
+independent of the selected browsing provider. Future in-app Jellyfin sinks must
+join this same coordinator through `Tapped::with_output`. This is the output
+safety foundation, not yet a full provider transport/queue controller.
+Automatic takeover currently requires the normal RodioSink output. Optional
+librespot backends must stop on their playback thread before another provider
+can acquire output; a claim while one remains active is rejected without
+opening the new device. The app controller will need to arrange that stop.
 
 The app browser is still read-only. A separate development probe now verifies
 original FLAC, MP3 and PCM/WAV through the existing `Tapped` EQ/visualizer/limiter

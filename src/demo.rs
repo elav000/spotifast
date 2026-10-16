@@ -19,6 +19,41 @@ use crate::app::{App, RemoteSnapshot};
 use crate::backend::AuthStatus;
 use crate::model::*;
 
+fn seed_jellyfin_artwork(app: &App) {
+    use crate::jellyfin::{artwork::Reference, browser::Rows};
+    let Some(source) = &app.jellyfin.source else {
+        return;
+    };
+    let Some(Rows::Items { items, .. }) = &app.jellyfin.rows else {
+        return;
+    };
+    for (index, item) in items.iter().enumerate() {
+        let Some(reference) = Reference::for_item(source, item) else {
+            continue;
+        };
+        let seed = reference
+            .item
+            .strip_prefix("album")
+            .and_then(|id| id.parse::<u8>().ok())
+            .unwrap_or(index as u8);
+        let image = image::RgbImage::from_fn(128, 128, |x, y| {
+            let band = ((x + y) / 24) as u8;
+            image::Rgb([
+                40u8.wrapping_add(seed * 23).wrapping_add(band * 13),
+                70u8.wrapping_add(seed * 17).wrapping_add(x as u8 / 2),
+                120u8.wrapping_add(seed * 11).wrapping_add(y as u8 / 2),
+            ])
+        });
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        app.backend
+            .art()
+            .include_fixture(&reference.uri(), std::sync::Arc::from(encoded.into_inner()));
+    }
+}
+
 fn image(seed: u32) -> Vec<Image> {
     vec![
         Image {
@@ -840,6 +875,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 page
             });
         app.user = None;
+        seed_jellyfin_artwork(app);
         if matches!(page, "jellyfin-playing" | "jellyfin-queue") {
             app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
                 "track0".into(),
@@ -9853,6 +9889,53 @@ mod tests {
         app.backend.shutdown();
     }
     #[test]
+    fn jellyfin_shared_track_rows_dispatch_provider_actions_without_spotify_controls() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-shared-rows");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        seed_jellyfin_artwork(&app);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Save to Liked Songs"))
+        );
+        let play = accessible_node(&tree, "Play Otomo, Bonobo", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        let now = app.now_playing().unwrap();
+        assert_eq!(now.title, "Otomo");
+        assert_eq!(now.provider, crate::provider::Provider::Jellyfin);
+        assert!(now.id.is_none());
+        assert!(now.uri.starts_with("jellyfin:"));
+        assert!(
+            now.art_url
+                .as_deref()
+                .is_some_and(|uri| uri.starts_with("provider-art://jellyfin/"))
+        );
+        app.jellyfin_player.demo_ready(0, true);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let add = accessible_node(&tree, "Add Rosewood to Jellyfin queue", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(add, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.jellyfin_player.snapshot().queued.len(), 1);
+        assert!(app.now_playing_item().is_none());
+        assert!(app.jellyfin.rows.is_some());
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_navigation_works_without_a_spotify_grant() {
         use crate::jellyfin::browser::{BrowserAction, Provider, View};
         use egui::accesskit::{Action as AccessibleAction, Role};
@@ -9873,7 +9956,7 @@ mod tests {
         app.jellyfin.demo("jellyfin-albums");
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let album = accessible_node(&tree, "Fragments", Role::Button);
+        let album = accessible_node(&tree, "Fragments, Your collection", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,

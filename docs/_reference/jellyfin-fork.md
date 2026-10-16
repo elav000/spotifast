@@ -291,3 +291,38 @@ Acceptance criteria for the later milestone:
    and representative UI checks. Handle Spotify-only remote Connect explicitly.
 
 This is the recorded next goal, not part of the current playback implementation.
+
+## Shared navigation, album views and artwork
+
+The first step extends the existing `ArtLoader` with provider fetch adapters.
+Jellyfin primary-image requests use protected sign-in headers, reject redirects
+and preserve reverse-proxy paths. Stable artwork references include provider,
+source, account, item and image tag. The existing disk cache, byte limits, scaler,
+texture budget and player cover rendering remain shared. Provider images live
+under `art/providers/<provider>/<source>/<account>/`; clearing the existing art
+cache also clears these nested entries. Image revisions use different cache keys.
+
+Navigation and view dependency map:
+
+| Existing component | Reuse | Provider dependency to adapt |
+| --- | --- | --- |
+| `ui/sidebar.rs` panel and navigation rows | Keep panel sizing, styling, focus and navigation presentation | Supply provider-specific library entries and actions rather than Spotify grants or playlist roots |
+| `ui/widgets.rs` collection cards | Keep artwork, captions, hover and focus behavior | Supply stable artwork references and provider navigation/play actions |
+| `ui/collection.rs` hero and actions | Keep album presentation and shared controls | Supply provider metadata and capabilities; disable unavailable service actions |
+| `ui/widgets.rs` track rows and collection table | Reuse presentation and interaction semantics | Separate row metadata/occurrences from Spotify-specific menus, links and requests |
+| Shared player bar | Already used by both transports; now accepts Jellyfin artwork references | Keep provider identity explicit; no fake Spotify IDs |
+| Home sections | Reuse the page shell after the initial navigation/album work | Decide appropriate Jellyfin content separately |
+| Queue and artist pages | Later extraction from existing behavior | Shared local queue policy and provider-aware navigation before mixed playback |
+
+Jellyfin now uses the existing sidebar panel and navigation rows, collection
+cards, album hero and track-row renderer. Provider references and actions retain
+Jellyfin identity without inventing Spotify IDs. Spotify-only row actions are
+replaced with available Play and Add to queue actions. The existing provider
+selector remains; Home currently opens the Jellyfin library list. Home sections,
+artist pages and a shared local queue remain follow-up work, not completed parity.
+
+Artwork requests share the existing 8 MiB response limit and request images up to
+640 pixels wide. Cache hits need no new server request. Fresh browsing metadata
+can update the current track's artwork without resetting playback, position or
+queue. Cache clearing runs on the background worker, including while offline.
+This work adds no dependencies and does not merge catalogs.

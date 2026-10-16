@@ -908,6 +908,27 @@ fn nav_row(
 /// Playlist ownership and text filters are applied before ordering and pin placement.
 fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
+    if let Some(entries) = app.provider_navigation() {
+        ui.add_space(4.0);
+        for entry in entries {
+            if nav_row(
+                ui,
+                &palette,
+                if entry.home {
+                    Icon::House
+                } else {
+                    Icon::Library
+                },
+                &entry.label,
+                entry.selected,
+            )
+            .clicked()
+            {
+                app.actions.push(entry.action);
+            }
+        }
+        return;
+    }
     let page = app.page().clone();
     let locale = app.locale;
     ui.add_space(4.0);

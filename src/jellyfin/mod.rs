@@ -5,6 +5,7 @@
 //! except the server-required Quick Connect polling query. Errors omit URLs.
 
 pub mod catalog;
+pub mod reporting;
 
 use std::ops::Range;
 use std::time::Duration;

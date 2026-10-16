@@ -37,6 +37,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }))
         .show(ctx, |ui| {
             ui.set_width(420.0);
+            if app.jellyfin.dialog_source.is_some() && let Some(error) = app.jellyfin.edit_error.clone() { ui.colored_label(palette.danger, error); ui.add_space(8.0); }
             match dialog {
                 // Drawn by cover_art above.
                 Dialog::CoverArt { .. } => {}
@@ -55,6 +56,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
+                Dialog::RenamePlaylist { .. } => rename_playlist(app, ui),
                 Dialog::CreatePlaylist { .. } => create_playlist(app, ui),
                 Dialog::EditPlaylist { .. } => edit_playlist(app, ui),
                 Dialog::ConfirmDeletePlaylist { id, name, owned } => {
@@ -69,7 +71,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         palette.text,
                     );
                     ui.add_space(8.0);
-                    let body = if owned {
+                    let body = if app.jellyfin.dialog_source.is_some() {
+                        gettext(locale, "Delete “{name}”? This removes the playlist from your Jellyfin server.")
+                    } else if owned {
                         // Translators: {name} is a playlist name.
                         gettext(locale, "Delete “{name}”? You can recover it from Spotify for 90 days.")
                     } else {
@@ -345,7 +349,11 @@ fn text_field(
 fn create_playlist(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
-    let busy = app.playlist_busy;
+    let busy = if app.jellyfin.dialog_source.is_some() {
+        app.jellyfin.edit_busy
+    } else {
+        app.playlist_busy
+    };
     let Some(Dialog::CreatePlaylist {
         name,
         public,
@@ -604,6 +612,56 @@ fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
                 });
             }
             if theme::pill_button(ui, &palette, &gettext(locale, "Cancel"), false).clicked() {
+                app.actions.push(Action::CloseDialog);
+            }
+        }
+    });
+}
+
+fn rename_playlist(app: &mut App, ui: &mut egui::Ui) {
+    let palette = app.palette;
+    let busy = if app.jellyfin.dialog_source.is_some() {
+        app.jellyfin.edit_busy
+    } else {
+        app.playlist_busy
+    };
+    let Some(Dialog::RenamePlaylist { target, name }) = &mut app.dialog else {
+        return;
+    };
+    theme::text(
+        ui,
+        gettext(app.locale, "Rename playlist"),
+        theme::bold(20.0),
+        palette.text,
+    );
+    ui.add_space(12.0);
+    let field = text_field(
+        ui,
+        &palette,
+        app.locale,
+        "playlist-name",
+        name,
+        &gettext(app.locale, "Name"),
+        true,
+    );
+    let target = target.clone();
+    let name = name.trim().to_owned();
+    let submit = field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+    ui.add_space(20.0);
+    buttons(ui, |ui| {
+        if busy {
+            theme::spinner(ui, 18.0, palette.accent);
+        } else {
+            if (theme::pill_button(ui, &palette, &gettext(app.locale, "Save"), true).clicked()
+                || submit)
+                && !name.is_empty()
+            {
+                app.actions.push(Action::RenameProviderPlaylist {
+                    target: target.clone(),
+                    name: name.clone(),
+                });
+            }
+            if theme::pill_button(ui, &palette, &gettext(app.locale, "Cancel"), false).clicked() {
                 app.actions.push(Action::CloseDialog);
             }
         }

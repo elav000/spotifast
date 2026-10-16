@@ -900,7 +900,47 @@ pub(crate) fn playlist_picker(
     app: &mut App,
     items: &[PlayableItem],
     query: &mut String,
+    checks: Option<&mut PlaylistChecks>,
+) -> egui::Response {
+    let choices = app.editable_playlists();
+    playlist_choices_with_checks(
+        ui,
+        app,
+        &choices,
+        query,
+        checks,
+        |chosen| match chosen {
+            Some((id, name)) => Action::AddToPlaylist {
+                playlist_id: id.clone(),
+                playlist_name: name.clone(),
+                items: items.to_vec(),
+            },
+            None => Action::ShowDialog(Dialog::CreatePlaylist {
+                name: String::new(),
+                public: false,
+                add_uris: items.iter().map(|item| item.uri().to_owned()).collect(),
+            }),
+        },
+    )
+}
+
+pub(crate) fn playlist_choices(
+    ui: &mut Ui,
+    app: &mut App,
+    playlists: &[(String, String)],
+    query: &mut String,
+    choose: impl Fn(Option<&(String, String)>) -> Action,
+) -> egui::Response {
+    playlist_choices_with_checks(ui, app, playlists, query, None, choose)
+}
+
+fn playlist_choices_with_checks(
+    ui: &mut Ui,
+    app: &mut App,
+    playlists: &[(String, String)],
+    query: &mut String,
     mut checks: Option<&mut PlaylistChecks>,
+    choose: impl Fn(Option<&(String, String)>) -> Action,
 ) -> egui::Response {
     let palette = app.palette;
     let locale = app.locale;
@@ -909,7 +949,6 @@ pub(crate) fn playlist_picker(
     let width = ui.available_width();
     let field_id = ui.make_persistent_id("playlist-filter");
     let highlight_id = ui.make_persistent_id("playlist-highlight");
-    let playlists = app.editable_playlists();
     let matching = |query: &str| {
         let needle = query.trim().to_lowercase();
         playlists
@@ -972,11 +1011,7 @@ pub(crate) fn playlist_picker(
         Some(Icon::Plus),
         &gettext(locale, "New playlist"),
     ) {
-        app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
-            name: String::new(),
-            public: false,
-            add_uris: items.iter().map(|item| item.uri().to_string()).collect(),
-        }));
+        app.actions.push(choose(None));
     }
     menu_separator(ui, &palette);
     let needle = query.trim().to_lowercase();
@@ -986,15 +1021,11 @@ pub(crate) fn playlist_picker(
         .collect();
     highlighted = highlighted.filter(|index| *index < matches.len());
     ui.data_mut(|data| data.insert_temp(highlight_id, (frame, highlighted, query.clone())));
-    if enter && let Some((id, name)) = highlighted.and_then(|index| matches.get(index)) {
+    if enter && let Some(playlist @ (id, _)) = highlighted.and_then(|index| matches.get(index)) {
         if let Some(checks) = checks.as_deref_mut() {
             checks.toggle(id);
         } else {
-            app.actions.push(Action::AddToPlaylist {
-                playlist_id: id.clone(),
-                playlist_name: name.clone(),
-                items: items.to_vec(),
-            });
+            app.actions.push(choose(Some(playlist)));
             ui.close();
         }
     }
@@ -1051,7 +1082,7 @@ pub(crate) fn playlist_picker(
             .min_scrolled_height(list_height),
         egui::Vec2b::new(false, true),
         |ui| {
-            for (index, (id, name)) in matches.into_iter().enumerate() {
+            for (index, playlist @ (id, name)) in matches.into_iter().enumerate() {
                 ui.push_id(id, |ui| {
                     let chosen = highlighted == Some(index);
                     let image = covers.get(id).map(String::as_str);
@@ -1072,11 +1103,7 @@ pub(crate) fn playlist_picker(
                         if let Some(checks) = checks.as_deref_mut() {
                             checks.toggle(id);
                         } else {
-                            app.actions.push(Action::AddToPlaylist {
-                                playlist_id: id.clone(),
-                                playlist_name: name.clone(),
-                                items: items.to_vec(),
-                            });
+                            app.actions.push(choose(Some(playlist)));
                         }
                     }
                 });
@@ -1721,6 +1748,12 @@ pub struct ProviderRowActions {
     pub current: bool,
     pub playing: bool,
     pub loading: bool,
+    pub menu: Vec<(String, Action)>,
+    pub playlists: std::sync::Arc<Vec<(crate::provider::ItemReference, String)>>,
+    pub playlist_item: crate::provider::ItemReference,
+    pub playlist_loading: bool,
+    pub playlist_error: Option<String>,
+    pub create_playlist: Option<Action>,
 }
 
 pub fn provider_track_row(
@@ -2521,6 +2554,45 @@ fn track_row_contents(
                 {
                     app.actions.push(enqueue.clone());
                     ui.close();
+                }
+                if let Some(create) = &actions.create_playlist {
+                    ui.menu_button("Add to playlist", |ui| {
+                        if actions.playlist_loading {
+                            loading_row(ui, &palette, app.locale);
+                        }
+                        if let Some(error) = &actions.playlist_error {
+                            ui.colored_label(palette.danger, error);
+                        }
+                        let id = ui.make_persistent_id("provider-playlist-query");
+                        let mut query = ui
+                            .data(|data| data.get_temp::<String>(id))
+                            .unwrap_or_default();
+                        let choices: Vec<_> = actions
+                            .playlists
+                            .iter()
+                            .map(|(reference, name)| (reference.uri(), name.clone()))
+                            .collect();
+                        playlist_choices(ui, app, &choices, &mut query, |chosen| match chosen {
+                            None => create.clone(),
+                            Some((id, _)) => Action::AddProviderPlaylist {
+                                playlist: actions
+                                    .playlists
+                                    .iter()
+                                    .find(|(reference, _)| reference.uri() == *id)
+                                    .expect("picker choice came from its provider")
+                                    .0
+                                    .clone(),
+                                item: actions.playlist_item.clone(),
+                            },
+                        });
+                        ui.data_mut(|data| data.insert_temp(id, query));
+                    });
+                }
+                for (label, action) in &actions.menu {
+                    if ui.button(label).clicked() {
+                        app.actions.push(action.clone());
+                        ui.close();
+                    }
                 }
             } else if row.picked && row.picked_songs.len() > 1 {
                 // Every picked row shares this table's context, so one

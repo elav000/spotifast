@@ -1109,6 +1109,7 @@ pub struct Toast {
 /// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {
+    ProviderLibrary(crate::provider::LibraryAction),
     Jellyfin(crate::jellyfin::browser::BrowserAction),
     Open(Page),
     /// Opens the radio of a song shown in a list, after caching the row's

@@ -27,7 +27,11 @@ fn seed_jellyfin_artwork(app: &App) {
     let Some(Rows::Items { items, .. }) = &app.jellyfin.rows else {
         return;
     };
-    for (index, item) in items.iter().enumerate() {
+    for (index, item) in items
+        .iter()
+        .chain(app.jellyfin.catalog.items.iter())
+        .enumerate()
+    {
         let Some(reference) = Reference::for_item(source, item) else {
             continue;
         };
@@ -11637,6 +11641,151 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_uses_full_library_rows_search_sort_and_grid_without_spotify_actions() {
+        use crate::provider::LibraryAction;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("full-provider-library");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        seed_jellyfin_artwork(&app);
+        let albums = app.jellyfin.catalog.items.clone();
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Fragments", Role::Button);
+        accessible_node(&tree, "Collection", Role::ComboBox);
+        accessible_node(&tree, "Recently played", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Create a playlist"))
+        );
+        let search = accessible_node(&tree, "Search Your Library", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(search, AccessibleAction::Click, None)],
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Search in Your Library", Role::TextInput);
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Filter("MORDECHAI".into())),
+            &ctx,
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Mordechai", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Fragments") && node.role() == Role::Button)
+        );
+        assert_eq!(
+            app.jellyfin.filter, "",
+            "rail filter does not filter the center tracks"
+        );
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Filter(String::new())),
+            &ctx,
+        );
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Sort(crate::settings::LibrarySort::Name)),
+            &ctx,
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Name", Role::Button);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::sidebar::show);
+        assert!(
+            sidebar_text(&painted, "All Melody").top() < sidebar_text(&painted, "Fragments").top()
+        );
+        let source = app.jellyfin.source.as_ref().unwrap();
+        app.recent_contexts = vec![
+            crate::provider::ItemReference::Jellyfin {
+                source: source.id.clone(),
+                account: source.user_id.clone(),
+                item: "album1".into(),
+            }
+            .context_key(),
+        ];
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Sort(
+                crate::settings::LibrarySort::RecentlyPlayed,
+            )),
+            &ctx,
+        );
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::sidebar::show);
+        assert!(
+            sidebar_text(&painted, "Mordechai").top() < sidebar_text(&painted, "Fragments").top()
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let grid = accessible_node(&tree, "Show as grid", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(grid, AccessibleAction::Click, None)],
+        );
+        assert!(app.settings.sidebar_grid);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let album = accessible_node(&tree, "Mordechai", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(album, AccessibleAction::Click, None)],
+        );
+        assert!(
+            matches!(&app.jellyfin.view, crate::jellyfin::browser::View::Tracks { album_id, .. } if album_id == "album1")
+        );
+        assert_eq!(
+            app.jellyfin.catalog.items, albums,
+            "opening the center preserves the rail catalog"
+        );
+        assert!(app.library.filter.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn provider_library_cover_play_waits_for_album_data_and_records_scoped_recency() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("provider-library-play");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.settings.sidebar_grid = true;
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play Fragments", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert!(
+            !app.jellyfin_player.controls_output(),
+            "wait for the requested album response"
+        );
+        assert_eq!(app.jellyfin.play_album.as_deref(), Some("album0"));
+        app.jellyfin.busy = false; // Completed album response; the same demo rows are retained.
+        app.background_frame(&ctx);
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.now_playing().unwrap().provider,
+            crate::provider::Provider::Jellyfin
+        );
+        assert_eq!(app.now_playing().unwrap().title, "Rosewood");
+        let source = app.jellyfin.source.as_ref().unwrap();
+        let key = crate::provider::ItemReference::Jellyfin {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
+            item: "album0".into(),
+        }
+        .context_key();
+        assert_eq!(app.recent_contexts.first(), Some(&key));
+        assert!(app.jellyfin.play_album.is_none());
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn sidebar_provider_switcher_works_signed_out_and_preserves_jellyfin_navigation() {
         use crate::jellyfin::browser::View;
         use crate::provider::Provider;
@@ -11705,7 +11854,7 @@ mod tests {
         app.jellyfin.demo("jellyfin");
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let library = accessible_node(&tree, "My music", Role::Button);
+        let library = accessible_node(&tree, "My music, Music library", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,

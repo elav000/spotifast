@@ -291,3 +291,343 @@ fn media_details_round_trip_without_persisting_provider_urls_or_headers() {
     let old: Item = serde_json::from_str(r#"{"Id":"old-track"}"#).unwrap();
     assert!(old.container.is_none());
 }
+
+#[tokio::test]
+async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurrences() {
+    use super::catalog::{Kind, Query};
+    const EMPTY: &str = r#"{"Items":[],"StartIndex":0,"TotalRecordCount":0}"#;
+    const PLAYLIST: &str = r#"{"Items":[{"Id":"song1","PlaylistItemId":"entry1","Type":"Audio"},{"Id":"song1","PlaylistItemId":"entry2","Type":"Audio"}],"StartIndex":100,"TotalRecordCount":102}"#;
+    let (address, requests) = server(vec![
+        (200, EMPTY),
+        (200, EMPTY),
+        (200, EMPTY),
+        (200, PLAYLIST),
+        (200, EMPTY),
+        (200, EMPTY),
+    ])
+    .await;
+    let client = client(&address);
+    let token = token();
+    for query in [
+        Query::Shelf {
+            library: "music1".into(),
+            kind: Kind::Artist,
+        },
+        Query::Shelf {
+            library: "music1".into(),
+            kind: Kind::Playlist,
+        },
+        Query::ArtistAlbums {
+            library: "music1".into(),
+            artist: "artist1".into(),
+        },
+    ] {
+        client.query("user1", &query, 0, &token).await.unwrap();
+    }
+    let page = client
+        .query(
+            "user1",
+            &Query::PlaylistSongs {
+                playlist: "playlist1".into(),
+            },
+            100,
+            &token,
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.items[0].id, page.items[1].id);
+    assert_ne!(
+        page.items[0].details.playlist_item_id,
+        page.items[1].details.playlist_item_id
+    );
+    client
+        .query(
+            "user1",
+            &Query::Search {
+                library: "music1".into(),
+                term: "BT & friends".into(),
+                kind: Kind::Song,
+            },
+            0,
+            &token,
+        )
+        .await
+        .unwrap();
+    client
+        .query(
+            "user1",
+            &Query::History {
+                library: "music1".into(),
+            },
+            0,
+            &token,
+        )
+        .await
+        .unwrap();
+    let requests = requests.await.unwrap();
+    let urls: Vec<_> = requests
+        .iter()
+        .map(|request| {
+            let path = request
+                .lines()
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap();
+            assert!(!path.contains("private-token"));
+            assert!(request.contains("Token=\"private-token\""));
+            Url::parse(&format!("http://test{path}")).unwrap()
+        })
+        .collect();
+    assert_eq!(urls[0].path(), "/jellyfin/Artists");
+    assert!(
+        urls[0]
+            .query_pairs()
+            .any(|(k, v)| k == "ParentId" && v == "music1")
+    );
+    assert!(!urls[1].query_pairs().any(|(k, _)| k == "ParentId"));
+    assert!(
+        urls[2]
+            .query_pairs()
+            .any(|(k, v)| k == "ArtistIds" && v == "artist1")
+    );
+    assert_eq!(urls[3].path(), "/jellyfin/Playlists/playlist1/Items");
+    assert!(!urls[3].query_pairs().any(|(k, _)| k == "SortBy"));
+    assert!(
+        urls[4]
+            .query_pairs()
+            .any(|(k, v)| k == "SearchTerm" && v == "BT & friends")
+    );
+    assert!(
+        urls[5]
+            .query_pairs()
+            .any(|(k, v)| k == "SortBy" && v == "DatePlayed")
+    );
+    assert!(
+        urls[5]
+            .query_pairs()
+            .any(|(k, v)| k == "Filters" && v == "IsPlayed")
+    );
+}
+
+#[tokio::test]
+async fn playlist_mutations_and_playback_reports_keep_credentials_out_of_urls() {
+    use super::catalog::PlaybackEvent;
+    let (address, requests) = server(vec![
+        (200, r#"{"Id":"playlist1"}"#),
+        (204, ""),
+        (204, ""),
+        (204, ""),
+        (204, ""),
+        (204, ""),
+        (204, ""),
+    ])
+    .await;
+    let client = client(&address);
+    let token = token();
+    assert_eq!(
+        client
+            .create_playlist("user1", "A private mix", &token)
+            .await
+            .unwrap(),
+        "playlist1"
+    );
+    client
+        .rename_playlist("playlist1", "Renamed", &token)
+        .await
+        .unwrap();
+    client
+        .add_to_playlist(
+            "user1",
+            "playlist1",
+            &["song1".into(), "song1".into()],
+            &token,
+        )
+        .await
+        .unwrap();
+    client
+        .remove_playlist_entries("playlist1", &["entry2".into()], &token)
+        .await
+        .unwrap();
+    client
+        .move_playlist_entry("playlist1", "entry1", 5, &token)
+        .await
+        .unwrap();
+    client
+        .report_playback("song1", 1234, false, PlaybackEvent::Progress, &token)
+        .await
+        .unwrap();
+    client.delete_playlist("playlist1", &token).await.unwrap();
+    let requests = requests.await.unwrap();
+    assert!(requests[0].contains("\"IsPublic\":false"));
+    assert!(
+        requests[1].ends_with(r#"{"Name":"Renamed"}"#),
+        "rename must not replace playlist entries or sharing"
+    );
+    assert!(
+        requests[2]
+            .lines()
+            .next()
+            .unwrap()
+            .contains("Ids=song1%2Csong1")
+    );
+    assert!(
+        requests[3]
+            .lines()
+            .next()
+            .unwrap()
+            .contains("EntryIds=entry2")
+    );
+    assert!(requests[4].starts_with("POST /jellyfin/Playlists/playlist1/Items/entry1/Move/5 "));
+    assert!(requests[5].contains("\"PositionTicks\":12340000"));
+    assert!(requests[6].starts_with("DELETE /jellyfin/Items/playlist1 "));
+    for request in &requests {
+        assert!(!request.lines().next().unwrap().contains("private-token"));
+    }
+}
+
+#[tokio::test]
+async fn provider_catalog_and_mutations_reject_invalid_input_before_network() {
+    use super::catalog::{Kind, PlaybackEvent, Query};
+    let client = client("http://127.0.0.1:1/jellyfin");
+    let token = token();
+    for query in [
+        Query::Shelf {
+            library: "../other".into(),
+            kind: Kind::Album,
+        },
+        Query::Search {
+            library: "music1".into(),
+            term: "\r\n".into(),
+            kind: Kind::Song,
+        },
+    ] {
+        assert_eq!(
+            client.query("user1", &query, 0, &token).await.unwrap_err(),
+            Error::InvalidValue
+        );
+    }
+    assert_eq!(
+        client
+            .remove_playlist_entries("playlist1", &[], &token)
+            .await
+            .unwrap_err(),
+        Error::InvalidValue
+    );
+    assert_eq!(
+        client
+            .create_playlist("user1", " ", &token)
+            .await
+            .unwrap_err(),
+        Error::InvalidValue
+    );
+    assert_eq!(
+        client
+            .report_playback("song1", u64::MAX, false, PlaybackEvent::Start, &token)
+            .await
+            .unwrap_err(),
+        Error::InvalidValue
+    );
+}
+
+#[tokio::test]
+async fn artist_songs_stay_in_the_selected_collection() {
+    use super::catalog::Query;
+    let (address, requests) = server(vec![(
+        200,
+        r#"{"Items":[],"StartIndex":0,"TotalRecordCount":0}"#,
+    )])
+    .await;
+    client(&address)
+        .query(
+            "user1",
+            &Query::ArtistSongs {
+                library: "music2".into(),
+                artist: "artist1".into(),
+            },
+            0,
+            &token(),
+        )
+        .await
+        .unwrap();
+    let requests = requests.await.unwrap();
+    let path = requests[0].split_whitespace().nth(1).unwrap();
+    let url = Url::parse(&format!("http://test{path}")).unwrap();
+    for (key, value) in [
+        ("ParentId", "music2"),
+        ("ArtistIds", "artist1"),
+        ("IncludeItemTypes", "Audio"),
+        ("UserId", "user1"),
+    ] {
+        assert!(url.query_pairs().any(|(k, v)| k == key && v == value));
+    }
+}
+
+#[tokio::test]
+async fn catalog_rejects_mismatched_and_nonadvancing_pages() {
+    use super::catalog::{Kind, Query};
+    let (address, requests) = server(vec![
+        (200, r#"{"Items":[],"StartIndex":0,"TotalRecordCount":101}"#),
+        (
+            200,
+            r#"{"Items":[],"StartIndex":100,"TotalRecordCount":101}"#,
+        ),
+    ])
+    .await;
+    let client = client(&address);
+    for _ in 0..2 {
+        assert_eq!(
+            client
+                .query(
+                    "user1",
+                    &Query::Shelf {
+                        library: "music1".into(),
+                        kind: Kind::Artist,
+                    },
+                    100,
+                    &token()
+                )
+                .await
+                .unwrap_err(),
+            Error::InvalidResponse
+        );
+    }
+    assert_eq!(requests.await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn playlist_batch_stops_after_failure_and_validates_all_ids_first() {
+    let (address, requests) = server(vec![(204, ""), (403, "")]).await;
+    let client = client(&address);
+    let ids: Vec<_> = (0..201).map(|index| format!("song{index}")).collect();
+    assert_eq!(
+        client
+            .add_to_playlist("user1", "playlist1", &ids, &token())
+            .await
+            .unwrap_err(),
+        Error::Http(403)
+    );
+    let requests = requests.await.unwrap();
+    assert_eq!(requests.len(), 2);
+    for (index, request) in requests.iter().enumerate() {
+        let path = request.split_whitespace().nth(1).unwrap();
+        let url = Url::parse(&format!("http://test{path}")).unwrap();
+        let actual = url
+            .query_pairs()
+            .find(|(key, _)| key == "Ids")
+            .unwrap()
+            .1
+            .into_owned();
+        assert_eq!(actual, ids[index * 100..(index + 1) * 100].join(","));
+    }
+    let mut invalid = ids;
+    invalid[200] = "../bad".into();
+    assert_eq!(
+        client
+            .add_to_playlist("user1", "playlist1", &invalid, &token())
+            .await
+            .unwrap_err(),
+        Error::InvalidValue
+    );
+}

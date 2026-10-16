@@ -387,3 +387,22 @@ Remaining architectural work is explicit:
 The shared artwork cache, player bar, DSP and exclusive output ownership already
 carry forward. Plex support and a Combined provider are roadmap items, not claims
 of current compatibility.
+
+### Adapter completion criteria
+
+The shared rail milestone is a foundation, not a complete Jellyfin adapter.
+Remaining work must implement Jellyfin-backed search, artist browsing, playlists
+and listening-history support through the existing UI and provider contracts.
+An unimplemented adapter operation is a tracked gap, not evidence that Jellyfin
+lacks the capability. Hide or explain an action as unavailable only after checking
+what the service actually supports. Spotify-specific features with no equivalent
+remain explicit capability differences.
+
+The implementation order is Search, Artists, Playlists (including applicable
+management actions), then server listening-history integration with local history.
+Each step must connect the existing controls and pages, carry source/account/item
+identity through navigation and playback, preserve other providers' behavior,
+and include focused tests and representative live verification. Extend shared
+contracts where needed; do not add another provider-specific panel. A future
+Combined provider and additional adapters such as Plex must compose those same
+contracts rather than introduce another set of views.

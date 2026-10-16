@@ -634,6 +634,7 @@ impl Browser {
                 .iter()
                 .enumerate()
                 .map(|(i, name)| super::Item {
+                    details: Default::default(),
                     id: format!("album{i}"),
                     name: Some((*name).into()),
                     album: None,
@@ -676,6 +677,7 @@ impl Browser {
                 .iter()
                 .enumerate()
                 .map(|(i, name)| super::Item {
+                    details: Default::default(),
                     id: format!("track{i}"),
                     name: Some((*name).into()),
                     album: Some("Fragments".into()),

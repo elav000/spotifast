@@ -3,8 +3,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+use std::{future::Future, pin::Pin};
 
 use egui::load::{
     Bytes, BytesLoadResult, BytesLoader, BytesPoll, ImageLoadResult, ImageLoader, ImagePoll,
@@ -78,7 +79,7 @@ const SCALED: &str = "#spotifast-px=";
 fn parse_scaled(uri: &str) -> Option<(&str, u32)> {
     let (url, pixels) = uri.rsplit_once(SCALED)?;
     let pixels = pixels.parse().ok().filter(|pixels| *pixels > 0)?;
-    is_http(url).then_some((url, pixels))
+    is_artwork(url).then_some((url, pixels))
 }
 
 /// Lets go of the decoded copy of `url` that egui's image loaders keep in
@@ -97,8 +98,34 @@ pub fn forget_decoded(ctx: &egui::Context, url: &str) {
 
 /// What this loader answers for. egui offers it every URI, and artwork that
 /// is not fetched over the network belongs to another loader.
-fn is_http(uri: &str) -> bool {
-    uri.starts_with("https://") || uri.starts_with("http://")
+fn is_artwork(uri: &str) -> bool {
+    uri.starts_with("https://") || uri.starts_with("http://") || provider_parts(uri).is_some()
+}
+
+/// Private provider artwork uses stable references, never credential-bearing URLs.
+fn provider_parts(uri: &str) -> Option<(&str, &str, &str)> {
+    let mut parts = uri.strip_prefix("provider-art://")?.split('/');
+    let provider = parts.next()?;
+    let source = parts.next()?;
+    let account = parts.next()?;
+    if [provider, source, account].iter().any(|part| {
+        part.is_empty()
+            || part.len() > 128
+            || !part
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    }) {
+        return None;
+    }
+    Some((provider, source, account))
+}
+
+pub type ArtworkResponse = Pin<Box<dyn Future<Output = Result<reqwest::Response, String>> + Send>>;
+
+/// Only resolution and authenticated transport vary. Cache, limits, scaling and
+/// texture ownership stay in ArtLoader for every provider.
+pub trait ArtworkProvider: Send + Sync {
+    fn response(&self, uri: String, proxy: crate::settings::ProxyConfig) -> ArtworkResponse;
 }
 
 enum Entry {
@@ -129,6 +156,8 @@ struct Inner {
     http: Http,
     runtime: tokio::runtime::Handle,
     cache_dir: PathBuf,
+    providers: RwLock<HashMap<String, Arc<dyn ArtworkProvider>>>,
+    provider_proxy: RwLock<crate::settings::ProxyConfig>,
 }
 
 #[derive(Clone)]
@@ -146,8 +175,44 @@ impl ArtLoader {
                 http: http.into(),
                 runtime,
                 cache_dir,
+                providers: RwLock::new(HashMap::new()),
+                provider_proxy: RwLock::new(crate::settings::ProxyConfig::System),
             }),
         }
+    }
+
+    /// Deterministic artwork for offline UI fixtures. Uses the same bytes,
+    /// scaler and texture lifecycle without opening a network connection.
+    #[cfg(any(test, feature = "demo"))]
+    pub fn include_fixture(&self, uri: &str, bytes: Arc<[u8]>) {
+        self.inner
+            .entries
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                uri.to_owned(),
+                Entry::Ready {
+                    retained: bytes.len(),
+                    bytes: Some(bytes),
+                    last_used: Instant::now(),
+                },
+            );
+    }
+
+    pub fn register_provider(&self, name: &str, provider: Arc<dyn ArtworkProvider>) {
+        self.inner
+            .providers
+            .write()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(name.to_owned(), provider);
+    }
+
+    pub fn set_provider_proxy(&self, proxy: crate::settings::ProxyConfig) {
+        *self
+            .inner
+            .provider_proxy
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = proxy;
     }
 
     /// The image loader that scales this loader's artwork for painting.
@@ -264,7 +329,7 @@ impl ArtLoader {
     /// Artwork already held, already on its way, or addressed by a scheme
     /// this loader does not answer for is left alone.
     pub fn prefetch(&self, ctx: &egui::Context, url: &str) -> bool {
-        if !is_http(url) {
+        if !is_artwork(url) {
             return false;
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -344,15 +409,24 @@ impl ArtLoader {
     }
 
     pub fn clear_disk_cache(&self) -> std::io::Result<u64> {
-        let mut removed = 0;
-        for entry in std::fs::read_dir(&self.inner.cache_dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_file() {
-                removed += entry.metadata().map(|m| m.len()).unwrap_or(0);
-                let _ = std::fs::remove_file(entry.path());
+        fn clear_files(root: &std::path::Path) -> std::io::Result<u64> {
+            let mut removed = 0;
+            for entry in std::fs::read_dir(root)? {
+                let entry = entry?;
+                let kind = entry.file_type()?;
+                if kind.is_dir() {
+                    removed += clear_files(&entry.path())?;
+                    let _ = std::fs::remove_dir(entry.path());
+                } else if kind.is_file() {
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    if std::fs::remove_file(entry.path()).is_ok() {
+                        removed += size;
+                    }
+                }
             }
+            Ok(removed)
         }
-        Ok(removed)
+        clear_files(&self.inner.cache_dir)
     }
 }
 
@@ -424,7 +498,16 @@ impl Inner {
             use std::fmt::Write;
             let _ = write!(name, "{byte:02x}");
         }
-        self.cache_dir.join(name)
+        if let Some((provider, source, account)) = provider_parts(url) {
+            self.cache_dir
+                .join("providers")
+                .join(provider)
+                .join(source)
+                .join(account)
+                .join(name)
+        } else {
+            self.cache_dir.join(name)
+        }
     }
 
     async fn fetch(self: &Arc<Self>, url: &str) -> Result<Arc<[u8]>, String> {
@@ -449,13 +532,28 @@ impl Inner {
         let bytes: Arc<[u8]> = match cached {
             Some(bytes) if !bytes.is_empty() => Arc::from(bytes),
             _ => {
-                let mut response = self
-                    .http
-                    .client()?
-                    .get(url)
-                    .send()
-                    .await
-                    .map_err(|error| error.to_string())?;
+                // Preserve the shared network gate while proxy credentials restore.
+                let http = self.http.client()?;
+                let mut response = if let Some((name, _, _)) = provider_parts(url) {
+                    let provider = self
+                        .providers
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .get(name)
+                        .cloned()
+                        .ok_or("Artwork provider is unavailable.")?;
+                    let proxy = self
+                        .provider_proxy
+                        .read()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .clone();
+                    provider.response(url.to_owned(), proxy).await?
+                } else {
+                    http.get(url)
+                        .send()
+                        .await
+                        .map_err(|error| error.to_string())?
+                };
                 if !response.status().is_success() {
                     return Err(format!("artwork request failed: {}", response.status()));
                 }
@@ -479,6 +577,9 @@ impl Inner {
                 let write_path = path.clone();
                 let payload = Arc::clone(&bytes);
                 self.runtime.spawn_blocking(move || {
+                    if let Some(parent) = write_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
                     let temporary = write_path.with_extension("part");
                     if std::fs::write(&temporary, &payload).is_ok() {
                         let _ = std::fs::rename(&temporary, &write_path);
@@ -535,7 +636,7 @@ impl BytesLoader for ArtLoader {
     }
 
     fn load(&self, ctx: &egui::Context, uri: &str) -> BytesLoadResult {
-        if !is_http(uri) {
+        if !is_artwork(uri) {
             return Err(LoadError::NotSupported);
         }
         let mut entries = self.inner.entries.lock().unwrap_or_else(|p| p.into_inner());
@@ -769,7 +870,7 @@ impl LyricsBackdrop {
         }
         let uri = uri?;
         let due = self.retry_at.is_none_or(|at| Instant::now() >= at);
-        if !self.requested && due && is_http(uri) {
+        if !self.requested && due && is_artwork(uri) {
             self.requested = true;
             self.retry_at = None;
             let (tx, rx) = std::sync::mpsc::channel();
@@ -911,7 +1012,7 @@ impl SoftenedCovers {
         {
             return None;
         }
-        if !is_http(uri) {
+        if !is_artwork(uri) {
             self.failed.insert(uri.to_string());
             return None;
         }
@@ -1295,6 +1396,82 @@ mod tests {
         })
         .await
         .expect("the background writer completes while its runtime is alive");
+    }
+
+    struct TestProvider {
+        url: String,
+        calls: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl ArtworkProvider for TestProvider {
+        fn response(&self, _: String, proxy: crate::settings::ProxyConfig) -> ArtworkResponse {
+            assert!(matches!(proxy, crate::settings::ProxyConfig::Off));
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let url = self.url.clone();
+            Box::pin(async move {
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .build()
+                    .unwrap()
+                    .get(url)
+                    .send()
+                    .await
+                    .map_err(|_| "Test request failed".into())
+            })
+        }
+    }
+
+    #[test]
+    fn provider_artwork_reuses_shared_disk_cache_with_account_and_revision_isolation() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("provider-art-cache-{}", std::process::id()));
+        let runtime = artwork_test_runtime();
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        loader.set_provider_proxy(crate::settings::ProxyConfig::Off);
+        let uri = "provider-art://jellyfin/source1/user1/album1/tag1";
+        let expected = b"cached-provider-art";
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        runtime.block_on(async {
+            let (url, server) = serve_artwork("200 OK", expected.to_vec()).await;
+            loader.register_provider(
+                "jellyfin",
+                Arc::new(TestProvider {
+                    url,
+                    calls: calls.clone(),
+                }),
+            );
+            assert_eq!(&*loader.fetch(uri).await.unwrap(), expected);
+            server.await.unwrap();
+            wait_for_artwork_file(&loader.inner.cache_path(uri), expected).await;
+        });
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert!(
+            loader
+                .inner
+                .cache_path(uri)
+                .starts_with(dir.join("providers/jellyfin/source1/user1"))
+        );
+        assert_eq!(parse_scaled(&scaled_uri(uri, 192)), Some((uri, 192)));
+        drop(loader);
+        let loader = artwork_test_loader(&runtime, dir.clone());
+        // No provider or server exists now: this must come from the shared cache.
+        assert_eq!(&*runtime.block_on(loader.fetch(uri)).unwrap(), expected);
+        assert!(
+            runtime
+                .block_on(loader.fetch(&uri.replace("user1", "user2")))
+                .is_err()
+        );
+        assert!(
+            runtime
+                .block_on(loader.fetch(&uri.replace("tag1", "tag2")))
+                .is_err()
+        );
+        assert_eq!(loader.clear_disk_cache().unwrap(), expected.len() as u64);
+        assert!(loader.cached_file(uri).is_none());
+        drop(loader);
+        runtime.shutdown_timeout(Duration::from_secs(10));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

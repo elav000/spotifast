@@ -92,6 +92,9 @@ pub struct Browser {
     pub code: Option<String>,
     pub view: View,
     pub rows: Option<Rows>,
+    pub libraries: Vec<MusicLibrary>,
+    pub album: Option<Item>,
+    pub data_revision: u64,
     pub busy: bool,
     pub cached: bool,
     pub error: Option<String>,
@@ -124,6 +127,9 @@ impl Browser {
             code: None,
             view: View::Libraries,
             rows: None,
+            libraries: Vec::new(),
+            album: None,
+            data_revision: 0,
             busy: false,
             cached: false,
             error: None,
@@ -196,6 +202,12 @@ impl Browser {
                 self.browse(View::Libraries, 0, proxy);
             }
             Reply::Data { rows, cached } => {
+                if !cached {
+                    self.data_revision = self.data_revision.wrapping_add(1);
+                }
+                if let Rows::Libraries(libraries) = &rows {
+                    self.libraries = libraries.clone();
+                }
                 self.rows = Some(rows);
                 self.cached = cached;
                 self.busy = cached;
@@ -221,6 +233,8 @@ impl Browser {
     pub fn connect(&mut self, proxy: &ProxyConfig) {
         self.advance();
         self.rows = None;
+        self.libraries.clear();
+        self.album = None;
         self.source = None;
         self.view = View::Libraries;
         self.busy = true;
@@ -234,6 +248,8 @@ impl Browser {
     }
 
     pub fn sign_out(&mut self, proxy: &ProxyConfig) {
+        self.libraries.clear();
+        self.album = None;
         self.advance();
         self.rows = None;
         self.view = View::Libraries;
@@ -243,6 +259,19 @@ impl Browser {
 
     pub fn browse(&mut self, view: View, start: u32, proxy: &ProxyConfig) {
         let same = self.view == view && self.start == start;
+        if let View::Tracks { album_id, .. } = &view {
+            if !matches!(&self.view, View::Tracks { album_id: current, .. } if current == album_id)
+            {
+                self.album = self.rows.as_ref().and_then(|rows| match rows {
+                    Rows::Items { items, .. } => {
+                        items.iter().find(|item| &item.id == album_id).cloned()
+                    }
+                    _ => None,
+                });
+            }
+        } else {
+            self.album = None;
+        }
         self.advance();
         if !same {
             self.rows = None;
@@ -393,6 +422,7 @@ impl Browser {
             device_id: "device1".into(),
         });
         self.view = View::Libraries;
+        self.album = None;
         self.rows = Some(Rows::Libraries(vec![
             MusicLibrary {
                 id: "music1".into(),
@@ -405,6 +435,9 @@ impl Browser {
                 collection_type: Some("music".into()),
             },
         ]));
+        if let Some(Rows::Libraries(libraries)) = &self.rows {
+            self.libraries = libraries.clone();
+        }
         if page == "jellyfin-connect" || page == "jellyfin-approval" {
             self.source = None;
             self.rows = None;
@@ -441,6 +474,11 @@ impl Browser {
                     container: None,
                     media_streams: None,
                     media_sources: None,
+                    image_tags: Some(std::collections::HashMap::from([(
+                        "Primary".into(),
+                        Some("fixture-v1".into()),
+                    )])),
+                    album_primary_image_tag: None,
                 })
                 .collect();
             self.rows = Some(Rows::Items {
@@ -476,6 +514,8 @@ impl Browser {
                     container: None,
                     media_streams: None,
                     media_sources: None,
+                    image_tags: Default::default(),
+                    album_primary_image_tag: Some("fixture-v1".into()),
                 })
                 .collect();
                 self.rows = Some(Rows::Items {

@@ -679,6 +679,9 @@ pub enum Command {
     Autostart(AutostartRequest),
     /// Read the names of this computer's audio outputs, off the UI thread.
     ListOutputDevices,
+    ClearArtCache {
+        ctx: egui::Context,
+    },
     ProxyRestored {
         lease: CredentialLease,
         result: Result<crate::credentials::Loaded, crate::credentials::Error>,
@@ -938,6 +941,7 @@ pub enum Event {
         folder: std::path::PathBuf,
         uris: Arc<HashSet<String>>,
     },
+    ArtCacheCleared(Result<u64, String>),
     ProxyRestored {
         config: ProxyConfig,
         password: Option<crate::credentials::ProxyPassword>,
@@ -1181,6 +1185,11 @@ impl Backend {
             })
         };
         let art = ArtLoader::new(http.clone(), runtime.handle().clone(), dirs.art_cache_dir());
+        art.set_provider_proxy(engine_config.proxy.clone());
+        art.register_provider(
+            "jellyfin",
+            Arc::new(crate::jellyfin::artwork::Fetcher::new(dirs.clone())),
+        );
         let activity = Arc::new(NetActivity::default());
 
         let worker_activity = Arc::clone(&activity);
@@ -1289,6 +1298,7 @@ impl Backend {
             && !matches!(
                 command,
                 Command::Accent { .. }
+                    | Command::ClearArtCache { .. }
                     | Command::Shutdown
                     | Command::CheckForUpdates { .. }
                     | Command::InspectUpdate
@@ -1939,6 +1949,7 @@ impl Worker {
         let client = crate::http::build_client(&proxy)?;
         let restart = self.engine_proxy != proxy.librespot_url();
         self.http.replace(client);
+        self.art.set_provider_proxy(proxy.clone());
         self.engine_config.proxy = proxy;
         Ok(restart)
     }
@@ -2081,6 +2092,7 @@ impl Worker {
                         | Command::SignIn { .. }
                         | Command::SignOut
                         | Command::CancelSignIn
+                        | Command::ClearArtCache { .. }
                         | Command::Shutdown
                 )
             {
@@ -2112,6 +2124,18 @@ impl Worker {
                             }
                         };
                         let _ = events.send(Event::Autostart { request, result });
+                        waker.wake();
+                    });
+                }
+                Command::ClearArtCache { ctx } => {
+                    let art = self.art.clone();
+                    let events = self.events.clone();
+                    let waker = self.waker.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let result = art.clear_disk_cache().map_err(|error| error.to_string());
+                        // A cover might have reloaded while the disk worker ran.
+                        ctx.forget_all_images();
+                        let _ = events.send(Event::ArtCacheCleared(result));
                         waker.wake();
                     });
                 }

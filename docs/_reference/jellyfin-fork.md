@@ -190,8 +190,11 @@ rate, channels and bit depth. They retain no raw provider URLs or HTTP headers
 from `MediaSources`. The decoder probes the bytes rather than trusting the file
 name or catalog hint.
 
-The reader retains one validated 256 KiB range and stages at most one replacement
-range. It checks 206/Content-Range, size, total length and supplied entity
+The diagnostic reader retains one validated 256 KiB range. App playback uses
+1 MiB ranges and fetches the next range in the background while consuming the
+current one. Sequential playback retains at most two ranges; a seek can briefly
+retain one unrelated speculative range while fetching its new position. It
+checks 206/Content-Range, size, total length and supplied entity
 validators, rejects redirects and whole-file 200 responses, and leaves its cursor
 unchanged when a range fails. Seeking uses the demuxer's index/timestamps and
 resets decoder/resampler state; a byte-range offset is never treated as a time.
@@ -481,3 +484,52 @@ added source or collection controls; its existing Home, Search, shelf pills,
 filter, sort, grid/list and playlist creation controls receive provider data.
 The sort label remains upstream's current label, with clearer wording recorded
 as later polish.
+
+
+### Playback underrun correction
+
+Live listening exposed repeated output underruns when each 256 KiB network read
+ran synchronously after the preceding range was exhausted. Playback now uses the
+buffered reader above, keeping network waits ahead of the current sound rather
+than on each output refill. It still validates ranges and entity identity,
+rejects redirects, preserves exact seeking, and cancels replaced playback.
+Tests cover advance fetching without consumption, reuse without duplicate reads,
+seeks past stale prefetched data, changed-entity rejection, retry and cancellation.
+This adds no persistent audio cache, dependency or setting.
+
+
+### Streaming reuse boundary
+
+The current librespot dependency already supplies Spotify read-ahead, downloaded
+range tracking and optional disk audio caching. Its AudioFile entry point requires
+a Spotify Session and FileId and resolves Spotify CDN storage internally. It is
+not a generic authenticated HTTP media source. Its disk cache also uses FileId;
+Jellyfin must not acquire invented Spotify identifiers to fit those APIs.
+
+The app already shares the output sink, bounded output queue, DSP and device
+ownership. The remaining roadmap is a neutral seekable encoded-audio source and
+cache contract: providers resolve identity, authorization and transport, while
+reusable infrastructure owns buffering, cache accounting and eviction where the
+backend exposes those hooks. Audit existing librespot interfaces or a suitable
+upstream extraction before adding more streaming/cache policy. Spotify's existing
+backend can remain behind that adapter. Jellyfin and future Plex support should
+reuse the neutral HTTP implementation, rather than duplicate a downloader per
+service. Current Jellyfin read-ahead is bounded memory only, not a persistent
+audio cache or a completed shared streaming layer.
+
+
+### Playback verification and remaining buffering case
+
+NativeAmp's Swift path was reviewed: it parses response data incrementally on
+its URLSession delegate queue and bounds queued PCM to eight seconds. The current
+Rust correction is input read-ahead, not that full PCM scheduling design.
+A paced 30-second live WAV decoder probe passed without any read taking more
+than 150 ms. The app subsequently played for several minutes with the user
+confirming continuous sound and no further underruns. One 38-second startup
+underrun occurred during concurrent diagnostics; its cause is not established,
+and cold-start/jitter buffering remains a follow-up. Do not claim that every
+network stall is resolved or that the full streaming layer is shared.
+
+Playback failures are now rendered through the shared error row on connected
+provider pages as well as recorded with a redacted message in the app log. This
+restores visibility lost when the old connected Jellyfin panel was removed.

@@ -4,6 +4,8 @@
 //! deliberately have no Debug/Serialize implementation and never enter URLs
 //! except the server-required Quick Connect polling query. Errors omit URLs.
 
+pub mod catalog;
+
 use std::ops::Range;
 use std::time::Duration;
 
@@ -75,6 +77,8 @@ pub struct MusicLibrary {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
+    #[serde(flatten, default)]
+    pub details: catalog::Details,
     pub id: String,
     pub name: Option<String>,
     pub album: Option<String>,

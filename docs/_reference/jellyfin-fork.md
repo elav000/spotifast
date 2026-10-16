@@ -406,3 +406,27 @@ and include focused tests and representative live verification. Extend shared
 contracts where needed; do not add another provider-specific panel. A future
 Combined provider and additional adapters such as Plex must compose those same
 contracts rather than introduce another set of views.
+
+
+## Catalog adapter request foundation
+
+The Jellyfin client now exposes account-scoped, paged queries for artists,
+playlists, artist albums and songs, typed search results, and server listening
+history. Artist songs stay within the selected music collection. Playlists
+are user-scoped rather than children of a music collection, and their entries
+retain server order and occurrence IDs, including repeated songs.
+
+Client operations also cover private playlist creation, rename, deletion,
+adding songs, removing specific occurrences, and moving an occurrence. Rename
+sends only the name, preserving entries and sharing. Batched operations validate
+all IDs before sending and stop on the first failed batch. A failed later batch
+may leave earlier successful batches applied; callers must refresh the server
+state rather than assume an atomic edit. Playback start, progress and stop
+requests use signed 64-bit Jellyfin ticks and keep credentials in headers.
+
+These are tested client contracts, not completed interface capabilities. The
+shared Search, Artists and Playlists controllers still need to consume them;
+playlist management and playback reporting are not yet wired into the running
+app. Existing album browsing and playback behavior is unchanged by this client
+foundation. All request tests use a local fixture server and never edit the
+user's Jellyfin playlists.

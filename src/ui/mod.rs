@@ -386,6 +386,9 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
                             if provider {
+                                if let Some(error) = app.jellyfin_player.snapshot().error {
+                                    widgets::error_row(ui, app, &error, None);
+                                }
                                 match app.jellyfin.view {
                                     crate::jellyfin::browser::View::Settings => {
                                         settings::show(app, ui)

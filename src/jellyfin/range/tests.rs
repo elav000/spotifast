@@ -5,6 +5,7 @@ use std::sync::Mutex;
 #[derive(Clone, Copy)]
 enum Reply {
     Good,
+    Blocked,
     WholeFile,
     BadRange,
     Truncated,
@@ -17,6 +18,7 @@ struct Server {
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
     requests: Arc<Mutex<Vec<String>>>,
+    release: Arc<(Mutex<bool>, std::sync::Condvar)>,
 }
 
 impl Server {
@@ -27,6 +29,8 @@ impl Server {
         let done = stop.clone();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let recorded = requests.clone();
+        let release = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+        let gate = release.clone();
         let thread = std::thread::spawn(move || {
             let mut sequence = replies.into_iter();
             loop {
@@ -58,9 +62,16 @@ impl Server {
                 let (first, last) = range.split_once('-').unwrap();
                 let first = first.parse::<usize>().unwrap();
                 let last = last.parse::<usize>().unwrap().min(bytes.len() - 1);
-                assert!(last - first < RANGE_BYTES);
+                assert!(last - first < PLAYBACK_RANGE_BYTES);
                 recorded.lock().unwrap().push(request);
                 let reply = sequence.next().unwrap_or(Reply::Good);
+                if matches!(reply, Reply::Blocked) {
+                    let (lock, ready) = &*gate;
+                    let mut released = lock.lock().unwrap();
+                    while !*released {
+                        released = ready.wait(released).unwrap();
+                    }
+                }
                 let body = if matches!(reply, Reply::WholeFile) {
                     &bytes[..]
                 } else {
@@ -102,9 +113,18 @@ impl Server {
             stop,
             thread: Some(thread),
             requests,
+            release,
         }
     }
+    fn unblock(&self) {
+        let (lock, ready) = &*self.release;
+        *lock.lock().unwrap() = true;
+        ready.notify_all();
+    }
     fn source(&self) -> io::Result<HttpRangeSource> {
+        self.source_mode(false)
+    }
+    fn source_mode(&self, buffered: bool) -> io::Result<HttpRangeSource> {
         let client = crate::jellyfin::Client::new(
             &format!("http://{}", self.address),
             "test-device",
@@ -112,7 +132,12 @@ impl Server {
         )
         .unwrap();
         let token = crate::jellyfin::Token::new("dummy-audio-token".into()).unwrap();
-        HttpRangeSource::new(
+        let open = if buffered {
+            HttpRangeSource::buffered
+        } else {
+            HttpRangeSource::new
+        };
+        open(
             client.stream_request("track1", &token, None).unwrap(),
             &ProxyConfig::Off,
             Arc::new(AtomicBool::new(false)),
@@ -123,6 +148,7 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
+        self.unblock();
         let _ = TcpStream::connect(&self.address);
         if let Some(thread) = self.thread.take() {
             thread.join().unwrap();
@@ -336,4 +362,139 @@ fn resampled_wav_seek_preserves_sample_alignment_after_filter_startup() {
     for (actual, expected) in sought[256..].iter().zip(&expected[256..]) {
         assert!((actual - expected).abs() < 0.00001);
     }
+}
+
+fn await_prefetch(source: &HttpRangeSource) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !source.pending.as_ref().unwrap().1.is_finished() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "bounded prefetch completed"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn playback_bytes() -> Vec<u8> {
+    (0..PLAYBACK_RANGE_BYTES * 4)
+        .map(|i| (i % 251) as u8)
+        .collect()
+}
+
+#[test]
+fn buffered_playback_fetches_ahead_before_consumption_and_reuses_the_ready_range() {
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![]);
+    let mut source = server.source_mode(true).unwrap();
+    await_prefetch(&source);
+    assert_eq!(source.stream_position().unwrap(), 0);
+    assert_eq!(source.buffer.len(), PLAYBACK_RANGE_BYTES);
+    assert_eq!(
+        source.metrics.snapshot().bytes,
+        (PLAYBACK_RANGE_BYTES * 2) as u64
+    );
+    let mut out = vec![0; PLAYBACK_RANGE_BYTES + 16];
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(out, bytes[..out.len()]);
+    assert_eq!(source.buffer_start, PLAYBACK_RANGE_BYTES as u64);
+    assert!(source.metrics.snapshot().peak_range_bytes <= PLAYBACK_RANGE_BYTES as u64);
+    let requests = server.requests.lock().unwrap();
+    let next = format!("range: bytes={}-", PLAYBACK_RANGE_BYTES);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.to_lowercase().contains(&next))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn buffered_seek_discards_unrelated_prefetch_and_preserves_exact_bytes() {
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![]);
+    let mut source = server.source_mode(true).unwrap();
+    await_prefetch(&source);
+    source.seek(SeekFrom::End(-16)).unwrap();
+    let mut out = [0; 16];
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(out, bytes[bytes.len() - 16..]);
+    source
+        .seek(SeekFrom::Start(PLAYBACK_RANGE_BYTES as u64 + 37))
+        .unwrap();
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(
+        out,
+        bytes[PLAYBACK_RANGE_BYTES + 37..PLAYBACK_RANGE_BYTES + 53]
+    );
+}
+
+#[test]
+fn failed_prefetch_preserves_current_range_cursor_and_validation_on_retry() {
+    let server = Server::new(
+        playback_bytes(),
+        vec![Reply::Good, Reply::Changed, Reply::Good],
+    );
+    let mut source = server.source_mode(true).unwrap();
+    await_prefetch(&source);
+    source
+        .seek(SeekFrom::Start(PLAYBACK_RANGE_BYTES as u64))
+        .unwrap();
+    assert!(
+        source
+            .read(&mut [0])
+            .unwrap_err()
+            .to_string()
+            .contains("changed")
+    );
+    assert_eq!(source.buffer_start, 0);
+    assert_eq!(
+        source.stream_position().unwrap(),
+        PLAYBACK_RANGE_BYTES as u64
+    );
+    let mut out = [0];
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(out[0], (PLAYBACK_RANGE_BYTES % 251) as u8);
+    await_prefetch(&source);
+    let requests = source.metrics.snapshot().requests;
+    source.cancel.store(true, Ordering::SeqCst);
+    assert_eq!(
+        source.read(&mut out).unwrap_err().kind(),
+        io::ErrorKind::Interrupted
+    );
+    assert_eq!(
+        source.seek(SeekFrom::Start(0)).unwrap_err().kind(),
+        io::ErrorKind::Interrupted
+    );
+    assert_eq!(source.metrics.snapshot().requests, requests);
+}
+
+#[test]
+fn current_audio_remains_readable_while_the_next_network_range_is_blocked() {
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![Reply::Good, Reply::Blocked]);
+    let mut source = server.source_mode(true).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while server.requests.lock().unwrap().len() < 2 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "next range requested before consuming current audio"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(!source.pending.as_ref().unwrap().1.is_finished());
+    let mut out = [0; 8192];
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(out, bytes[..out.len()]);
+    assert!(!source.pending.as_ref().unwrap().1.is_finished());
+    server.unblock();
+    await_prefetch(&source);
+    source
+        .seek(SeekFrom::Start(PLAYBACK_RANGE_BYTES as u64))
+        .unwrap();
+    source.read_exact(&mut out).unwrap();
+    assert_eq!(
+        out,
+        bytes[PLAYBACK_RANGE_BYTES..PLAYBACK_RANGE_BYTES + out.len()]
+    );
 }

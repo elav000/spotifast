@@ -842,6 +842,7 @@ fn run(dirs: AppDirs, shared: Arc<Shared>, initial_config: EngineConfig) {
                 state.snapshot.loading = false;
             }
             Err(error) => {
+                log::warn!("Jellyfin playback stopped: {error}");
                 state.snapshot.error = Some(error);
                 state.snapshot.playing = false;
                 state.snapshot.loading = false;
@@ -926,7 +927,7 @@ fn session(
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
     }
-    let source = HttpRangeSource::new(
+    let source = HttpRangeSource::buffered(
         client
             .stream_request(&job.item.id, &token, None)
             .map_err(|error| error.to_string())?,

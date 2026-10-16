@@ -2462,9 +2462,37 @@ impl App {
                 self.session_dirty = true;
             }
         }
+        if !self.jellyfin.busy
+            && self.jellyfin.error.is_none()
+            && self.jellyfin.play_album.is_some()
+        {
+            let pending = self.jellyfin.play_album.take();
+            if let crate::jellyfin::browser::View::Tracks { album_id, .. } = &self.jellyfin.view
+                && pending.as_ref() == Some(album_id)
+                && let Some(crate::jellyfin::browser::Rows::Items { items, .. }) =
+                    &self.jellyfin.rows
+                && let Some(item) = items.first()
+            {
+                self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
+                    item.id.clone(),
+                ));
+            }
+        }
         let epoch = self.jellyfin_player.epoch();
         if self.jellyfin_epoch != epoch {
             self.jellyfin_epoch = epoch;
+            if let Some((source, album)) = self.jellyfin_player.context()
+                && self.jellyfin_player.controls_output()
+                && self.jellyfin.source.as_ref() == Some(&source)
+            {
+                let key = crate::provider::ItemReference::Jellyfin {
+                    source: source.id,
+                    account: source.user_id,
+                    item: album,
+                }
+                .context_key();
+                self.note_recent_context(&key);
+            }
             self.session_dirty = true;
         }
     }
@@ -10533,6 +10561,7 @@ impl App {
             self.supersede_play_search();
         }
         match action {
+            Action::ProviderLibrary(action) => self.apply_provider_library(action),
             Action::Jellyfin(action) => self.apply_jellyfin_action(action),
             Action::ToggleShuffle
             | Action::SetShuffle(_)

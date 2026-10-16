@@ -3045,6 +3045,10 @@ pub fn sanitize_error_message<'a>(message: &'a str, locale: Locale) -> std::borr
 }
 
 pub fn error_row(ui: &mut Ui, app: &mut App, message: &str, retry: Option<Page>) {
+    error_row_with_action(ui, app, message, retry.map(Action::Reload));
+}
+
+pub fn error_row_with_action(ui: &mut Ui, app: &mut App, message: &str, retry: Option<Action>) {
     let palette = app.palette;
     let sanitized = sanitize_error_message(message, app.locale);
     ui.horizontal(|ui| {
@@ -3056,7 +3060,7 @@ pub fn error_row(ui: &mut Ui, app: &mut App, message: &str, retry: Option<Page>)
             theme::regular(13.0),
             palette.secondary,
         );
-        if let Some(page) = retry
+        if let Some(action) = retry
             && theme::soft_button(
                 ui,
                 &palette,
@@ -3066,7 +3070,7 @@ pub fn error_row(ui: &mut Ui, app: &mut App, message: &str, retry: Option<Page>)
             )
             .clicked()
         {
-            app.actions.push(Action::Reload(page));
+            app.actions.push(action);
         }
     });
 }

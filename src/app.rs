@@ -2423,6 +2423,8 @@ impl App {
     }
 
     pub(crate) fn prepare_jellyfin_playback(&mut self) {
+        self.jellyfin_player
+            .set_volume(volume_to_percent(self.settings.volume));
         self.supersede_play_search();
         self.queued_play = None;
         self.intent_track = None;
@@ -16175,6 +16177,19 @@ mod tests {
             app.resume_position_ms, 19_566,
             "closing again must not lose the position"
         );
+    }
+
+    #[test]
+    fn resuming_jellyfin_uses_volume_changed_while_it_was_suspended() {
+        use crate::jellyfin::browser::BrowserAction;
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.jellyfin_player.suspend();
+        app.set_volume(20, true);
+        app.apply_jellyfin_action(BrowserAction::Resume);
+        assert_eq!(app.jellyfin_player.snapshot().volume, 20);
+        app.backend.shutdown();
     }
 
     #[test]

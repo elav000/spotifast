@@ -402,6 +402,7 @@ impl Transport {
     }
 
     pub fn configure(&mut self, config: EngineConfig) {
+        self.set_volume(crate::app::volume_to_percent(config.initial_volume));
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(template) = &mut state.template {
             template.config = config.clone();
@@ -995,6 +996,20 @@ mod tests {
             serde_json::json!({ "Id": id, "Name": id, "Artists": [], "RunTimeTicks": 10_000_000 }),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn playback_configuration_uses_the_current_shared_volume() {
+        let mut transport = transport();
+        transport.set_volume(70);
+        let mut config = transport.config.clone();
+        config.initial_volume = crate::app::percent_to_volume(20);
+        transport.configure(config);
+        assert_eq!(transport.snapshot().volume, 20);
+        assert_eq!(
+            f64::from_bits(transport.shared.volume.load(Ordering::Relaxed)),
+            level(20)
+        );
     }
 
     #[test]

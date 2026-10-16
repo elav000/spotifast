@@ -75,14 +75,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             {
                 player_bar::show(app, ui);
             }
-            if app.settings.sidebar_visible {
+            if app.settings.sidebar_visible && app.jellyfin.source.is_some() {
                 sidebar::show(app, ui);
             }
             if app.show_queue_panel {
                 playback_queue_panel(app, ui);
             }
-            jellyfin::show(app, ui);
+            if app.jellyfin.source.is_some() {
+                central(app, ui);
+            } else {
+                jellyfin::show(app, ui);
+            }
             keep_room_for_panels(app, ctx);
+            dialogs::show(app, ctx);
+            update::show(app, ctx);
+            toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);
             caption_buttons(ui, &app.palette, app.locale);
             fastframe_titlebar::resize(ui);
             return;
@@ -97,9 +104,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if app.show_queue_panel {
                 jellyfin::queue_panel(app, ui);
             }
-        }
-        if app.jellyfin.enabled && app.settings.sidebar_visible {
-            sidebar::show(app, ui);
         }
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);
@@ -333,20 +337,44 @@ fn page_tint(app: &mut App) -> Option<Color32> {
 
 fn central(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
-    let tint = page_tint(app);
+    let provider = app.jellyfin_selected();
+    let tint = if provider {
+        app.jellyfin
+            .album
+            .as_ref()
+            .and_then(|item| {
+                app.jellyfin
+                    .source
+                    .as_ref()
+                    .and_then(|source| crate::jellyfin::artwork::Reference::for_item(source, item))
+            })
+            .map(|art| art.uri())
+            .and_then(|uri| app.tint_for(Some(&uri)))
+    } else {
+        page_tint(app)
+    };
     egui::CentralPanel::default()
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
             let page = app.page().clone();
-            let overview = matches!(
-                page,
-                Page::Home | Page::Search | Page::Settings | Page::Queue
-            );
+            let page_key = if provider {
+                format!("jellyfin:{:?}:{:?}", app.jellyfin.source, app.jellyfin.view)
+            } else {
+                page.encode()
+            };
+            let overview = if provider {
+                app.jellyfin.view.context_id().is_none()
+            } else {
+                matches!(
+                    page,
+                    Page::Home | Page::Search | Page::Settings | Page::Queue
+                )
+            };
             // The wash belongs to the page's hero, so it scrolls away with
             // it. The page's offset is known once it has been laid out, so
             // the previous frame's serves.
-            let scrolled_id = Id::new(("page-scrolled", page.encode()));
+            let scrolled_id = Id::new(("page-scrolled", &page_key));
             let scrolled = ui
                 .ctx()
                 .data(|data| data.get_temp::<f32>(scrolled_id))
@@ -372,7 +400,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             let scroll = crate::autoscroll::show(
                 ui,
                 egui::ScrollArea::vertical()
-                    .id_salt(("page", page.encode()))
+                    .id_salt(("page", &page_key))
                     .auto_shrink([false, false]),
                 egui::Vec2b::new(false, true),
                 |ui| {
@@ -385,6 +413,18 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                         })
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
+                            if provider {
+                                match app.jellyfin.view {
+                                    crate::jellyfin::browser::View::Settings => {
+                                        settings::show(app, ui)
+                                    }
+                                    crate::jellyfin::browser::View::Search { .. } => {
+                                        search::show(app, ui)
+                                    }
+                                    _ => collection::provider(app, ui),
+                                }
+                                return;
+                            }
                             match page {
                                 Page::Home => home::show(app, ui),
                                 Page::TopSongs => collection::top_songs(app, ui),

@@ -2186,7 +2186,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // Translators: {folder} is the path of a cache folder.
             gettext(locale, "Stored in {folder}").replace(
                 "{folder}",
-                &app.dirs.audio_cache_dir().display().to_string(),
+                &format!(
+                    "{}; {}",
+                    app.dirs.audio_cache_dir().display(),
+                    app.dirs
+                        .audio_cache_dir()
+                        .with_extension("streams")
+                        .display()
+                ),
             ),
         ),
         RowText::new(

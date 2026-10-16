@@ -486,8 +486,8 @@ mod tests;
 pub mod artwork;
 pub mod browser;
 
-pub mod decode;
-pub mod range;
+// Compatibility exports for diagnostics; implementation is provider-neutral.
+pub use crate::media::{decode, http as range};
 
 pub mod spike;
 pub mod transport;

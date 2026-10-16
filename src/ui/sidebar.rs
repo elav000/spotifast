@@ -931,65 +931,11 @@ fn nav_row(
     response
 }
 
-pub(super) fn reveal_button(app: &mut App, ui: &mut egui::Ui) {
-    if app.jellyfin.enabled
-        && !app.settings.sidebar_visible
-        && theme::icon_button(
-            ui,
-            Icon::PanelLeft,
-            20.0,
-            app.palette.secondary,
-            app.palette.text,
-            super::keys::platform_shortcut(
-                &gettext(app.locale, "Show sidebar (Ctrl+B)"),
-                &gettext(app.locale, "Show sidebar (Cmd+B)"),
-            ),
-        )
-        .clicked()
-    {
-        app.actions.push(Action::ToggleSidebar);
-    }
-}
-
-/// The same rail switches catalogs without touching playback ownership.
-fn provider_switcher(app: &mut App, ui: &mut egui::Ui) {
-    use crate::{jellyfin::browser::BrowserAction, provider::Provider};
-    let selected = app.jellyfin.provider;
-    let label = gettext(app.locale, "Music source");
-    ui.label(&*label);
-    let response = egui::ComboBox::from_id_salt("sidebar-provider")
-        .width(ui.available_width())
-        .selected_text(match selected {
-            Provider::Jellyfin => "Jellyfin",
-            Provider::Spotify => "Spotify",
-        })
-        .show_ui(ui, |ui| {
-            for (provider, name) in [
-                (Provider::Jellyfin, "Jellyfin"),
-                (Provider::Spotify, "Spotify"),
-            ] {
-                if ui.selectable_label(selected == provider, name).clicked() {
-                    app.actions
-                        .push(Action::Jellyfin(BrowserAction::Select(provider)));
-                    ui.close();
-                }
-            }
-        })
-        .response;
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), &*label)
-    });
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
-}
-
 /// Draw Library navigation, shelf controls, search, and the visible rows.
 /// Playlist ownership and text filters are applied before ordering and pin placement.
 fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
     if app.jellyfin.enabled {
-        provider_switcher(app, ui);
         if app.jellyfin.provider == crate::provider::Provider::Jellyfin
             && app.jellyfin.source.is_none()
         {
@@ -1026,15 +972,18 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 .map_or(Action::Open(Page::Home), |data| data.home.clone()),
         );
     }
-    if provider.is_none()
-        && nav_row(
-            ui,
-            &palette,
-            Icon::Search,
-            &gettext(locale, "Search"),
-            page == Page::Search,
-        )
-        .clicked()
+    if nav_row(
+        ui,
+        &palette,
+        Icon::Search,
+        &gettext(locale, "Search"),
+        if app.jellyfin_selected() {
+            app.provider_search_active()
+        } else {
+            page == Page::Search
+        },
+    )
+    .clicked()
     {
         app.actions.push(Action::FocusSearch);
     }
@@ -1051,9 +1000,10 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     } else {
         egui::Id::new("sidebar-filter")
     };
-    let mut filter = ui
-        .data(|data| data.get_temp::<Filter>(filter_id))
-        .unwrap_or_default();
+    let mut filter = provider.as_ref().map(|data| data.shelf).unwrap_or_else(|| {
+        ui.data(|data| data.get_temp::<Filter>(filter_id))
+            .unwrap_or_default()
+    });
     if let Some(data) = &provider
         && !data.shelves.contains(&filter)
     {
@@ -1102,16 +1052,15 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 app.actions.push(Action::SetLibraryGrid(!grid));
             }
             // One item never deserved a menu: the plus creates directly.
-            if provider.is_none()
-                && theme::icon_button(
-                    ui,
-                    Icon::Plus,
-                    16.0,
-                    palette.secondary,
-                    palette.text,
-                    &gettext(locale, "Create a playlist"),
-                )
-                .clicked()
+            if theme::icon_button(
+                ui,
+                Icon::Plus,
+                16.0,
+                palette.secondary,
+                palette.text,
+                &gettext(locale, "Create a playlist"),
+            )
+            .clicked()
             {
                 app.actions.push(Action::ShowDialog(Dialog::CreatePlaylist {
                     name: String::new(),
@@ -1165,35 +1114,6 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     });
     ui.add_space(6.0);
 
-    if let Some(data) = &provider {
-        let label = data
-            .collections
-            .iter()
-            .find(|(id, _)| Some(id) == data.collection.as_ref())
-            .map(|(_, name)| name.as_str())
-            .unwrap_or("Select collection");
-        egui::ComboBox::from_id_salt("library-collection")
-            .width(ui.available_width())
-            .selected_text(label)
-            .show_ui(ui, |ui| {
-                for (id, name) in &data.collections {
-                    if ui
-                        .selectable_label(Some(id) == data.collection.as_ref(), name)
-                        .clicked()
-                    {
-                        app.actions.push(Action::ProviderLibrary(
-                            crate::provider::LibraryAction::Collection(id.clone()),
-                        ));
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), "Collection")
-            });
-        ui.add_space(6.0);
-    }
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
         for (value, label) in [
@@ -1210,6 +1130,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             }
             if theme::soft_button(ui, &palette, None, &label, filter == value).clicked() {
                 filter = value;
+                if provider.is_some() {
+                    app.actions.push(Action::ProviderLibrary(
+                        crate::provider::LibraryAction::Shelf(value),
+                    ));
+                }
             }
         }
     });
@@ -1225,7 +1150,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             sort,
             provider.as_ref().map(|data| data.sorts.as_slice()),
         );
-        if filter == Filter::Playlists {
+        if provider.is_none() && filter == Filter::Playlists {
             // Translators: Library filter for playlists created by the signed-in user.
             let label = gettext(locale, "By You");
             let by_you = app.settings.library_by_you;
@@ -1333,9 +1258,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 subtitle: item.subtitle.clone(),
                 grid_subtitle: item.subtitle.clone(),
                 page: None,
-                uri: item.reference.context_key(),
+                uri: item.reference.context_key_for(item.kind),
+                round: item.round,
                 provider: Some(item),
-                round: false,
                 liked: false,
                 owned: false,
                 editable: false,
@@ -2135,6 +2060,11 @@ fn entry_menu(app: &mut App, response: &egui::Response, entry: &Entry, custom_or
                     &gettext(app.locale, "Open"),
                 ) {
                     app.actions.push(provider.open.clone());
+                }
+                for (label, action) in &provider.menu {
+                    if super::widgets::menu_item(ui, &app.palette, None, label) {
+                        app.actions.push(action.clone());
+                    }
                 }
                 pin_menu(app, ui, entry.ordering_key());
             });

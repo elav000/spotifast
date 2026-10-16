@@ -46,7 +46,15 @@ pub fn spawn(
             };
             while let Ok(job) = rx.recv() {
                 worker.catalog_request = job.catalog_request;
-                if !worker.current(job.generation) && !matches!(&job.command, Command::Select(_)) {
+                if !worker.current(job.generation)
+                    && !matches!(
+                        &job.command,
+                        Command::Select(_)
+                            | Command::Edit { .. }
+                            | Command::Playlists(_)
+                            | Command::Report(_)
+                    )
+                {
                     continue;
                 }
                 if let Err(error) = runtime.block_on(worker.run(&job)) {
@@ -106,9 +114,153 @@ impl Worker {
         self.dirs.state.join("jellyfin-revoked")
     }
 
+    async fn load_playlists(
+        &self,
+        source: &Source,
+        proxy: &crate::settings::ProxyConfig,
+    ) -> Result<Vec<crate::jellyfin::Item>, String> {
+        if self.source.as_ref() != Some(source) {
+            return Err("Jellyfin account changed.".into());
+        }
+        let token = self.token.as_ref().ok_or("Connect to Jellyfin again.")?;
+        let client = Client::new(&source.server_url, &source.device_id, proxy)
+            .map_err(|error| error.to_string())?;
+        let mut items = Vec::new();
+        loop {
+            let page = client
+                .query(
+                    &source.user_id,
+                    &crate::jellyfin::catalog::Query::Playlists,
+                    items.len() as u32,
+                    token,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            let done = page.items.is_empty()
+                || page.start_index.saturating_add(page.items.len() as u32)
+                    >= page.total_record_count;
+            items.extend(page.items);
+            if items.len() > 10000 {
+                return Err("The playlist picker exceeds its item limit.".into());
+            }
+            if done {
+                return Ok(items);
+            }
+        }
+    }
+
+    async fn edit_playlist(
+        &self,
+        source: &Source,
+        edit: &PlaylistEdit,
+        proxy: &crate::settings::ProxyConfig,
+    ) -> Result<Option<(String, String)>, String> {
+        if self.source.as_ref() != Some(source) {
+            return Err("Jellyfin account changed. Open the playlist again.".into());
+        }
+        let token = self
+            .token
+            .as_ref()
+            .ok_or("Connect to Jellyfin again before editing playlists.")?;
+        let client = Client::new(&source.server_url, &source.device_id, proxy)
+            .map_err(|error| error.to_string())?;
+        let result = match edit {
+            PlaylistEdit::Create {
+                name,
+                public,
+                items,
+            } => {
+                let id = client
+                    .create_playlist_with_items(&source.user_id, name, *public, items, token)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                return Ok(Some((id, name.clone())));
+            }
+            PlaylistEdit::Rename { id, name } => client.rename_playlist(id, name, token).await,
+            PlaylistEdit::Delete { id } => client.delete_playlist(id, token).await,
+            PlaylistEdit::Add { id, items } => {
+                client
+                    .add_to_playlist(&source.user_id, id, items, token)
+                    .await
+            }
+            PlaylistEdit::Remove { id, entries } => {
+                client.remove_playlist_entries(id, entries, token).await
+            }
+            PlaylistEdit::Move { id, entry, index } => {
+                client.move_playlist_entry(id, entry, *index, token).await
+            }
+        };
+        result.map(|()| None).map_err(|error| error.to_string())
+    }
+
     async fn run(&mut self, job: &Job) -> Result<(), String> {
         let generation = job.generation;
         match &job.command {
+            Command::Report(report) => {
+                let source = &report.playback.source;
+                if self.source.as_ref() != Some(source) {
+                    return Ok(());
+                }
+                let result = if let Some(token) = &self.token {
+                    match Client::new(&source.server_url, &source.device_id, &job.proxy) {
+                        Ok(client) => {
+                            client
+                                .report_playback(
+                                    &report.playback.item,
+                                    report.playback.position_ms,
+                                    !report.playback.playing,
+                                    report.event,
+                                    token,
+                                )
+                                .await
+                        }
+                        Err(error) => Err(error),
+                    }
+                } else {
+                    return Ok(());
+                };
+                let error = result.err().map(|error| {
+                    format!("Jellyfin listening history could not be updated: {error}")
+                });
+                let _ = self.events.send(Event {
+                    generation,
+                    reply: Reply::ReportError {
+                        source: source.clone(),
+                        error,
+                    },
+                });
+                self.waker.wake();
+            }
+
+            Command::Playlists(source) => {
+                let result = self.load_playlists(source, &job.proxy).await;
+                let _ = self.events.send(Event {
+                    generation,
+                    reply: Reply::Playlists {
+                        source: source.clone(),
+                        result,
+                    },
+                });
+                self.waker.wake();
+            }
+
+            Command::Edit {
+                source,
+                request,
+                edit,
+            } => {
+                let result = self.edit_playlist(source, edit, &job.proxy).await;
+                let _ = self.events.send(Event {
+                    generation,
+                    reply: Reply::Edited {
+                        source: source.clone(),
+                        request: *request,
+                        result,
+                    },
+                });
+                self.waker.wake();
+            }
+
             Command::Select(provider) => {
                 fastframe_file::write(
                     &self.dirs.state.join("browsing-provider.json"),
@@ -233,6 +385,53 @@ impl Worker {
                 let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
                     .map_err(|e| e.to_string())?;
                 let rows = match view {
+                    View::Settings => return Ok(()),
+                    View::Search {
+                        library,
+                        term,
+                        kind,
+                    } => {
+                        let mut sections = Vec::new();
+                        for category in [
+                            crate::jellyfin::catalog::Kind::Song,
+                            crate::jellyfin::catalog::Kind::Artist,
+                            crate::jellyfin::catalog::Kind::Album,
+                            crate::jellyfin::catalog::Kind::Playlist,
+                        ] {
+                            if kind.is_some_and(|kind| kind != category) {
+                                continue;
+                            }
+                            if !self.current(generation) {
+                                return Ok(());
+                            }
+                            let page = client
+                                .query(
+                                    &source.user_id,
+                                    &crate::jellyfin::catalog::Query::Search {
+                                        library: library.clone(),
+                                        term: term.clone(),
+                                        kind: category,
+                                    },
+                                    *start,
+                                    token,
+                                )
+                                .await
+                                .map_err(|e| e.to_string())?;
+                            sections.push((category, page));
+                        }
+                        Rows::Search(sections)
+                    }
+                    View::Catalog { query, .. } => {
+                        let page = client
+                            .query(&source.user_id, query, *start, token)
+                            .await
+                            .map_err(|e| e.to_string())?;
+                        Rows::Items {
+                            items: page.items,
+                            start: page.start_index,
+                            total: page.total_record_count,
+                        }
+                    }
                     View::Libraries => Rows::Libraries(
                         client
                             .music_libraries(&source.user_id, token)

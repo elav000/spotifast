@@ -11,12 +11,30 @@ Spotify client; its releases do not include this experimental work.
 
 ## Current implementation
 
-The app opens to Jellyfin by default. The provider selector is available before
-Spotify sign-in. Enter your server address, choose **Connect with Quick Connect**,
+The app opens to Jellyfin by default. The account menu offers **Music source** and **Jellyfin > Music library**.
+Source selection is also available on sign-in screens. Enter your server address, choose **Connect with Quick Connect**,
 and approve the displayed code in a signed-in Jellyfin client. Browse music
-libraries, albums and ordered album tracks, with page navigation and a filter for
-the current page. Spotify keeps its existing sign-in and browsing flow.
+libraries, albums, artists, playlists and songs. The existing central page frame,
+Back/Forward controls, search bar, Settings access and account menu now serve
+Jellyfin too. Spotify keeps its own sign-in, navigation history and search state.
+The shared Library rail offers Albums, Artists and Playlists for Jellyfin.
+The Jellyfin menu’s library selection scopes albums, artists and search; playlists belong to the
+signed-in account rather than a music collection.
 
+Search supports All, Songs, Artists, Albums and Playlists, with server paging.
+Artist pages offer albums and songs. Album, artist, playlist and search-song
+playback use the appropriate catalog request and preserve playlist occurrences.
+Home offers a server **Recently played** view, ordered by the server's last-played
+information. The rail's recent-context order remains the existing local,
+account-scoped history.
+
+Create public or private playlists with the existing creation dialog. Playlist
+cards and pages offer rename and deletion confirmation. Song menus reuse the
+playlist picker for adding songs; playlist entry menus remove a specific
+occurrence or move it up/down, including across page boundaries. Jellyfin
+checks edit permissions. Refused or failed edits remain visible and failed
+optimistic row changes restore their previous presentation. These controls do
+not edit Spotify playlists.
 Your selected provider is remembered. Jellyfin sign-in uses the system credential
 store, so the app can restore it after restart. Sign out removes the account's
 cached pages and revokes local restoration even if protected-store deletion fails.
@@ -25,7 +43,7 @@ currently English.
 
 Jellyfin pages show saved results while refreshing. A server failure leaves the
 last results visible with a warning; Refresh retries. These caches are disposable
-and source/account scoped. There is no unified library. Switching providers does
+and source/account scoped. There is no Combined provider yet. Switching providers does
 not send a playback command; existing Spotify playback can continue while you
 browse Jellyfin. Play an album or individual track to start Jellyfin playback.
 The shared player bar provides Play/Pause, Seek, Volume and Next/Previous.
@@ -35,8 +53,9 @@ Switching browsing providers leaves playback running.
 
 `src/provider.rs` defines browsing selection. `src/jellyfin/` owns Jellyfin client
 and presentation data; its worker is mounted under `backend::jellyfin` for network,
-credential and disk work. `src/ui/jellyfin.rs` draws the separate browser and emits
-actions applied in `App`, following upstream's UI contract.
+credential and disk work. `src/ui/jellyfin.rs` retains the provider sign-in and current queue panel.
+Connected browsing uses the existing central page and shared UI modules, with
+provider actions applied in `App`, following upstream's UI contract.
 
 Non-secret state files are `jellyfin-account.json`, `browsing-provider.json` and
 `jellyfin-revoked` under `AppDirs.state`. Tokens use the separate protected-store
@@ -74,7 +93,7 @@ No live server credentials are used by the automated local HTTP contract tests.
 ## Architecture direction
 
 - Separate provider browsing first. Spotify and Jellyfin remain authoritative
-  for their own catalogs. There is no unified library or canonical catalog.
+  for their own catalogs. A Combined provider remains future work.
 - Provider selection before Spotify login, protected source/user-scoped
   credentials and separate cached browsing are implemented.
 - Keep selected browsing provider separate from playback ownership. Changing a
@@ -87,8 +106,8 @@ No live server credentials are used by the automated local HTTP contract tests.
   from matching album names or item IDs across providers.
 - Original FLAC, WAV and MP3 decoding is proven through the existing
   EQ/output/visualizer classes. The app uses the same path for its separate Jellyfin transport and queue.
-- Unified browsing, mixed queues, local-file browsing, downloads and a possible
-  unified library are later decisions, not prerequisites.
+- A Combined provider, mixed queues, local-file browsing and downloads remain
+  later work, not prerequisites.
 
 ## Validation
 
@@ -209,7 +228,7 @@ flowchart TD
     Owner --> DSP[Shared EQ / visualizer / limiter / output]
 ```
 
-Each provider remains authoritative. No canonical or unified library is added.
+Each provider remains authoritative. No Combined provider is added in this milestone.
 Shared presentation models and widgets can be extracted incrementally, while
 provider-specific references and actions remain explicit.
 
@@ -318,7 +337,7 @@ Jellyfin now uses the existing sidebar panel and navigation rows, collection
 cards, album hero and track-row renderer. Provider references and actions retain
 Jellyfin identity without inventing Spotify IDs. Spotify-only row actions are
 replaced with available Play and Add to queue actions. Provider switching lives in the shared left rail and remains available on either
-sign-in screen. A collection selector under Library chooses the Jellyfin music library; Home
+sign-in screen. At this milestone, a collection selector under Library chose the Jellyfin music library; Home
 currently opens the Jellyfin library list. Home sections,
 artist pages and a shared local queue remain follow-up work, not completed parity.
 
@@ -329,9 +348,9 @@ queue. Cache clearing runs on the background worker, including while offline.
 This work adds no dependencies and does not merge catalogs.
 
 
-### Left rail provider switching
+### Left rail provider switching (earlier milestone)
 
-The shared sidebar now contains a Music source selector for Jellyfin and Spotify.
+At this milestone, the shared sidebar contained a Music source selector for Jellyfin and Spotify.
 It changes the browsing provider without changing playback or combining catalogs.
 Jellyfin's collection selector chooses the server music library; Spotify keeps
 its existing library controls after sign-in. The temporary top provider bar has
@@ -340,16 +359,16 @@ existing visibility shortcut and a Show sidebar button restore it when hidden.
 This does not implement a Combined provider, a new Home feed or a shared queue.
 
 
-## Full provider-fed left rail
+## Full provider-fed left rail (earlier milestone)
 
 The simplified Jellyfin navigation branch is replaced with provider-supplied
 Library data and actions feeding the existing sidebar toolbar, shelf chips,
 search field, sort menu, virtual list, grid renderer, artwork previews and local
-pin handling. Jellyfin currently supplies Albums, library order, Name and
+pin handling. At that milestone Jellyfin supplied Albums, library order, Name and
 Recently played. Spotify retains its existing shelves and service capabilities.
 Only supported actions appear; Jellyfin entries never acquire Spotify IDs or
-Spotify drag/drop payloads. A collection dropdown selects the Jellyfin music
-library without introducing another panel.
+Spotify drag/drop payloads. At that stage a collection dropdown selected the Jellyfin music
+library. It has since moved into the account menu, described below.
 
 Rail albums and the center page have independent view state. Album pages load in
 batches on the existing worker using the existing account-scoped metadata cache;
@@ -362,7 +381,7 @@ track response. Browsing and source switching leave playback ownership alone.
 Recently played reuses the persisted local context history with provider/source/
 account keys. It does not import older Jellyfin server listening history.
 
-### Provider terminology and remaining extraction
+### Provider terminology and roadmap recorded at that milestone
 
 A **Combined provider** is the planned composition of providers such as Jellyfin
 and Spotify, potentially Plex later. It will retain each item's origin while
@@ -424,9 +443,41 @@ may leave earlier successful batches applied; callers must refresh the server
 state rather than assume an atomic edit. Playback start, progress and stop
 requests use signed 64-bit Jellyfin ticks and keep credentials in headers.
 
-These are tested client contracts, not completed interface capabilities. The
-shared Search, Artists and Playlists controllers still need to consume them;
-playlist management and playback reporting are not yet wired into the running
-app. Existing album browsing and playback behavior is unchanged by this client
-foundation. All request tests use a local fixture server and never edit the
-user's Jellyfin playlists.
+At commit c2b9ba4 these were client contracts only. The connected wiring
+described below builds on that foundation. All request tests use a local fixture
+server and never edit the user's Jellyfin playlists.
+
+
+## Connected adapter wiring
+
+The catalog contracts above are now consumed by the app worker, shared rail,
+central page, top bar, Search, catalog cards, collection hero, track rows and
+playlist dialogs/picker. The previous Jellyfin-only connected central panel
+has been removed. Spotify album/artist library cards and Jellyfin catalog
+cards use the same card action renderer; both providers use the same playlist
+picker filtering, keyboard navigation and row selection.
+
+Jellyfin playback reports start, pause/resume changes, periodic progress (every
+ten seconds) and stop to the server, independently of browsing selection.
+Loading or a paused restored session does not create a new playing session.
+A reporting failure is shown without stopping audio. Reports run on the existing
+Jellyfin worker and keep credentials in headers. These requests update the
+user's Jellyfin listening history; no other reporting service is added.
+
+Playlist queries and optional playback queries are saved with the current
+playback context. Older album sessions remain readable. A repeated song starts
+at its chosen occurrence rather than the first matching song ID. Catalog and
+edit replies reject replaced accounts; an edit result cannot navigate over a
+newer page choice. The current separate Jellyfin queue remains as documented;
+Combined-provider browsing and a mixed queue are future work.
+
+
+### Menu placement
+
+Source selection lives in the existing account menu. Jellyfin's music-library
+choice is under its Jellyfin submenu. Sign-in screens offer a source menu so
+neither provider requires signing into the other first. The left rail has no
+added source or collection controls; its existing Home, Search, shelf pills,
+filter, sort, grid/list and playlist creation controls receive provider data.
+The sort label remains upstream's current label, with clearer wording recorded
+as later polish.

@@ -24,11 +24,16 @@ fn seed_jellyfin_artwork(app: &App) {
     let Some(source) = &app.jellyfin.source else {
         return;
     };
-    let Some(Rows::Items { items, .. }) = &app.jellyfin.rows else {
-        return;
+    let items: Vec<_> = match &app.jellyfin.rows {
+        Some(Rows::Items { items, .. }) => items.iter().collect(),
+        Some(Rows::Search(sections)) => sections
+            .iter()
+            .flat_map(|(_, page)| page.items.iter())
+            .collect(),
+        _ => Vec::new(),
     };
     for (index, item) in items
-        .iter()
+        .into_iter()
         .chain(app.jellyfin.catalog.items.iter())
         .enumerate()
     {
@@ -1825,9 +1830,23 @@ mod tests {
             let translated = accessible_frame(&ctx, &mut app, vec![]);
             assert_eq!(translated.focus, pause, "translation must retain focus");
             for ((source, role), id) in controls.iter().zip(ids) {
+                // Navigation Back and player Previous can share a translated
+                // label. Verify the original control rather than the first
+                // matching label in an unordered accessibility tree.
+                let node = translated
+                    .nodes
+                    .iter()
+                    .find(|(current, _)| *current == id)
+                    .map(|(_, node)| node)
+                    .expect("the original control remains in the tree");
                 assert_eq!(
-                    accessible_node(&translated, &gettext(locale, source), *role),
-                    id,
+                    node.role(),
+                    *role,
+                    "translation must retain the {source} role"
+                );
+                assert_eq!(
+                    node.label(),
+                    Some(gettext(locale, source).as_ref()),
                     "translation must retain the {source} control"
                 );
             }
@@ -9893,6 +9912,62 @@ mod tests {
         app.backend.shutdown();
     }
     #[test]
+    fn jellyfin_shared_search_chips_navigation_and_creation_use_provider_actions() {
+        use crate::jellyfin::{browser::View, catalog::Kind};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("provider-search-navigation");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-search");
+        let spotify_page = app.page().clone();
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "What do you want to play?", Role::TextInput);
+        let albums = accessible_node(&tree, "Songs", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(albums, AccessibleAction::Click, None)],
+        );
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Search {
+                kind: Some(Kind::Song),
+                ..
+            }
+        ));
+        assert_eq!(app.page(), &spotify_page);
+        app.actions.push(Action::FocusSearch);
+        accessible_frame(&ctx, &mut app, vec![]);
+        app.actions
+            .push(Action::ShowDialog(crate::model::Dialog::CreatePlaylist {
+                name: "Test mix".into(),
+                public: false,
+                add_uris: vec![],
+            }));
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            app.dialog.is_some(),
+            "the shared create dialog remains open"
+        );
+        let create = accessible_node(&tree, "Create", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(create, AccessibleAction::Click, None)],
+        );
+        assert!(app.jellyfin.edit_busy);
+        assert!(
+            !app.playlist_busy,
+            "Jellyfin creation must not dispatch Spotify's playlist request"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_shared_track_rows_dispatch_provider_actions_without_spotify_controls() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("jellyfin-shared-rows");
@@ -9952,11 +10027,15 @@ mod tests {
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         accessible_node(&tree, "Fragments", Role::Button);
-        accessible_node(&tree, "Collection", Role::ComboBox);
-        accessible_node(&tree, "Recently played", Role::Button);
         assert!(
             !tree
                 .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Collection"))
+        );
+        accessible_node(&tree, "Recently played", Role::Button);
+        assert!(
+            tree.nodes
                 .iter()
                 .any(|(_, node)| node.label() == Some("Create a playlist"))
         );
@@ -10085,7 +10164,7 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_provider_switcher_works_signed_out_and_preserves_jellyfin_navigation() {
+    fn provider_menus_work_signed_out_and_leave_the_existing_rail_intact() {
         use crate::jellyfin::browser::View;
         use crate::provider::Provider;
         use egui::accesskit::{Action as AccessibleAction, Role};
@@ -10096,17 +10175,44 @@ mod tests {
         let saved_view = app.jellyfin.view.clone();
         for target in [Provider::Spotify, Provider::Jellyfin] {
             accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let selector = accessible_node(&tree, "Music source", Role::ComboBox);
+            let mut tree = accessible_frame(&ctx, &mut app, vec![]);
+            if app.jellyfin.provider == Provider::Jellyfin && app.jellyfin.source.is_some() {
+                assert!(
+                    !tree
+                        .nodes
+                        .iter()
+                        .any(|(_, node)| node.label() == Some("Collection")),
+                    "the rail has no added collection selector"
+                );
+                let account = accessible_node(&tree, "Account", Role::Button);
+                accessible_frame(
+                    &ctx,
+                    &mut app,
+                    vec![accessible_action(account, AccessibleAction::Click, None)],
+                );
+                for _ in 0..3 {
+                    accessible_frame(&ctx, &mut app, vec![]);
+                }
+                tree = accessible_frame(&ctx, &mut app, vec![]);
+            }
+            let menu_label = if app.jellyfin.provider == Provider::Jellyfin {
+                "Music source ⏵"
+            } else {
+                "Music source"
+            };
+            let selector = accessible_node(&tree, menu_label, Role::Button);
             accessible_frame(
                 &ctx,
                 &mut app,
                 vec![accessible_action(selector, AccessibleAction::Click, None)],
             );
+            for _ in 0..3 {
+                accessible_frame(&ctx, &mut app, vec![]);
+            }
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let name = match target {
-                Provider::Spotify => "Spotify",
-                Provider::Jellyfin => "Jellyfin",
+                Provider::Spotify => "Use Spotify",
+                Provider::Jellyfin => "Use Jellyfin",
             };
             let option = accessible_node(&tree, name, Role::Button);
             accessible_frame(
@@ -10139,7 +10245,32 @@ mod tests {
         assert!(matches!(app.jellyfin.view, View::Tracks { .. }));
         app.jellyfin.source = None;
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        accessible_node(&tree, "Music source", Role::ComboBox);
+        accessible_node(&tree, "Music source", Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_collection_is_selected_through_the_account_menu() {
+        use crate::jellyfin::browser::View;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("collection-menu");
+        app.jellyfin.demo("jellyfin-tracks");
+        for label in ["Account", "Jellyfin ⏵", "Music library ⏵", "DJ collection"] {
+            for _ in 0..3 {
+                accessible_frame(&ctx, &mut app, vec![]);
+            }
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let button = accessible_node(&tree, label, Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(button, AccessibleAction::Click, None)],
+            );
+        }
+        assert!(
+            matches!(&app.jellyfin.view, View::Albums { library_id, .. } if library_id == "music2")
+        );
+        assert_eq!(app.jellyfin.catalog.library.as_ref().unwrap().id, "music2");
         app.backend.shutdown();
     }
 

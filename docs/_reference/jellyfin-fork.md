@@ -318,8 +318,8 @@ Jellyfin now uses the existing sidebar panel and navigation rows, collection
 cards, album hero and track-row renderer. Provider references and actions retain
 Jellyfin identity without inventing Spotify IDs. Spotify-only row actions are
 replaced with available Play and Add to queue actions. Provider switching lives in the shared left rail and remains available on either
-sign-in screen. Jellyfin music-library links remain under Library; Home currently
-opens the Jellyfin library list. Home sections,
+sign-in screen. A collection selector under Library chooses the Jellyfin music library; Home
+currently opens the Jellyfin library list. Home sections,
 artist pages and a shared local queue remain follow-up work, not completed parity.
 
 Artwork requests share the existing 8 MiB response limit and request images up to
@@ -333,8 +333,57 @@ This work adds no dependencies and does not merge catalogs.
 
 The shared sidebar now contains a Music source selector for Jellyfin and Spotify.
 It changes the browsing provider without changing playback or combining catalogs.
-Jellyfin's music-library links select the server library to browse; Spotify keeps
+Jellyfin's collection selector chooses the server music library; Spotify keeps
 its existing library controls after sign-in. The temporary top provider bar has
 been removed. The rail is available while signed out of either service, and its
 existing visibility shortcut and a Show sidebar button restore it when hidden.
-This does not implement a combined library, a new Home feed or a shared queue.
+This does not implement a Combined provider, a new Home feed or a shared queue.
+
+
+## Full provider-fed left rail
+
+The simplified Jellyfin navigation branch is replaced with provider-supplied
+Library data and actions feeding the existing sidebar toolbar, shelf chips,
+search field, sort menu, virtual list, grid renderer, artwork previews and local
+pin handling. Jellyfin currently supplies Albums, library order, Name and
+Recently played. Spotify retains its existing shelves and service capabilities.
+Only supported actions appear; Jellyfin entries never acquire Spotify IDs or
+Spotify drag/drop payloads. A collection dropdown selects the Jellyfin music
+library without introducing another panel.
+
+Rail albums and the center page have independent view state. Album pages load in
+batches on the existing worker using the existing account-scoped metadata cache;
+each next batch returns to the command queue so foreground browsing can run
+between batches. Catalog requests have their own revision and validate source
+and account, so center navigation cannot erase the rail and replies for an old
+collection/account cannot populate the current one. Loading and retry use shared
+widgets. Opening a rail album uses provider actions; cover Play waits for its
+track response. Browsing and source switching leave playback ownership alone.
+Recently played reuses the persisted local context history with provider/source/
+account keys. It does not import older Jellyfin server listening history.
+
+### Provider terminology and remaining extraction
+
+A **Combined provider** is the planned composition of providers such as Jellyfin
+and Spotify, potentially Plex later. It will retain each item's origin while
+feeding the same UI contract. It is not implemented in this milestone. Separate
+provider browsing does not justify separate panels or duplicated local policy.
+
+Remaining architectural work is explicit:
+
+- Broaden the provider data/action contract across the remaining app routes;
+  Spotify's existing data shaping still supplies its side of the shared rail.
+- Replace Jellyfin's separate center-page controller with provider data feeding
+  the existing page controllers. Cards, album hero and track-row renderer are
+  already shared; the entire page controller is not yet shared.
+- Let the track renderer consume neutral metadata directly, replacing the current
+  adapter through Spotify-shaped display structs (which contain no fake IDs).
+- Extract the existing local queue presentation, ordering, history and persistence
+  before adding mixed playback. Jellyfin's current queue panel/controller remains
+  separate; Spotify Connect requires explicit provider capability handling.
+- Provider-appropriate Home sections and artist/playlist support remain later
+  capabilities. No new bespoke panels should be introduced to implement them.
+
+The shared artwork cache, player bar, DSP and exclusive output ownership already
+carry forward. Plex support and a Combined provider are roadmap items, not claims
+of current compatibility.

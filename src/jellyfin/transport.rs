@@ -223,6 +223,14 @@ impl Transport {
             .epoch
     }
 
+    pub(crate) fn context(&self) -> Option<(Source, String)> {
+        let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state
+            .template
+            .as_ref()
+            .map(|job| (job.source.clone(), job.album.clone()))
+    }
+
     pub fn controls_output(&self) -> bool {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.snapshot.item.is_some()

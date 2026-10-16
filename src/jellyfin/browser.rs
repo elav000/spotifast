@@ -58,12 +58,23 @@ pub enum Command {
 }
 
 pub struct Job {
+    pub catalog_request: Option<u64>,
     pub generation: u64,
     pub proxy: ProxyConfig,
     pub command: Command,
 }
 
 pub enum Reply {
+    Catalog {
+        request: u64,
+        source: Source,
+        rows: Rows,
+        cached: bool,
+    },
+    CatalogError {
+        request: u64,
+        error: String,
+    },
     Restored {
         source: Option<Source>,
         provider: Provider,
@@ -84,6 +95,16 @@ pub struct Event {
     pub reply: Reply,
 }
 
+#[derive(Default)]
+pub struct Catalog {
+    pub library: Option<MusicLibrary>,
+    pub items: Vec<Item>,
+    pub busy: bool,
+    pub error: Option<String>,
+    pub filter: String,
+    pub sort: Option<crate::settings::LibrarySort>,
+}
+
 pub struct Browser {
     pub enabled: bool,
     pub provider: Provider,
@@ -94,6 +115,9 @@ pub struct Browser {
     pub rows: Option<Rows>,
     pub libraries: Vec<MusicLibrary>,
     pub album: Option<Item>,
+    pub play_album: Option<String>,
+    pub catalog: Catalog,
+    pub catalog_generation: Arc<AtomicU64>,
     pub data_revision: u64,
     pub busy: bool,
     pub cached: bool,
@@ -113,8 +137,16 @@ impl Browser {
     pub fn new(dirs: AppDirs, waker: Waker, enabled: bool) -> Self {
         let (events, rx) = mpsc::channel();
         let generation = Arc::new(AtomicU64::new(0));
-        let tx = enabled
-            .then(|| crate::backend::jellyfin::spawn(dirs, waker, events, generation.clone()));
+        let catalog_generation = Arc::new(AtomicU64::new(0));
+        let tx = enabled.then(|| {
+            crate::backend::jellyfin::spawn(
+                dirs,
+                waker,
+                events,
+                generation.clone(),
+                catalog_generation.clone(),
+            )
+        });
         Self {
             enabled,
             provider: if enabled {
@@ -129,6 +161,9 @@ impl Browser {
             rows: None,
             libraries: Vec::new(),
             album: None,
+            play_album: None,
+            catalog: Catalog::default(),
+            catalog_generation,
             data_revision: 0,
             busy: false,
             cached: false,
@@ -157,7 +192,11 @@ impl Browser {
             self.send(proxy, Command::Restore);
         }
         while let Ok(event) = self.rx.try_recv() {
-            if event.generation != self.generation.load(Ordering::SeqCst) {
+            if !matches!(
+                &event.reply,
+                Reply::Catalog { .. } | Reply::CatalogError { .. }
+            ) && event.generation != self.generation.load(Ordering::SeqCst)
+            {
                 continue;
             }
             self.apply(event.reply, proxy);
@@ -179,6 +218,49 @@ impl Browser {
 
     fn apply(&mut self, reply: Reply, proxy: &ProxyConfig) {
         match reply {
+            Reply::Catalog {
+                request,
+                source,
+                rows:
+                    Rows::Items {
+                        items,
+                        start,
+                        total,
+                    },
+                cached,
+            } if request == self.catalog_generation.load(Ordering::SeqCst)
+                && self.source.as_ref() == Some(&source) =>
+            {
+                if start == 0 {
+                    self.catalog.items.clear();
+                }
+                if start as usize > self.catalog.items.len() || (items.is_empty() && start < total)
+                {
+                    self.catalog.error = Some(
+                        "Jellyfin returned an incomplete library page. Retry the library refresh."
+                            .into(),
+                    );
+                    self.catalog.busy = false;
+                    return;
+                }
+                self.catalog.items.truncate(start as usize);
+                let next = start + items.len() as u32;
+                self.catalog.items.extend(items);
+                if !cached {
+                    if next < total && next > start {
+                        self.request_catalog_page(next, proxy);
+                    } else {
+                        self.catalog.busy = false;
+                    }
+                }
+            }
+            Reply::CatalogError { request, error }
+                if request == self.catalog_generation.load(Ordering::SeqCst) =>
+            {
+                self.catalog.error = Some(error);
+                self.catalog.busy = false;
+            }
+            Reply::Catalog { .. } | Reply::CatalogError { .. } => {}
             Reply::Restored { source, provider } => {
                 if !self.selection_changed {
                     self.provider = provider;
@@ -207,6 +289,11 @@ impl Browser {
                 }
                 if let Rows::Libraries(libraries) = &rows {
                     self.libraries = libraries.clone();
+                    if self.catalog.library.is_none()
+                        && let Some(library) = libraries.first()
+                    {
+                        self.select_catalog(library.clone(), proxy);
+                    }
                 }
                 self.rows = Some(rows);
                 self.cached = cached;
@@ -217,6 +304,7 @@ impl Browser {
                 self.busy = false;
             }
             Reply::Error(error) => {
+                self.play_album = None;
                 self.error = Some(error);
                 self.busy = false;
                 self.clear_challenge();
@@ -233,6 +321,8 @@ impl Browser {
     pub fn connect(&mut self, proxy: &ProxyConfig) {
         self.advance();
         self.rows = None;
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+        self.catalog = Catalog::default();
         self.libraries.clear();
         self.album = None;
         self.source = None;
@@ -248,6 +338,8 @@ impl Browser {
     }
 
     pub fn sign_out(&mut self, proxy: &ProxyConfig) {
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+        self.catalog = Catalog::default();
         self.libraries.clear();
         self.album = None;
         self.advance();
@@ -257,17 +349,67 @@ impl Browser {
         self.send(proxy, Command::SignOut);
     }
 
+    pub fn select_catalog(&mut self, library: MusicLibrary, proxy: &ProxyConfig) {
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+        self.catalog = Catalog {
+            library: Some(library),
+            busy: true,
+            ..Catalog::default()
+        };
+        self.request_catalog_page(0, proxy);
+    }
+
+    fn request_catalog_page(&self, start: u32, proxy: &ProxyConfig) {
+        if let (Some(tx), Some(library)) = (&self.tx, &self.catalog.library) {
+            let _ = tx.send(Job {
+                catalog_request: Some(self.catalog_generation.load(Ordering::SeqCst)),
+                generation: self.generation.load(Ordering::SeqCst),
+                proxy: proxy.clone(),
+                command: Command::Browse {
+                    view: View::Albums {
+                        library_id: library.id.clone(),
+                        name: library.name.clone(),
+                    },
+                    start,
+                },
+            });
+        }
+    }
+
     pub fn browse(&mut self, view: View, start: u32, proxy: &ProxyConfig) {
+        self.play_album = None;
+        let library_id = match &view {
+            View::Albums { library_id, .. } | View::Tracks { library_id, .. } => Some(library_id),
+            _ => None,
+        };
+        if let Some(id) = library_id
+            && self.catalog.library.as_ref().map(|library| &library.id) != Some(id)
+            && let Some(library) = self
+                .libraries
+                .iter()
+                .find(|library| &library.id == id)
+                .cloned()
+        {
+            self.select_catalog(library, proxy);
+        }
         let same = self.view == view && self.start == start;
         if let View::Tracks { album_id, .. } = &view {
             if !matches!(&self.view, View::Tracks { album_id: current, .. } if current == album_id)
             {
-                self.album = self.rows.as_ref().and_then(|rows| match rows {
-                    Rows::Items { items, .. } => {
-                        items.iter().find(|item| &item.id == album_id).cloned()
-                    }
-                    _ => None,
-                });
+                self.album = self
+                    .catalog
+                    .items
+                    .iter()
+                    .find(|item| &item.id == album_id)
+                    .cloned()
+                    .or_else(|| {
+                        self.rows.as_ref().and_then(|rows| match rows {
+                            Rows::Items { items, .. } => {
+                                items.iter().find(|item| &item.id == album_id).cloned()
+                            }
+                            _ => None,
+                        })
+                    });
             }
         } else {
             self.album = None;
@@ -296,6 +438,7 @@ impl Browser {
     fn send(&self, proxy: &ProxyConfig, command: Command) {
         if let Some(tx) = &self.tx {
             let _ = tx.send(Job {
+                catalog_request: None,
                 generation: self.generation.load(Ordering::SeqCst),
                 proxy: proxy.clone(),
                 command,
@@ -314,16 +457,44 @@ pub enum BrowserAction {
     SignOut,
     Browse { view: View, start: u32 },
     Play(String),
+    PlayAlbum(View),
     PlayQueue(usize),
     Queue(String),
     PlayManual(usize),
     ClearQueue,
     Resume,
+    SelectLibrary(String),
 }
 
 impl crate::app::App {
     pub(crate) fn apply_jellyfin_action(&mut self, action: BrowserAction) {
         match action {
+            BrowserAction::PlayAlbum(view) => {
+                if let View::Tracks { album_id, .. } = &view {
+                    let album_id = album_id.clone();
+                    self.jellyfin
+                        .browse(view, 0, &self.applied_jellyfin_proxy());
+                    self.jellyfin.play_album = Some(album_id);
+                }
+            }
+            BrowserAction::SelectLibrary(id) => {
+                if let Some(library) = self
+                    .jellyfin
+                    .libraries
+                    .iter()
+                    .find(|library| library.id == id)
+                    .cloned()
+                {
+                    self.jellyfin.browse(
+                        View::Albums {
+                            library_id: library.id,
+                            name: library.name,
+                        },
+                        0,
+                        &self.applied_jellyfin_proxy(),
+                    );
+                }
+            }
             BrowserAction::Select(provider) => self
                 .jellyfin
                 .select(provider, &self.applied_jellyfin_proxy()),
@@ -459,7 +630,7 @@ impl Browser {
                 "Immunity",
                 "There Is Love in You",
             ];
-            let items = names
+            let items: Vec<_> = names
                 .iter()
                 .enumerate()
                 .map(|(i, name)| super::Item {
@@ -481,6 +652,8 @@ impl Browser {
                     album_primary_image_tag: None,
                 })
                 .collect();
+            self.catalog.library = self.libraries.first().cloned();
+            self.catalog.items = items.clone();
             self.rows = Some(Rows::Items {
                 items,
                 start: 0,
@@ -533,6 +706,7 @@ impl Drop for Browser {
         // Prevent an outstanding approval from publishing a saved account
         // after the browser has been destroyed.
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -551,6 +725,130 @@ mod tests {
         model
     }
     use std::path::PathBuf;
+
+    #[test]
+    fn catalog_pages_are_independent_of_center_navigation_and_reject_stale_scope() {
+        let mut model = model();
+        let source = model.source.clone().unwrap();
+        let album = model.catalog.items[0].clone();
+        let (jobs, requests) = mpsc::channel();
+        model.tx = Some(jobs);
+        model.select_catalog(model.libraries[0].clone(), &ProxyConfig::Off);
+        let first = requests.try_recv().unwrap();
+        let request = first.catalog_request.unwrap();
+        model.browse(
+            View::Tracks {
+                library_id: "music1".into(),
+                library_name: "My music".into(),
+                album_id: "album0".into(),
+                name: "Fragments".into(),
+            },
+            0,
+            &ProxyConfig::Off,
+        );
+        let center = model.view.clone();
+        let old_generation = first.generation;
+        let (events, replies) = mpsc::channel();
+        model.rx = replies;
+        events
+            .send(Event {
+                generation: old_generation,
+                reply: Reply::Catalog {
+                    request,
+                    source: source.clone(),
+                    rows: Rows::Items {
+                        items: vec![album.clone()],
+                        start: 0,
+                        total: 2,
+                    },
+                    cached: false,
+                },
+            })
+            .unwrap();
+        model.poll(&ProxyConfig::Off);
+        assert_eq!(model.view, center);
+        assert!(model.rows.is_none());
+        assert_eq!(model.catalog.items, vec![album.clone()]);
+        assert!(model.catalog.busy);
+        let queued: Vec<_> = requests.try_iter().collect();
+        assert!(queued.iter().any(|job| job.catalog_request == Some(request)
+            && matches!(job.command, Command::Browse { start: 1, .. })));
+        let mut second = album.clone();
+        second.id = "album1".into();
+        model.apply(
+            Reply::Catalog {
+                request,
+                source: source.clone(),
+                rows: Rows::Items {
+                    items: vec![second],
+                    start: 1,
+                    total: 2,
+                },
+                cached: true,
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.catalog.busy);
+        model.apply(
+            Reply::Catalog {
+                request,
+                source: source.clone(),
+                rows: Rows::Items {
+                    items: vec![album.clone()],
+                    start: 1,
+                    total: 2,
+                },
+                cached: false,
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(!model.catalog.busy);
+        assert_eq!(
+            model.catalog.items.len(),
+            2,
+            "fresh page replaces its cached page"
+        );
+        let mut other_account = source.clone();
+        other_account.user_id = "other".into();
+        model.apply(
+            Reply::Catalog {
+                request,
+                source: other_account,
+                rows: Rows::Items {
+                    items: vec![],
+                    start: 0,
+                    total: 0,
+                },
+                cached: false,
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(model.catalog.items.len(), 2);
+        model.select_catalog(model.libraries[1].clone(), &ProxyConfig::Off);
+        model.apply(
+            Reply::Catalog {
+                request,
+                source,
+                rows: Rows::Items {
+                    items: vec![album],
+                    start: 0,
+                    total: 1,
+                },
+                cached: false,
+            },
+            &ProxyConfig::Off,
+        );
+        model.apply(
+            Reply::CatalogError {
+                request,
+                error: "old account".into(),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.catalog.items.is_empty());
+        assert!(model.catalog.error.is_none());
+        assert!(model.catalog.busy);
+    }
 
     #[test]
     fn switching_provider_preserves_jellyfin_navigation_and_catalog() {

@@ -16,6 +16,7 @@ const PLAYBACK_RANGE_BYTES: usize = 1024 * 1024;
 #[derive(Default)]
 pub struct Metrics {
     requests: AtomicU64,
+    cache_hits: AtomicU64,
     bytes: AtomicU64,
     peak: AtomicU64,
 }
@@ -23,6 +24,7 @@ pub struct Metrics {
 #[derive(Clone, Copy, Debug)]
 pub struct Snapshot {
     pub requests: u64,
+    pub cache_hits: u64,
     pub bytes: u64,
     pub peak_range_bytes: u64,
 }
@@ -31,6 +33,7 @@ impl Metrics {
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             requests: self.requests.load(Ordering::Relaxed),
+            cache_hits: self.cache_hits.load(Ordering::Relaxed),
             bytes: self.bytes.load(Ordering::Relaxed),
             peak_range_bytes: self.peak.load(Ordering::Relaxed),
         }
@@ -49,16 +52,18 @@ pub struct HttpRangeSource {
     position: u64,
     length: u64,
     validator: Option<(header::HeaderName, header::HeaderValue)>,
+    cacheable_validator: bool,
     pub metrics: Arc<Metrics>,
     cancel: Arc<AtomicBool>,
     range_bytes: usize,
     read_ahead: bool,
+    cache: Option<super::cache::Binding>,
     pending: Option<(u64, std::thread::JoinHandle<io::Result<Vec<u8>>>)>,
 }
 
 impl HttpRangeSource {
     pub fn new(request: Request, proxy: &ProxyConfig, cancel: Arc<AtomicBool>) -> io::Result<Self> {
-        Self::build(request, proxy, cancel, false)
+        Self::build(request, proxy, cancel, false, None)
     }
 
     /// Fetch the next bounded range while the decoder/output consumes this one.
@@ -67,7 +72,16 @@ impl HttpRangeSource {
         proxy: &ProxyConfig,
         cancel: Arc<AtomicBool>,
     ) -> io::Result<Self> {
-        Self::build(request, proxy, cancel, true)
+        Self::build(request, proxy, cancel, true, None)
+    }
+
+    pub fn cached(
+        request: Request,
+        proxy: &ProxyConfig,
+        cancel: Arc<AtomicBool>,
+        cache: Option<super::cache::Binding>,
+    ) -> io::Result<Self> {
+        Self::build(request, proxy, cancel, true, cache)
     }
 
     fn build(
@@ -75,6 +89,7 @@ impl HttpRangeSource {
         proxy: &ProxyConfig,
         cancel: Arc<AtomicBool>,
         read_ahead: bool,
+        cache: Option<super::cache::Binding>,
     ) -> io::Result<Self> {
         let http = crate::http::blocking_builder(proxy)
             .map_err(|_| failure("Invalid proxy configuration."))?
@@ -93,6 +108,7 @@ impl HttpRangeSource {
             position: 0,
             length: 0,
             validator: None,
+            cacheable_validator: false,
             metrics: Arc::default(),
             cancel,
             range_bytes: if read_ahead {
@@ -101,11 +117,22 @@ impl HttpRangeSource {
                 RANGE_BYTES
             },
             read_ahead,
+            cache,
             pending: None,
         };
         source.headers.remove(header::RANGE);
         source.headers.remove(header::IF_RANGE);
-        source.fetch(0, true)?;
+        if source.cache.is_some() {
+            // A one-byte authenticated probe validates authorization and the
+            // entity without downloading the first cached megabyte again.
+            let range_bytes = source.range_bytes;
+            source.range_bytes = 1;
+            source.fetch(0, true)?;
+            source.range_bytes = range_bytes;
+            source.fetch(0, false)?;
+        } else {
+            source.fetch(0, true)?;
+        }
         source.prefetch_next();
         Ok(source)
     }
@@ -169,14 +196,16 @@ impl HttpRangeSource {
             position: next,
             length: self.length,
             validator: self.validator.clone(),
+            cacheable_validator: self.cacheable_validator,
             metrics: self.metrics.clone(),
             cancel: self.cancel.clone(),
             range_bytes: self.range_bytes,
             read_ahead: false,
+            cache: self.cache.clone(),
             pending: None,
         };
         if let Ok(pending) = std::thread::Builder::new()
-            .name("jellyfin-prefetch".into())
+            .name("media-prefetch".into())
             .spawn(move || {
                 reader.fetch(next, false)?;
                 Ok(reader.buffer)
@@ -186,8 +215,37 @@ impl HttpRangeSource {
         }
     }
 
+    fn cache_validator_key(&self) -> Option<Vec<u8>> {
+        if !self.cacheable_validator {
+            return None;
+        }
+        let (name, value) = self.validator.as_ref()?;
+        let mut key = name.as_str().as_bytes().to_vec();
+        key.push(b':');
+        key.extend_from_slice(value.as_bytes());
+        Some(key)
+    }
+
     fn fetch(&mut self, start: u64, initial: bool) -> io::Result<()> {
         self.check_cancel()?;
+        // Every new reader validates its first range online. Only a current
+        // strong entity validator can unlock persisted ranges for this session.
+        if !initial
+            && let (Some(cache), Some(validator)) = (&self.cache, self.cache_validator_key())
+            && let Some(bytes) = cache.read(
+                &validator,
+                self.length,
+                start,
+                self.range_bytes
+                    .min(self.length.saturating_sub(start) as usize),
+            )
+        {
+            self.check_cancel()?;
+            self.metrics.cache_hits.fetch_add(1, Ordering::Relaxed);
+            self.buffer = bytes;
+            self.buffer_start = start;
+            return Ok(());
+        }
         let end = start.saturating_add(self.range_bytes as u64 - 1);
         let mut request = self
             .http
@@ -195,18 +253,23 @@ impl HttpRangeSource {
             .headers(self.headers.clone())
             .header(header::ACCEPT_ENCODING, "identity")
             .header(header::RANGE, format!("bytes={start}-{end}"));
-        if let Some((_, value)) = &self.validator {
+        if initial {
+            request = request.header(header::CACHE_CONTROL, "no-cache");
+        }
+        if self.cacheable_validator
+            && let Some((_, value)) = &self.validator
+        {
             request = request.header(header::IF_RANGE, value);
         }
         self.metrics.requests.fetch_add(1, Ordering::Relaxed);
         let mut response = request
             .send()
-            .map_err(|_| failure("Jellyfin audio request failed."))?;
+            .map_err(|_| failure("Audio request failed."))?;
         // Reject 200 even when the server ignores Range: do not buffer a whole
         // file, or silently splice a changed file into an existing decoder.
         if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
             return Err(failure(&format!(
-                "Jellyfin audio needs HTTP range support (HTTP {}).",
+                "Audio needs HTTP range support (HTTP {}).",
                 response.status().as_u16()
             )));
         }
@@ -231,11 +294,15 @@ impl HttpRangeSource {
         {
             return Err(failure("Audio changed during playback."));
         }
+        if !cache_storage_allowed(response.headers()) {
+            self.cache = None;
+        }
         if initial {
+            self.cacheable_validator = cacheable_validator(response.headers());
             self.validator = response
                 .headers()
                 .get(header::ETAG)
-                .filter(|value| !value.as_bytes().starts_with(b"W/"))
+                .filter(|value| strong_etag(value.as_bytes()))
                 .cloned()
                 .map(|value| (header::ETAG, value))
                 .or_else(|| {
@@ -266,11 +333,62 @@ impl HttpRangeSource {
         self.metrics
             .peak
             .fetch_max(bytes.len() as u64, Ordering::Relaxed);
+        if self.range_bytes > 1
+            && let (Some(cache), Some(validator)) = (&self.cache, self.cache_validator_key())
+        {
+            let _ = cache.write(&validator, total, start, &bytes);
+        }
         self.buffer = bytes;
         self.buffer_start = start;
         self.length = total;
         Ok(())
     }
+}
+
+fn cache_storage_allowed(headers: &header::HeaderMap) -> bool {
+    !headers.get_all(header::CACHE_CONTROL).iter().any(|value| {
+        value.to_str().map_or(true, |value| {
+            value.split(',').any(|directive| {
+                directive
+                    .split('=')
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .eq_ignore_ascii_case("no-store")
+            })
+        })
+    })
+}
+
+// RFC 9110 8.8.2.2 permits strong date validators when clock/precision
+// ambiguity can be excluded. Retain the conservative 60-second separation.
+fn cacheable_validator(headers: &header::HeaderMap) -> bool {
+    if let Some(etag) = headers.get(header::ETAG) {
+        return strong_etag(etag.as_bytes());
+    }
+    let parse = |name| {
+        let bytes = headers.get(name)?.as_bytes();
+        if bytes.len() != 29 || !bytes.ends_with(b" GMT") {
+            return None;
+        }
+        jiff::fmt::rfc2822::DateTimeParser::new()
+            .parse_timestamp(bytes)
+            .ok()
+            .map(|time| time.as_second())
+    };
+    match (parse(header::DATE), parse(header::LAST_MODIFIED)) {
+        (Some(date), Some(modified)) => date.checked_sub(modified).is_some_and(|age| age >= 60),
+        _ => false,
+    }
+}
+
+fn strong_etag(value: &[u8]) -> bool {
+    value.len() >= 2
+        && value[0] == b'"'
+        && value[value.len() - 1] == b'"'
+        && value[1..value.len() - 1]
+            .iter()
+            .all(|byte| *byte == 0x21 || (0x23..=0x7e).contains(byte) || *byte >= 0x80)
 }
 
 fn parse_range(value: &str) -> io::Result<(u64, u64, u64)> {
@@ -305,7 +423,8 @@ impl Read for HttpRangeSource {
         if self.position < self.buffer_start
             || self.position >= self.buffer_start + self.buffer.len() as u64
         {
-            self.fill(self.position)?;
+            let start = self.position / self.range_bytes as u64 * self.range_bytes as u64;
+            self.fill(start)?;
         }
         self.prefetch_next();
         let offset = (self.position - self.buffer_start) as usize;

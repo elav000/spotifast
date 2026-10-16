@@ -1,6 +1,7 @@
 //! Jellyfin's independent album transport. The UI changes intent; one worker
 //! owns protected credentials, HTTP input, decoding and the audio device.
-use super::{Item, browser::Source, decode::AudioDecoder, range::HttpRangeSource};
+use super::{Item, browser::Source};
+use crate::media::{decode::AudioDecoder, http::HttpRangeSource};
 use crate::playback_output::OutputRequest;
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -927,12 +928,27 @@ fn session(
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
     }
-    let source = HttpRangeSource::buffered(
+    let cache = crate::media::cache::Policy::new(
+        job.config.audio_cache_dir.as_deref(),
+        job.config.audio_cache_limit,
+    )
+    .http
+    .map(|cache| {
+        cache.bind(crate::media::cache::Identity {
+            provider: "jellyfin".into(),
+            source: format!("{}:{}", job.source.id, job.source.server_id),
+            account: job.source.user_id.clone(),
+            item: job.item.id.clone(),
+            representation: "original".into(),
+        })
+    });
+    let source = HttpRangeSource::cached(
         client
             .stream_request(&job.item.id, &token, None)
             .map_err(|error| error.to_string())?,
         &job.config.proxy,
         cancel.clone(),
+        cache,
     )
     .map_err(|error| error.to_string())?;
     let mut decoder = AudioDecoder::open(Box::new(source))?;

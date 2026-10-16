@@ -152,6 +152,37 @@ impl Transport {
             .clone()
     }
 
+    /// A fresh catalog result can enrich an older saved song's artwork without
+    /// changing output ownership, decoder intent, queue order or position.
+    pub(crate) fn refresh_metadata(&self, source: &Source, items: &[Item]) -> bool {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state
+            .template
+            .as_ref()
+            .is_some_and(|job| &job.source == source)
+        {
+            return false;
+        }
+        let Some(current) = state.snapshot.item.as_ref() else {
+            return false;
+        };
+        let Some(updated) = items
+            .iter()
+            .find(|item| item.id == current.id && *item != current)
+            .cloned()
+        else {
+            return false;
+        };
+        if let Some(job) = &mut state.template {
+            job.item = updated.clone();
+        }
+        if let Some(job) = &mut state.job {
+            job.item = updated.clone();
+        }
+        state.snapshot.item = Some(updated);
+        true
+    }
+
     pub(crate) fn encode_session(&self) -> Result<Option<Vec<u8>>, String> {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         if !state.restored {
@@ -442,6 +473,13 @@ impl crate::app::App {
         }
         let state = self.jellyfin_player.snapshot();
         let item = state.item?;
+        let artwork = self
+            .jellyfin
+            .source
+            .as_ref()
+            .filter(|source| Some(source.id.as_str()) == state.source_id.as_deref())
+            .and_then(|source| super::artwork::Reference::for_item(source, &item))
+            .map(|reference| reference.uri());
         Some(crate::app::NowPlaying {
             provider: Provider::Jellyfin,
             local: true,
@@ -463,8 +501,8 @@ impl crate::app::App {
             album_name: item.album.unwrap_or_default(),
             album_id: None,
             show_id: None,
-            art_url: None,
-            art_small: None,
+            art_url: artwork.clone(),
+            art_small: artwork,
             duration_ms: u32::try_from(state.duration_ms).unwrap_or(u32::MAX),
             position_ms: u32::try_from(state.position_ms).unwrap_or(u32::MAX),
             playing: state.playing,
@@ -996,6 +1034,39 @@ mod tests {
             serde_json::json!({ "Id": id, "Name": id, "Artists": [], "RunTimeTicks": 10_000_000 }),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn refreshed_artwork_metadata_preserves_playback_and_rejects_other_accounts() {
+        let transport = transport();
+        transport.play(
+            source(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        transport.enqueue(&source(), item("queued"));
+        transport.seek(500);
+        let before = transport.snapshot();
+        let epoch = transport.epoch();
+        let mut updated = item("a");
+        updated.image_tags = Some(std::collections::HashMap::from([(
+            "Primary".into(),
+            Some("cover-v2".into()),
+        )]));
+        let mut foreign = source();
+        foreign.user_id = "otheruser".into();
+        assert!(!transport.refresh_metadata(&foreign, &[updated.clone()]));
+        assert!(transport.refresh_metadata(&source(), &[updated.clone()]));
+        assert!(!transport.refresh_metadata(&source(), &[updated.clone()]));
+        let after = transport.snapshot();
+        assert_eq!(after.item, Some(updated));
+        assert_eq!(after.position_ms, before.position_ms);
+        assert_eq!(after.playing, before.playing);
+        assert_eq!(after.queued, before.queued);
+        assert_eq!(after.tracks, before.tracks);
+        assert_eq!(transport.epoch(), epoch);
+        assert!(transport.controls_output());
     }
 
     #[test]

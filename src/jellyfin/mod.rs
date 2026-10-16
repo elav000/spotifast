@@ -87,6 +87,8 @@ pub struct Item {
     pub container: Option<String>,
     pub media_streams: Option<Vec<MediaStream>>,
     pub media_sources: Option<Vec<MediaSourceInfo>>,
+    pub image_tags: Option<std::collections::HashMap<String, Option<String>>>,
+    pub album_primary_image_tag: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -315,6 +317,40 @@ impl Client {
         Ok(page)
     }
 
+    /// Original primary image; credentials remain in headers and redirects are refused.
+    pub async fn primary_image(
+        &self,
+        item: &str,
+        tag: &str,
+        token: &Token,
+    ) -> Result<reqwest::Response, Error> {
+        validate_id(item)?;
+        validate_id(tag)?;
+        let mut request = self.request(
+            Method::GET,
+            &["Items", item, "Images", "Primary"],
+            Some(token),
+        )?;
+        request
+            .url_mut()
+            .query_pairs_mut()
+            .append_pair("Tag", tag)
+            .append_pair("MaxWidth", "640");
+        request.headers_mut().insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("image/*"),
+        );
+        let response = self
+            .http
+            .execute(request)
+            .await
+            .map_err(|_| Error::Network)?;
+        if !response.status().is_success() {
+            return Err(Error::Http(response.status().as_u16()));
+        }
+        Ok(response)
+    }
+
     /// Builds an authenticated original-audio request. This is not a decoder
     /// or a promise that byte ranges alone provide accurate time-based seeks.
     pub fn stream_request(
@@ -442,6 +478,7 @@ pub(crate) fn validate_id(value: &str) -> Result<(), Error> {
 #[cfg(test)]
 mod tests;
 
+pub mod artwork;
 pub mod browser;
 
 pub mod decode;

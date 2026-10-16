@@ -59,6 +59,39 @@ fn token() -> Token {
     Token::new("private-token".into()).unwrap()
 }
 
+#[tokio::test]
+async fn primary_artwork_preserves_proxy_path_and_keeps_credentials_in_headers() {
+    let (address, requests) = server(vec![(200, "image-bytes")]).await;
+    let response = client(&address)
+        .primary_image("album1", "cover-v2", &token())
+        .await
+        .unwrap();
+    assert_eq!(response.bytes().await.unwrap().as_ref(), b"image-bytes");
+    let requests = requests.await.unwrap();
+    let request = &requests[0];
+    let first_line = request.lines().next().unwrap();
+    assert!(first_line.contains("/jellyfin/Items/album1/Images/Primary?Tag=cover-v2&MaxWidth=640"));
+    assert!(!first_line.contains("private-token"));
+    assert!(
+        request
+            .to_lowercase()
+            .contains("authorization: mediabrowser")
+    );
+    assert!(request.contains("Token=\"private-token\""));
+    assert!(request.to_lowercase().contains("accept: image/*"));
+}
+
+#[tokio::test]
+async fn primary_artwork_does_not_follow_redirects() {
+    let (address, requests) = server(vec![(302, "")]).await;
+    let error = client(&address)
+        .primary_image("album1", "cover-v2", &token())
+        .await
+        .unwrap_err();
+    assert_eq!(error, Error::Http(302));
+    assert_eq!(requests.await.unwrap().len(), 1);
+}
+
 #[test]
 fn normalizes_local_addresses_and_preserves_reverse_proxy_path() {
     assert_eq!(

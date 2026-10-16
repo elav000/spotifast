@@ -631,3 +631,27 @@ async fn playlist_batch_stops_after_failure_and_validates_all_ids_first() {
         Error::InvalidValue
     );
 }
+
+#[tokio::test]
+async fn creating_a_playlist_includes_initial_occurrences_in_one_request() {
+    let (address, requests) = server(vec![(200, r#"{"Id":"playlist1"}"#)]).await;
+    assert_eq!(
+        client(&address)
+            .create_playlist_with_items(
+                "user1",
+                "New mix",
+                true,
+                &["song1".into(), "song1".into()],
+                &token()
+            )
+            .await
+            .unwrap(),
+        "playlist1"
+    );
+    let requests = requests.await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let body: serde_json::Value =
+        serde_json::from_str(requests[0].split("\r\n\r\n").nth(1).unwrap()).unwrap();
+    assert_eq!(body["Ids"], serde_json::json!(["song1", "song1"]));
+    assert_eq!(body["IsPublic"], true);
+}

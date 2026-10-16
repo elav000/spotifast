@@ -2453,6 +2453,27 @@ impl App {
         let events = self.backend.poll();
         self.handle_backend_events(events);
         self.jellyfin.poll(&self.applied_proxy);
+        self.jellyfin.report_playback(
+            &self.jellyfin_player.snapshot(),
+            self.jellyfin_player.controls_output(),
+            &self.applied_proxy,
+        );
+        if self.jellyfin.edit_completed {
+            self.jellyfin.edit_completed = false;
+            if self.jellyfin.dialog_source.as_ref() == self.jellyfin.source.as_ref()
+                && matches!(
+                    self.dialog,
+                    Some(
+                        Dialog::CreatePlaylist { .. }
+                            | Dialog::RenamePlaylist { .. }
+                            | Dialog::ConfirmDeletePlaylist { .. }
+                    )
+                )
+            {
+                self.dialog = None;
+                self.jellyfin.dialog_source = None;
+            }
+        }
         if self.jellyfin_data_revision != self.jellyfin.data_revision {
             self.jellyfin_data_revision = self.jellyfin.data_revision;
             if let (Some(source), Some(crate::jellyfin::browser::Rows::Items { items, .. })) =
@@ -2467,30 +2488,47 @@ impl App {
             && self.jellyfin.play_album.is_some()
         {
             let pending = self.jellyfin.play_album.take();
-            if let crate::jellyfin::browser::View::Tracks { album_id, .. } = &self.jellyfin.view
-                && pending.as_ref() == Some(album_id)
+            if pending.as_deref() == Some(self.jellyfin.view.context_id().unwrap_or("tracks"))
                 && let Some(crate::jellyfin::browser::Rows::Items { items, .. }) =
                     &self.jellyfin.rows
-                && let Some(item) = items.first()
+                && let (Some(source), Some(item)) =
+                    (self.jellyfin.source.clone(), items.first().cloned())
             {
-                self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
-                    item.id.clone(),
-                ));
+                if let Some(query) = self.jellyfin.view.track_query().cloned() {
+                    self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::PlayItem {
+                        source,
+                        item: Box::new(item),
+                        context: self
+                            .jellyfin
+                            .view
+                            .context_id()
+                            .unwrap_or("tracks")
+                            .to_owned(),
+                        query: Some(query),
+                        index: Some(0),
+                    });
+                } else {
+                    self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
+                        item.id,
+                    ));
+                }
             }
         }
+
         let epoch = self.jellyfin_player.epoch();
         if self.jellyfin_epoch != epoch {
             self.jellyfin_epoch = epoch;
             if let Some((source, album)) = self.jellyfin_player.context()
                 && self.jellyfin_player.controls_output()
                 && self.jellyfin.source.as_ref() == Some(&source)
+                && let Some(kind) = self.jellyfin_player.context_kind()
             {
                 let key = crate::provider::ItemReference::Jellyfin {
                     source: source.id,
                     account: source.user_id,
                     item: album,
                 }
-                .context_key();
+                .context_key_for(kind);
                 self.note_recent_context(&key);
             }
             self.session_dirty = true;
@@ -3908,6 +3946,17 @@ impl App {
                         (due - Instant::now()).max(Duration::from_millis(50)),
                     );
                 }
+            }
+        }
+
+        if self.jellyfin_selected()
+            && let Some(typed) = self.jellyfin.search_typed_at
+        {
+            if typed.elapsed() >= SEARCH_DEBOUNCE {
+                self.jellyfin.search_typed_at = None;
+                self.submit_provider_search(self.jellyfin.search_input.clone());
+            } else {
+                ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
             }
         }
 
@@ -8446,10 +8495,16 @@ impl App {
     }
 
     pub fn can_go_back(&self) -> bool {
+        if self.jellyfin_selected() {
+            return self.jellyfin.history_index > 0;
+        }
         self.history_index > 0
     }
 
     pub fn can_go_forward(&self) -> bool {
+        if self.jellyfin_selected() {
+            return self.jellyfin.history_index + 1 < self.jellyfin.history.len();
+        }
         self.history_index + 1 < self.history.len()
     }
 
@@ -10560,7 +10615,23 @@ impl App {
         ) {
             self.supersede_play_search();
         }
+        if self.apply_provider_navigation(&action) {
+            return;
+        }
         match action {
+            Action::AddProviderPlaylist { .. } => {}
+            Action::RenameProviderPlaylist { target, name } => {
+                if let crate::provider::ItemReference::Spotify { uri } = target
+                    && let Some(Page::Playlist(id)) = Page::from_uri(&uri)
+                {
+                    self.actions.push(Action::UpdatePlaylist {
+                        id,
+                        name,
+                        description: String::new(),
+                        public: None,
+                    });
+                }
+            }
             Action::ProviderLibrary(action) => self.apply_provider_library(action),
             Action::Jellyfin(action) => self.apply_jellyfin_action(action),
             Action::ToggleShuffle
@@ -12786,6 +12857,8 @@ impl App {
     pub fn shutdown(&mut self) {
         self.save_state();
         self.flush_files();
+        self.jellyfin
+            .report_playback(&self.jellyfin_player.snapshot(), false, &self.applied_proxy);
         self.jellyfin_player.stop();
         self.backend.shutdown();
     }
@@ -16214,6 +16287,84 @@ mod tests {
             app.resume_position_ms, 19_566,
             "closing again must not lose the position"
         );
+    }
+
+    #[test]
+    fn provider_search_and_playlist_actions_keep_account_identity() {
+        use crate::{
+            jellyfin::{browser::View, catalog::Kind},
+            provider::ItemReference,
+        };
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.search.query = "Spotify query".into();
+        let page = app.page().clone();
+        app.apply(Action::Search("Bonobo".into()), &egui::Context::default());
+        assert!(matches!(app.jellyfin.view, View::Search { ref term, .. } if term == "Bonobo"));
+        assert_eq!(app.search.query, "Spotify query");
+        assert_eq!(app.page(), &page);
+        app.apply(
+            Action::SetSearchFilter(crate::model::SearchFilter::Artists),
+            &egui::Context::default(),
+        );
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Search {
+                kind: Some(Kind::Artist),
+                ..
+            }
+        ));
+        let source = app.jellyfin.source.clone().unwrap();
+        let playlist = ItemReference::Jellyfin {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
+            item: "playlist1".into(),
+        };
+        let mut item = ItemReference::Jellyfin {
+            source: source.id,
+            account: "other".into(),
+            item: "song1".into(),
+        };
+        app.apply(
+            Action::AddProviderPlaylist {
+                playlist: playlist.clone(),
+                item: item.clone(),
+            },
+            &egui::Context::default(),
+        );
+        assert!(
+            !app.jellyfin.edit_busy,
+            "a song from another account cannot be added"
+        );
+        if let ItemReference::Jellyfin { account, .. } = &mut item {
+            *account = source.user_id;
+        }
+        app.apply(
+            Action::AddProviderPlaylist { playlist, item },
+            &egui::Context::default(),
+        );
+        assert!(app.jellyfin.edit_busy);
+        assert!(!app.playlist_busy);
+        app.jellyfin.edit_busy = false;
+        app.jellyfin.dialog_source = app.jellyfin.source.clone();
+        app.jellyfin.source.as_mut().unwrap().user_id = "replacement".into();
+        app.apply(
+            Action::CreatePlaylist {
+                name: "Old dialog".into(),
+                public: false,
+                add_uris: vec![],
+            },
+            &egui::Context::default(),
+        );
+        assert!(
+            !app.jellyfin.edit_busy,
+            "an old dialog cannot create in a replaced account"
+        );
+        assert!(
+            !app.playlist_busy,
+            "an old Jellyfin dialog cannot fall through to Spotify"
+        );
+        app.backend.shutdown();
     }
 
     #[test]

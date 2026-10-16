@@ -42,6 +42,7 @@ struct Job {
     album: String,
     item: Item,
     known_tracks: Option<Vec<Item>>,
+    query: Option<super::catalog::Query>,
     config: EngineConfig,
     manual: bool,
     context_index: Option<usize>,
@@ -59,6 +60,8 @@ struct SavedPlayback {
     version: u32,
     source: Source,
     album: String,
+    #[serde(default)]
+    query: Option<super::catalog::Query>,
     item: Item,
     tracks: Vec<Item>,
     queued: Vec<Item>,
@@ -196,6 +199,7 @@ impl Transport {
                 version: 1,
                 source: job.source.clone(),
                 album: job.album.clone(),
+                query: job.query.clone(),
                 item: item.clone(),
                 tracks: state.snapshot.tracks.as_ref().clone(),
                 queued: state.snapshot.queued.as_ref().clone(),
@@ -239,15 +243,51 @@ impl Transport {
                 .is_some_and(|request| self.config.output.is_current(request))
     }
 
+    pub fn context_kind(&self) -> Option<crate::provider::MediaKind> {
+        use super::catalog::Query;
+        let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        match state.template.as_ref()?.query.as_ref() {
+            None => Some(crate::provider::MediaKind::Album),
+            Some(Query::PlaylistSongs { .. }) => Some(crate::provider::MediaKind::Playlist),
+            Some(Query::ArtistSongs { .. }) => Some(crate::provider::MediaKind::Artist),
+            _ => None,
+        }
+    }
+
     pub fn play(&self, source: Source, album: String, item: Item, tracks: Option<Vec<Item>>) {
         let job = Job {
             source,
             album,
             item,
             known_tracks: tracks,
+            query: None,
             config: self.config.clone(),
             manual: false,
             context_index: None,
+        };
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.history.clear();
+        select(&mut state, job);
+        self.shared.changed.notify_one();
+    }
+
+    pub fn play_catalog(
+        &self,
+        source: Source,
+        context: String,
+        item: Item,
+        query: Option<super::catalog::Query>,
+        index: Option<usize>,
+    ) {
+        let job = Job {
+            source,
+            album: context,
+            item: item.clone(),
+            known_tracks: query.is_none().then(|| vec![item]),
+            query,
+            config: self.config.clone(),
+            manual: false,
+            context_index: index,
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.history.clear();
@@ -570,9 +610,21 @@ fn select(state: &mut State, job: Job) {
     }
     let index = job
         .context_index
+        .filter(|index| {
+            job.manual
+                || tracks.get(*index).is_some_and(|item| {
+                    item.id == job.item.id
+                        && item.details.playlist_item_id == job.item.details.playlist_item_id
+                })
+        })
         .or_else(|| {
             (!job.manual)
-                .then(|| tracks.iter().position(|item| item.id == job.item.id))
+                .then(|| {
+                    tracks.iter().position(|item| {
+                        item.id == job.item.id
+                            && item.details.playlist_item_id == job.item.details.playlist_item_id
+                    })
+                })
                 .flatten()
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
@@ -724,6 +776,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     state.template = Some(Job {
         source: saved.source.clone(),
         album: saved.album,
+        query: saved.query,
         item: saved.item.clone(),
         known_tracks: saved.queue_complete.then(|| saved.tracks.clone()),
         config: config.clone(),
@@ -820,10 +873,21 @@ fn session(
                     if cancel.load(Ordering::SeqCst) {
                         return Err("Playback cancelled.".to_owned());
                     }
-                    let page = client
-                        .album_tracks(&job.source.user_id, &job.album, tracks.len() as u32, &token)
-                        .await
-                        .map_err(|error| error.to_string())?;
+                    let page = if let Some(query) = &job.query {
+                        client
+                            .query(&job.source.user_id, query, tracks.len() as u32, &token)
+                            .await
+                    } else {
+                        client
+                            .album_tracks(
+                                &job.source.user_id,
+                                &job.album,
+                                tracks.len() as u32,
+                                &token,
+                            )
+                            .await
+                    }
+                    .map_err(|error| error.to_string())?;
                     let done = page.items.is_empty()
                         || page.start_index + page.items.len() as u32 >= page.total_record_count;
                     tracks.extend(page.items);
@@ -846,11 +910,17 @@ fn session(
             state.snapshot.index = job
                 .context_index
                 .filter(|index| {
-                    tracks
-                        .get(*index)
-                        .is_some_and(|item| item.id == job.item.id)
+                    tracks.get(*index).is_some_and(|item| {
+                        item.id == job.item.id
+                            && item.details.playlist_item_id == job.item.details.playlist_item_id
+                    })
                 })
-                .or_else(|| tracks.iter().position(|item| item.id == job.item.id))
+                .or_else(|| {
+                    tracks.iter().position(|item| {
+                        item.id == job.item.id
+                            && item.details.playlist_item_id == job.item.details.playlist_item_id
+                    })
+                })
                 .ok_or("Track is no longer available in this album.")?;
         }
         state.snapshot.tracks = Arc::new(tracks);
@@ -1089,6 +1159,47 @@ mod tests {
             f64::from_bits(transport.shared.volume.load(Ordering::Relaxed)),
             level(20)
         );
+    }
+
+    #[test]
+    fn playlist_playback_keeps_occurrence_and_query_through_pause_and_save() {
+        let player = transport();
+        let current_source = source();
+        let mut first = item("same");
+        first.details.playlist_item_id = Some("first".into());
+        let mut second = first.clone();
+        second.details.playlist_item_id = Some("second".into());
+        let query = super::super::catalog::Query::PlaylistSongs {
+            playlist: "list1".into(),
+        };
+        player.play_catalog(
+            current_source,
+            "list1".into(),
+            second.clone(),
+            Some(query.clone()),
+            Some(101),
+        );
+        assert_eq!(
+            player.snapshot().index,
+            0,
+            "a loading placeholder cannot have an out-of-bounds index"
+        );
+        let state = player.shared.state.lock().unwrap();
+        assert_eq!(state.template.as_ref().unwrap().query, Some(query));
+        assert_eq!(state.template.as_ref().unwrap().context_index, Some(101));
+        drop(state);
+        // A known queue uses the occurrence identity even when song IDs repeat.
+        player.play(
+            source(),
+            "list1".into(),
+            second,
+            Some(vec![first, item("other"), {
+                let mut item = item("same");
+                item.details.playlist_item_id = Some("second".into());
+                item
+            }]),
+        );
+        assert_eq!(player.snapshot().index, 2);
     }
 
     #[test]

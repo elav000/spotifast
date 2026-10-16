@@ -169,6 +169,7 @@ fn nav_button(
             Sense::hover()
         },
     );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, tooltip));
     if ui.is_rect_visible(rect) {
         let fill = if palette.dark {
             egui::Color32::from_black_alpha(90)
@@ -192,9 +193,68 @@ fn nav_button(
     }
 }
 
+/// Source and service configuration stay in menus; the Library rail keeps its
+/// existing navigation, shelf, search and sort controls.
+pub(crate) fn provider_menu(app: &mut App, ui: &mut egui::Ui) {
+    use crate::{jellyfin::browser::BrowserAction, provider::Provider};
+    if !app.jellyfin.enabled {
+        return;
+    }
+    ui.menu_button(gettext(app.locale, "Music source"), |ui| {
+        for (provider, name) in [
+            (Provider::Jellyfin, "Jellyfin"),
+            (Provider::Spotify, "Spotify"),
+        ] {
+            let selected = app.jellyfin.provider == provider;
+            let choice = ui.selectable_label(selected, name);
+            choice.widget_info(|| {
+                egui::WidgetInfo::selected(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    selected,
+                    format!("Use {name}"),
+                )
+            });
+            if choice.clicked() {
+                app.actions
+                    .push(Action::Jellyfin(BrowserAction::Select(provider)));
+                ui.close();
+            }
+        }
+    });
+    if let Some(source) = app.jellyfin.source.clone() {
+        ui.menu_button("Jellyfin", |ui| {
+            ui.menu_button("Music library", |ui| {
+                for library in &app.jellyfin.libraries {
+                    let selected = app
+                        .jellyfin
+                        .catalog
+                        .library
+                        .as_ref()
+                        .is_some_and(|current| current.id == library.id);
+                    if ui.selectable_label(selected, &library.name).clicked() {
+                        app.actions
+                            .push(Action::Jellyfin(BrowserAction::SelectCollection {
+                                source: source.clone(),
+                                id: library.id.clone(),
+                            }));
+                        ui.close();
+                    }
+                }
+            });
+        });
+    }
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
+    let provider = app.jellyfin_selected();
+    let search_page = if provider {
+        app.provider_search_active()
+    } else {
+        matches!(app.page(), Page::Search)
+    };
     let width = ui.available_width();
     let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
@@ -344,7 +404,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let fit = topbar_fit(search_room, controls, badges(true), badges(false));
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
-            let before = app.search.query.clone();
+            let before = if provider {
+                app.jellyfin.search_input.clone()
+            } else {
+                app.search.query.clone()
+            };
             let selected = egui::TextEdit::load_state(ui.ctx(), id)
                 .and_then(|state| state.cursor.char_range())
                 .is_some_and(|range| !range.is_empty());
@@ -353,7 +417,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 app.locale,
                 id,
-                &mut app.search.query,
+                if provider {
+                    &mut app.jellyfin.search_input
+                } else {
+                    &mut app.search.query
+                },
                 &gettext(locale, "What do you want to play?"),
                 search_width,
             );
@@ -363,23 +431,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             // Clear empties the field and hands it focus in the same frame.
             // Neither should leave the page: only typing a query does.
-            let cleared = app.search.query.is_empty() && !before.is_empty();
-            if response.gained_focus() && !cleared && !matches!(app.page(), Page::Search) {
+            let query = if provider {
+                app.jellyfin.search_input.clone()
+            } else {
+                app.search.query.clone()
+            };
+            let cleared = query.is_empty() && !before.is_empty();
+            if response.gained_focus() && !cleared && !search_page {
                 app.actions.push(Action::Open(Page::Search));
             }
-            if app.search.query != before {
+            if query != before {
                 // Typing over a selection, or emptying the field, starts a
                 // new query rather than editing the last one.
-                if selected || app.search.query.is_empty() {
+                if selected || query.is_empty() {
                     app.actions.push(Action::EndSearchRun);
                 }
-                app.search.typed_at = Some(std::time::Instant::now());
-                if !cleared && !matches!(app.page(), Page::Search) {
+                if provider {
+                    app.jellyfin.search_typed_at = Some(std::time::Instant::now());
+                } else {
+                    app.search.typed_at = Some(std::time::Instant::now());
+                }
+                if !cleared && !search_page {
                     app.actions.push(Action::Open(Page::Search));
                 }
             }
             if response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                let query = app.search.query.clone();
                 app.actions.push(Action::Search(query));
             }
             if response.has_focus() && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
@@ -390,18 +466,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(window_controls.topbar_width);
                 ui.add_space(super::widgets::PAGE_PADDING);
                 // Account.
-                let (name, avatar) = app
-                    .user
-                    .as_ref()
-                    .map(|user| {
-                        (
-                            user.name().to_string(),
-                            pick_image(&user.images, app.art_px(28.0)).map(str::to_string),
-                        )
-                    })
-                    .unwrap_or_default();
+                let (name, avatar) = if provider {
+                    ("Jellyfin".to_owned(), None)
+                } else {
+                    app.user
+                        .as_ref()
+                        .map(|user| {
+                            (
+                                user.name().to_string(),
+                                pick_image(&user.images, app.art_px(28.0)).map(str::to_string),
+                            )
+                        })
+                        .unwrap_or_default()
+                };
                 let (rect, response) =
                     ui.allocate_exact_size(Vec2::splat(AVATAR_SIZE), Sense::click());
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        gettext(locale, "Account"),
+                    )
+                });
                 if ui.is_rect_visible(rect) {
                     let fill = if response.hovered() {
                         palette.surface_hover
@@ -450,8 +536,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             ui.add_space(10.0);
                             theme::text(ui, &name, theme::semibold(14.0), palette.text);
                         });
-                        if let Some(product) =
-                            app.user.as_ref().and_then(|user| user.product.clone())
+                        if let Some(product) = app
+                            .user
+                            .as_ref()
+                            .filter(|_| !provider)
+                            .and_then(|user| user.product.clone())
                         {
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
@@ -482,13 +571,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                 .push(Action::ShowDialog(crate::model::Dialog::Shortcuts));
                         }
                         super::widgets::menu_separator(ui, &palette);
+                        provider_menu(app, ui);
+                        super::widgets::menu_separator(ui, &palette);
                         if super::widgets::menu_item(
                             ui,
                             &palette,
                             Some(Icon::LogOut),
                             &gettext(locale, "Sign out"),
                         ) {
-                            app.actions.push(Action::SignOut);
+                            app.actions.push(if provider {
+                                Action::Jellyfin(crate::jellyfin::browser::BrowserAction::SignOut)
+                            } else {
+                                Action::SignOut
+                            });
                         }
                     });
                 if !app.network_reachable {

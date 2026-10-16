@@ -35,6 +35,17 @@ occurrence or move it up/down, including across page boundaries. Jellyfin
 checks edit permissions. Refused or failed edits remain visible and failed
 optimistic row changes restore their previous presentation. These controls do
 not edit Spotify playlists.
+The existing Audio cache setting now controls both backends through a common
+policy. Its size allowance is split equally between the existing librespot store
+and the shared HTTP range store. Jellyfin replays and seeks reuse validated ranges
+when the server supplies a usable strong entity validator. Each new playback first makes an
+authenticated one-byte range request to validate access and the current entity.
+A strong ETag is preferred; without an ETag, a valid Last-Modified date at
+least 60 seconds older than the response Date is accepted. Other responses
+keep using memory read-ahead. These are playback
+caches, not offline downloads; cache files can remain after sign-out, while
+fresh authorization and account identity are required before reuse.
+
 Your selected provider is remembered. Jellyfin sign-in uses the system credential
 store, so the app can restore it after restart. Sign out removes the account's
 cached pages and revokes local restoration even if protected-store deletion fails.
@@ -514,8 +525,8 @@ backend exposes those hooks. Audit existing librespot interfaces or a suitable
 upstream extraction before adding more streaming/cache policy. Spotify's existing
 backend can remain behind that adapter. Jellyfin and future Plex support should
 reuse the neutral HTTP implementation, rather than duplicate a downloader per
-service. Current Jellyfin read-ahead is bounded memory only, not a persistent
-audio cache or a completed shared streaming layer.
+service. That read-ahead milestone used bounded memory only. The shared foundation below
+now adds persistent HTTP caching; a single streaming engine remains future work.
 
 
 ### Playback verification and remaining buffering case
@@ -533,3 +544,52 @@ network stall is resolved or that the full streaming layer is shared.
 Playback failures are now rendered through the shared error row on connected
 provider pages as well as recorded with a redacted message in the app log. This
 restores visibility lost when the old connected Jellyfin panel was removed.
+
+
+## Shared encoded-audio and cache foundation
+
+`src/media/http.rs` and `src/media/decode.rs` now own the provider-neutral HTTP
+range reader and WAV/FLAC/MP3 decoder. The Jellyfin adapter supplies its request
+and stable provider/source/server/account/item identity. Its former module paths
+remain compatibility exports for diagnostics. There is one HTTP implementation
+to reuse for future providers such as Plex. The tests use generic authenticated
+HTTP requests without constructing a Jellyfin client.
+
+`src/media/cache.rs` supplies the common cache policy consumed by both
+`EngineConfig::open_cache` (librespot) and the HTTP adapter. No dependency fork or
+invented Spotify file identifiers are introduced. Spotify retains its native
+fetching/decoding/cache internals. A single shared downloader, PCM queue and
+cross-provider LRU are not claimed. Each backend gets half the existing Audio
+cache limit, enforced when that backend opens or writes its cache. A previously
+larger inactive cache shrinks when its backend next applies the policy. Unused
+allowance is not borrowed between backends in this version.
+
+Spotify's existing `AppDirs.cache/audio` path is preserved. HTTP ranges use its
+sibling `audio.streams`, outside librespot's recursively managed directory.
+Both paths appear in the existing Storage row. Disabling Audio cache prevents
+new HTTP cache reads/writes after applying playback settings. It leaves existing
+files in place, matching the retained-cache behavior of the native engine.
+
+The HTTP cache stores only complete, checked ranges, published atomically on
+media workers. Keys hash the stable identity, current entity validator, length and
+aligned byte range; no URL, header, token, or raw identity is persisted. A
+versioned length/checksum envelope rejects truncated or corrupt files. Touches
+and eviction apply only to owned cache files; failed disk reads/writes fall back
+to streaming. Memory read-ahead remains bounded and seek/cancellation checks
+remain in force. There is no background whole-library audio download: only
+played/searched byte positions and the one-range read-ahead enter the cache.
+
+A repeated playback still validates authorization online. A changed entity or
+account cannot reuse old bytes, and a 401 fails before disk cache access. Weak tags, missing dates and recent/ambiguous dates disable disk reuse.
+Responses marked no-store also bypass disk caching. The earlier cold-start/jitter issue is
+still a tracked verification case; extraction and disk caching do not by
+themselves guarantee uninterrupted playback through arbitrary network stalls.
+
+
+Date fallback follows [RFC 9110, section 8.8.2.2](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.2.2),
+using a conservative 60-second separation. An ETag, including a weak ETag,
+prevents falling back to a date validator. Initial authorization probes request
+revalidation with Cache-Control: no-cache. The cache identity also includes the
+encoded representation, so a future provider must distinguish original audio
+from each transcoding profile. The user's live server supplies the date headers
+needed for this fallback; it does not supply an ETag on original-audio responses.

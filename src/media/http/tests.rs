@@ -11,6 +11,12 @@ enum Reply {
     Truncated,
     Changed,
     Redirect,
+    NoValidator,
+    WeakValidator,
+    Unauthorized,
+    Dated,
+    FreshDated,
+    NoStore,
 }
 
 struct Server {
@@ -80,6 +86,7 @@ impl Server {
                 let status = match reply {
                     Reply::WholeFile => 200,
                     Reply::Redirect => 302,
+                    Reply::Unauthorized => 401,
                     _ => 206,
                 };
                 let etag = if matches!(reply, Reply::Changed) {
@@ -92,8 +99,16 @@ impl Server {
                 } else {
                     first
                 };
+                let validator = match reply {
+                    Reply::NoValidator => String::new(),
+                    Reply::NoStore => "ETag: \"v1\"\r\nCache-Control: private, NO-STORE\r\n".into(),
+                    Reply::Dated => "Date: Thu, 07 Nov 2024 12:00:00 GMT\r\nLast-Modified: Thu, 07 Nov 2024 11:00:00 GMT\r\n".into(),
+                    Reply::FreshDated => "Date: Thu, 07 Nov 2024 12:00:00 GMT\r\nLast-Modified: Thu, 07 Nov 2024 12:00:00 GMT\r\n".into(),
+                    Reply::WeakValidator => "ETag: W/\"v1\"\r\n".into(),
+                    _ => format!("ETag: \"{etag}\"\r\n"),
+                };
                 let response = format!(
-                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Range: bytes {range_first}-{last}/{}\r\nETag: \"{etag}\"\r\nLocation: http://127.0.0.1:1/leak\r\nConnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} Test\r\nContent-Length: {}\r\nContent-Range: bytes {range_first}-{last}/{}\r\n{validator}Location: http://127.0.0.1:1/leak\r\nConnection: close\r\n\r\n",
                     body.len(),
                     bytes.len()
                 );
@@ -124,24 +139,37 @@ impl Server {
     fn source(&self) -> io::Result<HttpRangeSource> {
         self.source_mode(false)
     }
-    fn source_mode(&self, buffered: bool) -> io::Result<HttpRangeSource> {
-        let client = crate::jellyfin::Client::new(
-            &format!("http://{}", self.address),
-            "test-device",
+    fn source_cached(&self, cache: super::super::cache::Binding) -> io::Result<HttpRangeSource> {
+        let mut request = Request::new(
+            reqwest::Method::GET,
+            format!("http://{}/audio", self.address).parse().unwrap(),
+        );
+        request.headers_mut().insert(
+            "authorization",
+            header::HeaderValue::from_static("dummy-audio-token"),
+        );
+        HttpRangeSource::cached(
+            request,
             &ProxyConfig::Off,
+            Arc::new(AtomicBool::new(false)),
+            Some(cache),
         )
-        .unwrap();
-        let token = crate::jellyfin::Token::new("dummy-audio-token".into()).unwrap();
+    }
+    fn source_mode(&self, buffered: bool) -> io::Result<HttpRangeSource> {
+        let mut request = Request::new(
+            reqwest::Method::GET,
+            format!("http://{}/audio", self.address).parse().unwrap(),
+        );
+        request.headers_mut().insert(
+            "authorization",
+            header::HeaderValue::from_static("dummy-audio-token"),
+        );
         let open = if buffered {
             HttpRangeSource::buffered
         } else {
             HttpRangeSource::new
         };
-        open(
-            client.stream_request("track1", &token, None).unwrap(),
-            &ProxyConfig::Off,
-            Arc::new(AtomicBool::new(false)),
-        )
+        open(request, &ProxyConfig::Off, Arc::new(AtomicBool::new(false)))
     }
 }
 
@@ -253,7 +281,7 @@ fn flac_decodes_before_whole_file_arrives_and_seeks_near_the_end() {
     let server = Server::new(bytes.to_vec(), vec![]);
     let source = server.source().unwrap();
     let metrics = source.metrics.clone();
-    let mut decoder = crate::jellyfin::decode::AudioDecoder::open(Box::new(source)).unwrap();
+    let mut decoder = crate::media::decode::AudioDecoder::open(Box::new(source)).unwrap();
     let first = decoder.next_pcm().unwrap().unwrap();
     assert!(!first.is_empty());
     assert!(first.iter().any(|sample| sample.abs() > 0.001));
@@ -276,7 +304,7 @@ fn byte_probe_supports_wav_and_mp3_without_an_extension_hint() {
     ] {
         let server = Server::new(bytes.to_vec(), vec![]);
         let source = server.source().unwrap();
-        let mut decoder = crate::jellyfin::decode::AudioDecoder::open(Box::new(source)).unwrap();
+        let mut decoder = crate::media::decode::AudioDecoder::open(Box::new(source)).unwrap();
         let mut samples = 0;
         while let Some(pcm) = decoder.next_pcm().unwrap() {
             assert!(pcm.iter().all(|sample| sample.is_finite()));
@@ -295,8 +323,7 @@ fn wav_resampling_preserves_the_tail_and_wav_mp3_seek_produces_audio() {
     ] {
         let server = Server::new(bytes.to_vec(), vec![]);
         let mut decoder =
-            crate::jellyfin::decode::AudioDecoder::open(Box::new(server.source().unwrap()))
-                .unwrap();
+            crate::media::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
         let mut frames = 0;
         while let Some(pcm) = decoder.next_pcm().unwrap() {
             frames += pcm.len() / 2;
@@ -320,7 +347,7 @@ fn flac_seeks_return_the_same_samples_as_sequential_decoding() {
         vec![],
     );
     let mut decoder =
-        crate::jellyfin::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
+        crate::media::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
     let mut original = Vec::new();
     while let Some(pcm) = decoder.next_pcm().unwrap() {
         original.extend(pcm);
@@ -345,7 +372,7 @@ fn resampled_wav_seek_preserves_sample_alignment_after_filter_startup() {
         vec![],
     );
     let mut decoder =
-        crate::jellyfin::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
+        crate::media::decode::AudioDecoder::open(Box::new(server.source().unwrap())).unwrap();
     let mut original = Vec::new();
     while let Some(pcm) = decoder.next_pcm().unwrap() {
         original.extend(pcm);
@@ -497,4 +524,240 @@ fn current_audio_remains_readable_while_the_next_network_range_is_blocked() {
         out,
         bytes[PLAYBACK_RANGE_BYTES..PLAYBACK_RANGE_BYTES + out.len()]
     );
+}
+
+#[test]
+fn repeat_playback_validates_online_then_uses_cached_ranges_and_seeks() {
+    use crate::media::cache::{Identity, Policy};
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/media-http-cache-tests")
+        .join(format!("repeat-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+    let cache = Policy::new(Some(&root), Some(16 * 1024 * 1024))
+        .http
+        .unwrap();
+    let identity = Identity {
+        provider: "fixture-http".into(),
+        source: "source".into(),
+        account: "a".into(),
+        item: "item".into(),
+        representation: "original".into(),
+    };
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![]);
+    let mut cold = server
+        .source_cached(cache.clone().bind(identity.clone()))
+        .unwrap();
+    let mut out = Vec::new();
+    cold.read_to_end(&mut out).unwrap();
+    assert_eq!(out, bytes);
+    assert_eq!(cold.metrics.snapshot().cache_hits, 0);
+    let mut warm = server
+        .source_cached(cache.clone().bind(identity.clone()))
+        .unwrap();
+    out.clear();
+    warm.read_to_end(&mut out).unwrap();
+    assert_eq!(out, bytes);
+    assert_eq!(
+        warm.metrics.snapshot().requests,
+        1,
+        "one-byte online validation only"
+    );
+    assert_eq!(warm.metrics.snapshot().bytes, 1);
+    assert_eq!(warm.metrics.snapshot().cache_hits, 4);
+    warm.seek(SeekFrom::Start(12345)).unwrap();
+    let mut seek = [0; 16];
+    warm.read_exact(&mut seek).unwrap();
+    assert_eq!(seek, bytes[12345..12361]);
+    await_prefetch(&warm);
+    assert_eq!(
+        warm.metrics.snapshot().requests,
+        1,
+        "seeking reuses aligned cached ranges"
+    );
+    // A different account must refill from the network even for the same item.
+    let mut other = identity;
+    other.account = "b".into();
+    let mut other = server.source_cached(cache.bind(other)).unwrap();
+    out.clear();
+    other.read_to_end(&mut out).unwrap();
+    assert_eq!(other.metrics.snapshot().cache_hits, 0);
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+}
+
+#[test]
+fn changed_entity_never_reuses_old_audio_from_the_disk_cache() {
+    use crate::media::cache::{Identity, Policy};
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/media-http-cache-tests")
+        .join(format!("changed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+    let binding = Policy::new(Some(&root), Some(16 * 1024 * 1024))
+        .http
+        .unwrap()
+        .bind(Identity {
+            provider: "fixture".into(),
+            source: "s".into(),
+            account: "a".into(),
+            item: "i".into(),
+            representation: "original".into(),
+        });
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![]);
+    let mut cold = server.source_cached(binding.clone()).unwrap();
+    let mut out = Vec::new();
+    cold.read_to_end(&mut out).unwrap();
+    drop(cold);
+    let mut changed_bytes = bytes;
+    changed_bytes.fill(99);
+    let changed = Server::new(changed_bytes.clone(), vec![Reply::Changed; 6]);
+    let mut warm = changed.source_cached(binding).unwrap();
+    out.clear();
+    warm.read_to_end(&mut out).unwrap();
+    assert_eq!(out, changed_bytes);
+    assert_eq!(warm.metrics.snapshot().cache_hits, 0);
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+}
+
+#[test]
+fn uncacheable_responses_and_revoked_auth_cannot_use_disk_cache() {
+    use crate::media::cache::{Identity, Policy};
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/media-http-cache-tests")
+        .join(format!("validators-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+    let binding = Policy::new(Some(&root), Some(16 * 1024 * 1024))
+        .http
+        .unwrap()
+        .bind(Identity {
+            provider: "fixture".into(),
+            source: "s".into(),
+            account: "a".into(),
+            item: "i".into(),
+            representation: "original".into(),
+        });
+    for reply in [
+        Reply::NoValidator,
+        Reply::WeakValidator,
+        Reply::FreshDated,
+        Reply::NoStore,
+    ] {
+        let server = Server::new(playback_bytes(), vec![reply; 10]);
+        for _ in 0..2 {
+            let mut reader = server.source_cached(binding.clone()).unwrap();
+            reader.read_to_end(&mut Vec::new()).unwrap();
+            assert_eq!(reader.metrics.snapshot().cache_hits, 0);
+        }
+    }
+    let server = Server::new(playback_bytes(), vec![]);
+    let mut reader = server.source_cached(binding.clone()).unwrap();
+    reader.read_to_end(&mut Vec::new()).unwrap();
+    let denied = Server::new(playback_bytes(), vec![Reply::Unauthorized]);
+    let error = denied.source_cached(binding).err().unwrap().to_string();
+    assert!(error.contains("401"));
+    assert_eq!(denied.requests.lock().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+}
+
+#[test]
+fn corrupt_disk_ranges_refetch_and_repair_without_changing_decoded_bytes() {
+    use crate::media::cache::{Identity, Policy};
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/media-http-cache-tests")
+        .join(format!("repair-{}", std::process::id()));
+    let disk = root.with_extension("streams");
+    let _ = std::fs::remove_dir_all(&disk);
+    let binding = Policy::new(Some(&root), Some(16 * 1024 * 1024))
+        .http
+        .unwrap()
+        .bind(Identity {
+            provider: "fixture".into(),
+            source: "s".into(),
+            account: "a".into(),
+            item: "i".into(),
+            representation: "original".into(),
+        });
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![]);
+    let mut cold = server.source_cached(binding.clone()).unwrap();
+    cold.read_to_end(&mut Vec::new()).unwrap();
+    for entry in std::fs::read_dir(&disk).unwrap() {
+        let path = entry.unwrap().path();
+        let mut damaged = std::fs::read(&path).unwrap();
+        *damaged.last_mut().unwrap() ^= 1;
+        std::fs::write(path, damaged).unwrap();
+    }
+    let mut repair = server.source_cached(binding.clone()).unwrap();
+    let mut out = Vec::new();
+    repair.read_to_end(&mut out).unwrap();
+    assert_eq!(out, bytes);
+    assert_eq!(repair.metrics.snapshot().cache_hits, 0);
+    let mut replay = server.source_cached(binding).unwrap();
+    out.clear();
+    replay.read_to_end(&mut out).unwrap();
+    assert_eq!(out, bytes);
+    assert_eq!(replay.metrics.snapshot().requests, 1);
+    let _ = std::fs::remove_dir_all(disk);
+}
+
+#[test]
+fn settled_last_modified_supports_cached_playback_without_an_etag() {
+    use crate::media::cache::{Identity, Policy};
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target/media-http-cache-tests")
+        .join(format!("dated-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+    let binding = Policy::new(Some(&root), Some(16 * 1024 * 1024))
+        .http
+        .unwrap()
+        .bind(Identity {
+            provider: "fixture".into(),
+            source: "s".into(),
+            account: "a".into(),
+            item: "i".into(),
+            representation: "original".into(),
+        });
+    let bytes = playback_bytes();
+    let server = Server::new(bytes.clone(), vec![Reply::Dated; 10]);
+    let mut cold = server.source_cached(binding.clone()).unwrap();
+    cold.read_to_end(&mut Vec::new()).unwrap();
+    let mut warm = server.source_cached(binding).unwrap();
+    let mut out = Vec::new();
+    warm.read_to_end(&mut out).unwrap();
+    assert_eq!(out, bytes);
+    assert_eq!(warm.metrics.snapshot().requests, 1);
+    assert_eq!(warm.metrics.snapshot().cache_hits, 4);
+    assert!(server.requests.lock().unwrap().iter().any(|request| {
+        request
+            .to_lowercase()
+            .contains("if-range: thu, 07 nov 2024 11:00:00 gmt")
+    }));
+    let _ = std::fs::remove_dir_all(root.with_extension("streams"));
+}
+
+#[test]
+fn date_validator_rejects_clock_ambiguity_and_weak_etags() {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(
+        header::DATE,
+        header::HeaderValue::from_static("Thu, 07 Nov 2024 12:00:00 GMT"),
+    );
+    for modified in [
+        "Thu, 07 Nov 2024 12:00:00 GMT",
+        "Thu, 07 Nov 2024 12:01:00 GMT",
+        "invalid",
+    ] {
+        headers.insert(header::LAST_MODIFIED, modified.parse().unwrap());
+        assert!(!cacheable_validator(&headers));
+    }
+    headers.insert(
+        header::LAST_MODIFIED,
+        header::HeaderValue::from_static("Thu, 07 Nov 2024 11:00:00 GMT"),
+    );
+    assert!(cacheable_validator(&headers));
+    headers.insert(header::ETAG, header::HeaderValue::from_static("W/\"v1\""));
+    assert!(!cacheable_validator(&headers));
+    headers.remove(header::ETAG);
+    headers.remove(header::DATE);
+    assert!(!cacheable_validator(&headers));
 }

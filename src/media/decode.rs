@@ -53,7 +53,7 @@ impl AudioDecoder {
             .ok_or("Audio channels are missing.")?
             .count();
         if !(8000..=192000).contains(&rate) || !(1..=2).contains(&channels) {
-            return Err("This playback spike supports mono/stereo audio from 8 to 192 kHz.".into());
+            return Err("Audio playback supports mono/stereo audio from 8 to 192 kHz.".into());
         }
         let decoder = symphonia::default::get_codecs()
             .make(&parameters, &DecoderOptions::default())

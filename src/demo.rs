@@ -9936,6 +9936,65 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_provider_switcher_works_signed_out_and_preserves_jellyfin_navigation() {
+        use crate::jellyfin::browser::View;
+        use crate::provider::Provider;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("sidebar-providers");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        let saved_view = app.jellyfin.view.clone();
+        for target in [Provider::Spotify, Provider::Jellyfin] {
+            accessible_frame(&ctx, &mut app, vec![]);
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let selector = accessible_node(&tree, "Music source", Role::ComboBox);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(selector, AccessibleAction::Click, None)],
+            );
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            let name = match target {
+                Provider::Spotify => "Spotify",
+                Provider::Jellyfin => "Jellyfin",
+            };
+            let option = accessible_node(&tree, name, Role::Button);
+            accessible_frame(
+                &ctx,
+                &mut app,
+                vec![accessible_action(option, AccessibleAction::Click, None)],
+            );
+            assert_eq!(app.jellyfin.provider, target);
+            assert_eq!(app.jellyfin.view, saved_view);
+            assert!(app.user.is_none());
+            if target == Provider::Spotify {
+                let tree = accessible_frame(&ctx, &mut app, vec![]);
+                accessible_node(&tree, "Sign in with Spotify", Role::Button);
+            }
+        }
+        app.apply(Action::ToggleSidebar, &ctx);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let label = if cfg!(target_os = "macos") {
+            "Show sidebar (Cmd+B)"
+        } else {
+            "Show sidebar (Ctrl+B)"
+        };
+        let reveal = accessible_node(&tree, label, Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(reveal, AccessibleAction::Click, None)],
+        );
+        assert!(app.settings.sidebar_visible);
+        assert!(matches!(app.jellyfin.view, View::Tracks { .. }));
+        app.jellyfin.source = None;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Music source", Role::ComboBox);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_navigation_works_without_a_spotify_grant() {
         use crate::jellyfin::browser::{BrowserAction, Provider, View};
         use egui::accesskit::{Action as AccessibleAction, Role};

@@ -904,13 +904,113 @@ fn nav_row(
     response
 }
 
+pub(super) fn reveal_button(app: &mut App, ui: &mut egui::Ui) {
+    if app.jellyfin.enabled
+        && !app.settings.sidebar_visible
+        && theme::icon_button(
+            ui,
+            Icon::PanelLeft,
+            20.0,
+            app.palette.secondary,
+            app.palette.text,
+            super::keys::platform_shortcut(
+                &gettext(app.locale, "Show sidebar (Ctrl+B)"),
+                &gettext(app.locale, "Show sidebar (Cmd+B)"),
+            ),
+        )
+        .clicked()
+    {
+        app.actions.push(Action::ToggleSidebar);
+    }
+}
+
+/// The same rail switches catalogs without touching playback ownership.
+fn provider_switcher(app: &mut App, ui: &mut egui::Ui) {
+    use crate::{jellyfin::browser::BrowserAction, provider::Provider};
+    let selected = app.jellyfin.provider;
+    let label = gettext(app.locale, "Music source");
+    ui.horizontal(|ui| {
+        ui.label(&*label);
+        ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+            if theme::icon_button(
+                ui,
+                Icon::PanelLeft,
+                16.0,
+                app.palette.secondary,
+                app.palette.text,
+                super::keys::platform_shortcut(
+                    &gettext(app.locale, "Hide sidebar (Ctrl+B)"),
+                    &gettext(app.locale, "Hide sidebar (Cmd+B)"),
+                ),
+            )
+            .clicked()
+            {
+                app.actions.push(Action::ToggleSidebar);
+            }
+        });
+    });
+    let response = egui::ComboBox::from_id_salt("sidebar-provider")
+        .width(ui.available_width())
+        .selected_text(match selected {
+            Provider::Jellyfin => "Jellyfin",
+            Provider::Spotify => "Spotify",
+        })
+        .show_ui(ui, |ui| {
+            for (provider, name) in [
+                (Provider::Jellyfin, "Jellyfin"),
+                (Provider::Spotify, "Spotify"),
+            ] {
+                if ui.selectable_label(selected == provider, name).clicked() {
+                    app.actions
+                        .push(Action::Jellyfin(BrowserAction::Select(provider)));
+                    ui.close();
+                }
+            }
+        })
+        .response;
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), &*label)
+    });
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+}
+
 /// Draw Library navigation, shelf controls, search, and the visible rows.
 /// Playlist ownership and text filters are applied before ordering and pin placement.
 fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let palette = app.palette;
+    if app.jellyfin.enabled {
+        provider_switcher(app, ui);
+        if app.jellyfin.provider == crate::provider::Provider::Jellyfin
+            && app.jellyfin.source.is_none()
+        {
+            return;
+        }
+        if app.jellyfin.provider == crate::provider::Provider::Spotify
+            && (!app.is_connected() || app.user.is_none())
+        {
+            return;
+        }
+    }
     if let Some(entries) = app.provider_navigation() {
         ui.add_space(4.0);
-        for entry in entries {
+        for (index, entry) in entries.into_iter().enumerate() {
+            if index == 1 {
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    theme::icon(ui, Icon::Library, 22.0, palette.secondary);
+                    theme::text(
+                        ui,
+                        gettext(app.locale, "Library"),
+                        theme::bold(15.0),
+                        palette.text,
+                    );
+                });
+                ui.add_space(6.0);
+            }
             if nav_row(
                 ui,
                 &palette,

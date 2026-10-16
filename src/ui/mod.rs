@@ -43,6 +43,15 @@ fn playback_queue_panel(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
+/// Leave room for native Mac controls or the existing custom caption buttons.
+fn provider_titlebar_inset(ctx: &Context) -> f32 {
+    theme::titlebar_inset(ctx).max(if fastframe_titlebar::enabled() {
+        28.0
+    } else {
+        0.0
+    })
+}
+
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let ctx = &ctx;
@@ -51,23 +60,27 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         app.actions.push(Action::InstallSkin(path));
     }
     if app.jellyfin.enabled {
-        jellyfin::provider_bar(app, ui);
+        fastframe_titlebar::drag(
+            ui,
+            Rect::from_min_size(
+                ui.max_rect().min,
+                vec2(ui.max_rect().width(), provider_titlebar_inset(ctx)),
+            ),
+        );
         if app.jellyfin.provider == crate::jellyfin::browser::Provider::Jellyfin {
             if app.jellyfin_player.snapshot().item.is_some()
                 || (app.is_connected() && app.user.is_some())
             {
                 player_bar::show(app, ui);
             }
-            if app.jellyfin.source.is_some() && app.settings.sidebar_visible {
+            if app.settings.sidebar_visible {
                 sidebar::show(app, ui);
             }
             if app.show_queue_panel {
                 playback_queue_panel(app, ui);
             }
             jellyfin::show(app, ui);
-            if app.jellyfin.source.is_some() {
-                keep_room_for_panels(app, ctx);
-            }
+            keep_room_for_panels(app, ctx);
             caption_buttons(ui, &app.palette, app.locale);
             fastframe_titlebar::resize(ui);
             return;
@@ -82,6 +95,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if app.show_queue_panel {
                 jellyfin::queue_panel(app, ui);
             }
+        }
+        if app.jellyfin.enabled && app.settings.sidebar_visible {
+            sidebar::show(app, ui);
         }
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);

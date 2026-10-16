@@ -20,6 +20,7 @@ pub fn spawn(
     waker: Waker,
     events: mpsc::Sender<Event>,
     generation: Arc<AtomicU64>,
+    catalog_generation: Arc<AtomicU64>,
 ) -> mpsc::Sender<Job> {
     let (tx, rx) = mpsc::channel::<Job>();
     std::thread::Builder::new()
@@ -35,6 +36,8 @@ pub fn spawn(
                 dirs,
                 events,
                 generation,
+                catalog_generation,
+                catalog_request: None,
                 waker,
                 source: None,
                 token: None,
@@ -42,6 +45,7 @@ pub fn spawn(
                 client: None,
             };
             while let Ok(job) = rx.recv() {
+                worker.catalog_request = job.catalog_request;
                 if !worker.current(job.generation) && !matches!(&job.command, Command::Select(_)) {
                     continue;
                 }
@@ -58,6 +62,8 @@ struct Worker {
     dirs: AppDirs,
     events: mpsc::Sender<Event>,
     generation: Arc<AtomicU64>,
+    catalog_generation: Arc<AtomicU64>,
+    catalog_request: Option<u64>,
     waker: Waker,
     source: Option<Source>,
     token: Option<Token>,
@@ -67,10 +73,28 @@ struct Worker {
 
 impl Worker {
     fn current(&self, generation: u64) -> bool {
-        self.generation.load(Ordering::SeqCst) == generation
+        self.catalog_request.map_or_else(
+            || self.generation.load(Ordering::SeqCst) == generation,
+            |request| self.catalog_generation.load(Ordering::SeqCst) == request,
+        )
     }
     fn emit(&self, generation: u64, reply: Reply) {
         if self.current(generation) {
+            let reply = match (self.catalog_request, reply) {
+                (Some(request), Reply::Data { rows, cached }) => {
+                    let Some(source) = self.source.clone() else {
+                        return;
+                    };
+                    Reply::Catalog {
+                        request,
+                        source,
+                        rows,
+                        cached,
+                    }
+                }
+                (Some(request), Reply::Error(error)) => Reply::CatalogError { request, error },
+                (_, reply) => reply,
+            };
             let _ = self.events.send(Event { generation, reply });
             self.waker.wake();
         }

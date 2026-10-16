@@ -2599,6 +2599,510 @@ fn palette_of(app: &App) -> Palette {
     app.palette
 }
 
+fn catalog_matches(item: &crate::jellyfin::Item, filter: &str) -> bool {
+    let filter = filter.trim().to_lowercase();
+    item.name
+        .as_deref()
+        .unwrap_or_default()
+        .to_lowercase()
+        .contains(&filter)
+        || item
+            .artists
+            .iter()
+            .any(|artist| artist.to_lowercase().contains(&filter))
+}
+
+/// Provider data enters the existing central page, hero, library cards and song
+/// rows. This function owns no panels, scroll areas or provider-specific chrome.
+pub fn provider(app: &mut App, ui: &mut egui::Ui) {
+    use crate::jellyfin::{
+        browser::{BrowserAction as A, Rows, View},
+        catalog::{Kind, Query},
+    };
+    let view = app.jellyfin.view.clone();
+    let rows = app.jellyfin.rows.clone();
+    let Some(source) = app.jellyfin.source.clone() else {
+        return;
+    };
+    let title = match &view {
+        View::Libraries => "Your Library",
+        View::Albums { name, .. } | View::Tracks { name, .. } | View::Catalog { name, .. } => name,
+        _ => "Library",
+    };
+    let item = app.jellyfin.album.clone().or_else(|| {
+        if matches!(view, View::Tracks { .. }) {
+            match &rows {
+                Some(Rows::Items { items, .. }) => items.first().cloned(),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    });
+    if view.context_id().is_some() {
+        let artwork = item
+            .as_ref()
+            .and_then(|item| crate::jellyfin::artwork::Reference::for_item(&source, item))
+            .map(|art| art.uri());
+        let artist = matches!(
+            view,
+            View::Catalog {
+                query: Query::ArtistAlbums { .. } | Query::ArtistSongs { .. },
+                ..
+            }
+        );
+        let kind = if artist {
+            "Artist"
+        } else if matches!(
+            view,
+            View::Catalog {
+                query: Query::PlaylistSongs { .. },
+                ..
+            }
+        ) {
+            "Playlist"
+        } else {
+            "Album"
+        };
+        hero(
+            app,
+            ui,
+            Hero {
+                images: HeroImages {
+                    image: artwork.as_deref(),
+                    ..Default::default()
+                },
+                liked: false,
+                kind: kind.into(),
+                title,
+                description: item.as_ref().and_then(|item| item.details.overview.clone()),
+                byline: vec![
+                    (
+                        item.as_ref()
+                            .map(|item| item.artists.join(", "))
+                            .unwrap_or_default(),
+                        None,
+                    ),
+                    ("Jellyfin".into(), None),
+                ]
+                .into_iter()
+                .filter(|(text, _)| !text.is_empty())
+                .collect(),
+                avatar: None,
+                round: artist,
+            },
+        );
+    } else {
+        theme::text(ui, title, theme::bold(28.0), app.palette.text);
+        ui.add_space(14.0);
+    }
+    ui.horizontal(|ui| {
+        if view.is_tracks()
+            && let Some(Rows::Items {
+                items, start: 0, ..
+            }) = &rows
+        {
+            ui.add_enabled_ui(!items.is_empty(), |ui| {
+                if theme::circle_button(
+                    ui,
+                    Icon::PlayFilled,
+                    56.0,
+                    app.palette.accent,
+                    app.palette.accent_hover,
+                    app.palette.on_accent,
+                    if matches!(view, View::Tracks { .. }) {
+                        "Play album"
+                    } else {
+                        "Play"
+                    },
+                )
+                .clicked()
+                    && let Some(first) = items.first()
+                {
+                    let action = if matches!(view, View::Tracks { .. }) {
+                        A::Play(first.id.clone())
+                    } else {
+                        A::PlayItem {
+                            source: source.clone(),
+                            item: Box::new(first.clone()),
+                            context: view.context_id().unwrap_or("tracks").into(),
+                            query: view.track_query().cloned(),
+                            index: Some(0),
+                        }
+                    };
+                    app.actions.push(Action::Jellyfin(action));
+                }
+            });
+        }
+        if let View::Catalog {
+            query: Query::ArtistAlbums { library, artist },
+            name,
+        } = &view
+            && theme::circle_button(
+                ui,
+                Icon::PlayFilled,
+                56.0,
+                app.palette.accent,
+                app.palette.accent_hover,
+                app.palette.on_accent,
+                "Play artist",
+            )
+            .clicked()
+        {
+            app.actions
+                .push(Action::Jellyfin(A::PlayAlbum(View::Catalog {
+                    query: Query::ArtistSongs {
+                        library: library.clone(),
+                        artist: artist.clone(),
+                    },
+                    name: name.clone(),
+                })));
+        }
+        if let View::Catalog {
+            query: Query::ArtistAlbums { library, artist },
+            name,
+        } = &view
+            && ui.button("Songs").clicked()
+        {
+            app.actions.push(Action::Jellyfin(A::Browse {
+                view: View::Catalog {
+                    query: Query::ArtistSongs {
+                        library: library.clone(),
+                        artist: artist.clone(),
+                    },
+                    name: name.clone(),
+                },
+                start: 0,
+            }));
+        }
+        if let View::Catalog {
+            query: Query::PlaylistSongs { playlist },
+            name,
+        } = &view
+        {
+            if ui.button("Rename").clicked() {
+                app.actions.push(Action::ShowDialog(Dialog::RenamePlaylist {
+                    target: crate::provider::ItemReference::Jellyfin {
+                        source: source.id.clone(),
+                        account: source.user_id.clone(),
+                        item: playlist.clone(),
+                    },
+                    name: name.clone(),
+                }));
+            }
+            if item
+                .as_ref()
+                .is_none_or(|item| item.details.can_delete != Some(false))
+                && ui.button("Delete playlist").clicked()
+            {
+                app.actions
+                    .push(Action::ShowDialog(Dialog::ConfirmDeletePlaylist {
+                        id: playlist.clone(),
+                        name: name.clone(),
+                        owned: true,
+                    }));
+            }
+        }
+        if ui.button("Refresh").clicked() {
+            app.actions.push(Action::Jellyfin(A::Browse {
+                view: view.clone(),
+                start: app.jellyfin.start,
+            }));
+        }
+        if matches!(view, View::Libraries)
+            && let Some(library) = &app.jellyfin.catalog.library
+            && ui.button("Recently played").clicked()
+        {
+            app.actions.push(Action::Jellyfin(A::Browse {
+                view: View::Catalog {
+                    query: Query::History {
+                        library: library.id.clone(),
+                    },
+                    name: "Recently played".into(),
+                },
+                start: 0,
+            }));
+        }
+    });
+    ui.add_space(12.0);
+    let mut filter = app.jellyfin.filter.clone();
+    if widgets::search_field(
+        ui,
+        &app.palette,
+        app.locale,
+        ui.make_persistent_id("catalog-filter"),
+        &mut filter,
+        "Filter this page…",
+        ui.available_width().min(280.0),
+    )
+    .changed()
+    {
+        app.actions.push(Action::Jellyfin(A::Filter(filter)));
+    }
+    ui.add_space(12.0);
+    if let Some(error) = app.jellyfin.report_error.clone() {
+        widgets::error_row(ui, app, &error, None);
+    }
+    if let Some(error) = app.jellyfin.edit_error.clone() {
+        widgets::error_row(ui, app, &error, None);
+    }
+    if app.jellyfin.busy {
+        widgets::loading_row(ui, &app.palette, app.locale);
+    }
+    if let Some(error) = app.jellyfin.error.clone() {
+        widgets::error_row(ui, app, &error, None);
+    }
+    match rows {
+        Some(Rows::Libraries(libraries)) => {
+            let cards: Vec<_> = libraries
+                .into_iter()
+                .map(|library| crate::provider::LibraryItem {
+                    reference: crate::provider::ItemReference::Jellyfin {
+                        source: source.id.clone(),
+                        account: source.user_id.clone(),
+                        item: library.id.clone(),
+                    },
+                    name: library.name.clone(),
+                    subtitle: "Music library".into(),
+                    artwork: None,
+                    open: Action::Jellyfin(A::Browse {
+                        view: View::Albums {
+                            library_id: library.id,
+                            name: library.name,
+                        },
+                        start: 0,
+                    }),
+                    play: None,
+                    menu: Vec::new(),
+                    kind: crate::provider::MediaKind::Album,
+                    round: false,
+                    selected: false,
+                    current: false,
+                })
+                .collect();
+            super::library::item_grid(app, ui, &cards);
+        }
+        Some(Rows::Items {
+            items,
+            start,
+            total,
+        }) => {
+            if view.is_tracks() {
+                provider_tracks(
+                    app,
+                    ui,
+                    &items,
+                    start,
+                    view.track_query().cloned(),
+                    view.context_id().unwrap_or("tracks"),
+                );
+            } else {
+                let kind = match &view {
+                    View::Catalog {
+                        query: Query::Shelf { kind, .. },
+                        ..
+                    } => *kind,
+                    _ => Kind::Album,
+                };
+                let cards: Vec<_> = items
+                    .iter()
+                    .filter(|item| catalog_matches(item, &app.jellyfin.filter))
+                    .map(|item| app.jellyfin_library_item(item, kind))
+                    .collect();
+                super::library::item_grid(app, ui, &cards);
+            }
+            provider_paging(app, ui, view, start, items.len(), total);
+        }
+        _ => {}
+    }
+}
+
+pub fn provider_paging(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    view: crate::jellyfin::browser::View,
+    start: u32,
+    count: usize,
+    total: u32,
+) {
+    use crate::jellyfin::browser::BrowserAction as A;
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(
+                start > 0 && !app.jellyfin.busy,
+                egui::Button::new("Previous page"),
+            )
+            .clicked()
+        {
+            app.actions.push(Action::Jellyfin(A::Browse {
+                view: view.clone(),
+                start: start.saturating_sub(100),
+            }));
+        }
+        if ui
+            .add_enabled(
+                start.saturating_add(count as u32) < total && count > 0 && !app.jellyfin.busy,
+                egui::Button::new("Next page"),
+            )
+            .clicked()
+        {
+            app.actions.push(Action::Jellyfin(A::Browse {
+                view,
+                start: start.saturating_add(count as u32),
+            }));
+        }
+    });
+}
+
+pub fn provider_tracks(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    items: &[crate::jellyfin::Item],
+    start: u32,
+    query: Option<crate::jellyfin::catalog::Query>,
+    context: &str,
+) {
+    use crate::{
+        jellyfin::browser::BrowserAction as A,
+        provider::{ItemReference, Provider, TrackPresentation},
+    };
+    let Some(source) = app.jellyfin.source.clone() else {
+        return;
+    };
+    let state = app.jellyfin_player.snapshot();
+    let playlists = Arc::new(
+        app.jellyfin
+            .playlists
+            .iter()
+            .map(|playlist| {
+                (
+                    ItemReference::Jellyfin {
+                        source: source.id.clone(),
+                        account: source.user_id.clone(),
+                        item: playlist.id.clone(),
+                    },
+                    playlist.name.clone().unwrap_or_else(|| "Untitled".into()),
+                )
+            })
+            .collect::<Vec<_>>(),
+    );
+
+    let filter = app.jellyfin.filter.clone();
+    for (index, item) in items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| catalog_matches(item, &filter))
+    {
+        let title = item.name.clone().unwrap_or_else(|| "Untitled".into());
+        let current = app.jellyfin_player.controls_output()
+            && state.source_id.as_deref() == Some(&source.id)
+            && state.item.as_ref().is_some_and(|current| {
+                current.id == item.id
+                    && current.details.playlist_item_id == item.details.playlist_item_id
+            });
+        let play = if matches!(
+            app.jellyfin.view,
+            crate::jellyfin::browser::View::Tracks { .. }
+        ) {
+            Action::Jellyfin(A::Play(item.id.clone()))
+        } else {
+            Action::Jellyfin(A::PlayItem {
+                source: source.clone(),
+                item: Box::new(item.clone()),
+                context: context.into(),
+                query: query.clone(),
+                index: Some(start as usize + index),
+            })
+        };
+        let mut menu = Vec::new();
+        if let Some(crate::jellyfin::catalog::Query::PlaylistSongs { playlist }) = &query
+            && let Some(entry) = &item.details.playlist_item_id
+        {
+            menu.push((
+                "Remove from this playlist".into(),
+                Action::Jellyfin(A::Edit {
+                    source: source.clone(),
+                    edit: crate::jellyfin::browser::PlaylistEdit::Remove {
+                        id: playlist.clone(),
+                        entries: vec![entry.clone()],
+                    },
+                }),
+            ));
+            if start as usize + index > 0 {
+                menu.push((
+                    "Move up".into(),
+                    Action::Jellyfin(A::Edit {
+                        source: source.clone(),
+                        edit: crate::jellyfin::browser::PlaylistEdit::Move {
+                            id: playlist.clone(),
+                            entry: entry.clone(),
+                            index: start + index as u32 - 1,
+                        },
+                    }),
+                ));
+            }
+            if index + 1 < items.len()
+                || matches!(&app.jellyfin.rows, Some(crate::jellyfin::browser::Rows::Items { total, .. }) if start as usize + index + 1 < *total as usize)
+            {
+                menu.push((
+                    "Move down".into(),
+                    Action::Jellyfin(A::Edit {
+                        source: source.clone(),
+                        edit: crate::jellyfin::browser::PlaylistEdit::Move {
+                            id: playlist.clone(),
+                            entry: entry.clone(),
+                            index: start + index as u32 + 1,
+                        },
+                    }),
+                ));
+            }
+        }
+        widgets::provider_track_row(
+            ui,
+            app,
+            &TrackPresentation {
+                reference: ItemReference::Jellyfin {
+                    source: source.id.clone(),
+                    account: source.user_id.clone(),
+                    item: item.id.clone(),
+                },
+                title: title.clone(),
+                artists: item.artists.clone(),
+                album: item.album.clone().unwrap_or_default(),
+                artwork: crate::jellyfin::artwork::Reference::for_item(&source, item)
+                    .map(|art| art.uri()),
+                duration_ms: item.duration_ms().unwrap_or_default(),
+                number: item.index_number,
+            },
+            start as usize + index,
+            &widgets::ProviderRowActions {
+                provider: Provider::Jellyfin,
+                play,
+                enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
+                queue_label: format!("Add {title} to Jellyfin queue"),
+                can_enqueue: state.item.is_some(),
+                current,
+                playing: state.playing,
+                loading: state.loading,
+                menu,
+                playlists: playlists.clone(),
+                playlist_loading: app.jellyfin.playlists_loading,
+                playlist_error: app.jellyfin.playlists_error.clone(),
+                playlist_item: ItemReference::Jellyfin {
+                    source: source.id.clone(),
+                    account: source.user_id.clone(),
+                    item: item.id.clone(),
+                },
+                create_playlist: Some(Action::ShowDialog(Dialog::CreatePlaylist {
+                    name: String::new(),
+                    public: false,
+                    add_uris: vec![item.id.clone()],
+                })),
+            },
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

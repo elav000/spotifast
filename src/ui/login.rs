@@ -66,14 +66,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             fastframe_titlebar::drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
-            if app.jellyfin.enabled && !app.settings.sidebar_visible {
+            if app.jellyfin.enabled {
                 let origin = rect.min
-                    + Vec2::new(12.0, super::provider_titlebar_inset(ui.ctx()) + 12.0);
+                    + Vec2::new(16.0, super::provider_titlebar_inset(ui.ctx()) + 12.0);
                 ui.scope_builder(
                     egui::UiBuilder::new()
-                        .max_rect(Rect::from_min_size(origin, Vec2::splat(28.0))),
+                        .max_rect(Rect::from_min_size(origin, Vec2::new(200.0, 32.0))),
                     |ui| {
-                        super::sidebar::reveal_button(app, ui);
+                        super::topbar::provider_menu(app, ui);
                     },
                 );
             }

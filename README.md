@@ -1,4 +1,4 @@
-> **elav000 fork:** Jellyfin browsing and original FLAC, WAV and MP3 playback are available without a Spotify account, with shared navigation, album views, track rows and cached artwork. See [setup and implementation status](docs/_reference/jellyfin-fork.md). The download links below are for upstream releases, which do not include Jellyfin.
+> **elav000 fork:** Jellyfin search, album/artist/playlist browsing and original FLAC, WAV and MP3 playback are available without a Spotify account, with shared navigation, album views, track rows and cached artwork. See [setup and implementation status](docs/_reference/jellyfin-fork.md). The download links below are for upstream releases, which do not include Jellyfin.
 
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">

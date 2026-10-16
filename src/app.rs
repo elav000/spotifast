@@ -311,6 +311,7 @@ pub struct App {
     pub jellyfin: crate::jellyfin::browser::Browser,
     pub jellyfin_player: crate::jellyfin::transport::Transport,
     jellyfin_epoch: u64,
+    jellyfin_data_revision: u64,
     pub(crate) local_output: std::sync::Arc<crate::playback_output::LocalOutput>,
     pub dirs: AppDirs,
     pub settings: Settings,
@@ -1063,6 +1064,7 @@ impl App {
         let mut app = Self {
             jellyfin_player,
             jellyfin_epoch: 0,
+            jellyfin_data_revision: 0,
             local_output,
             jellyfin: crate::jellyfin::browser::Browser::new(
                 dirs.clone(),
@@ -2518,6 +2520,15 @@ impl App {
         let events = self.backend.poll();
         self.handle_backend_events(events);
         self.jellyfin.poll(&self.applied_proxy);
+        if self.jellyfin_data_revision != self.jellyfin.data_revision {
+            self.jellyfin_data_revision = self.jellyfin.data_revision;
+            if let (Some(source), Some(crate::jellyfin::browser::Rows::Items { items, .. })) =
+                (&self.jellyfin.source, &self.jellyfin.rows)
+                && self.jellyfin_player.refresh_metadata(source, items)
+            {
+                self.session_dirty = true;
+            }
+        }
         let epoch = self.jellyfin_player.epoch();
         if self.jellyfin_epoch != epoch {
             self.jellyfin_epoch = epoch;
@@ -2527,10 +2538,10 @@ impl App {
 
     fn handle_backend_events(&mut self, events: Vec<Event>) {
         for event in events {
-            // Offline, as in demo mode, only colours read from cover art and
+            // Offline, as in demo mode, only local artwork work and
             // local update checks come through.
             if self.offline
-                && !matches!(&event, Event::Accent { .. })
+                && !matches!(&event, Event::Accent { .. } | Event::ArtCacheCleared(_))
                 && (self.update_source.is_github()
                     || !matches!(
                         &event,
@@ -2645,6 +2656,16 @@ impl App {
                     config,
                     result,
                 } => self.handle_proxy_applied(request, config, result),
+                Event::ArtCacheCleared(result) => match result {
+                    Ok(bytes) => self.toast(
+                        gettext(self.locale, "Cleared {size} MB of artwork")
+                            .replace("{size}", &format!("{:.1}", bytes as f64 / 1_048_576.0)),
+                    ),
+                    Err(error) => self.toast_error(
+                        gettext(self.locale, "Couldn't clear artwork: {error}")
+                            .replace("{error}", &error),
+                    ),
+                },
                 Event::Error(message) => self.toast_error(message),
                 Event::Rootlist { result } => match result {
                     Ok(rootlist) => {
@@ -12184,25 +12205,12 @@ impl App {
                 self.rebuild_recents();
                 self.toast(gettext(self.locale, "Play history cleared"));
             }
-            Action::ClearArtCache => match self.backend.art().clear_disk_cache() {
-                Ok(bytes) => {
-                    ctx.forget_all_images();
-                    // The media controls hold a path into what was just
-                    // deleted; forget it, or the next sync hands the system
-                    // a file that is no longer there.
-                    self.media_art = None;
-                    self.toast(
-                        // Translators: {size} is a size in megabytes, such as 12.5.
-                        gettext(self.locale, "Cleared {size} MB of artwork")
-                            .replace("{size}", &format!("{:.1}", bytes as f64 / 1_048_576.0)),
-                    );
-                }
-                Err(error) => self.toast_error(
-                    // Translators: {error} is an error message.
-                    gettext(self.locale, "Couldn't clear artwork: {error}")
-                        .replace("{error}", &error.to_string()),
-                ),
-            },
+            Action::ClearArtCache => {
+                ctx.forget_all_images();
+                self.media_art = None;
+                self.backend
+                    .send(Command::ClearArtCache { ctx: ctx.clone() });
+            }
             Action::ToggleWinampWindow => {
                 // One window at a time: this one closes and the loop in
                 // `main` opens the other kind where each was last.

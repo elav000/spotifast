@@ -1445,6 +1445,82 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     }
 }
 
+/// Provider-supplied actions for the same track-row presentation. Service
+/// menus, saved-song requests and Spotify drag payloads are absent in this mode.
+pub struct ProviderRowActions {
+    pub provider: crate::provider::Provider,
+    pub play: Action,
+    pub enqueue: Option<Action>,
+    pub queue_label: String,
+    pub can_enqueue: bool,
+    pub current: bool,
+    pub playing: bool,
+    pub loading: bool,
+}
+
+pub fn provider_track_row(
+    ui: &mut Ui,
+    app: &mut App,
+    track: &crate::provider::TrackPresentation,
+    index: usize,
+    actions: &ProviderRowActions,
+) -> Option<RowPick> {
+    debug_assert_eq!(track.reference.provider(), actions.provider);
+    // Reuse the renderer's existing display metadata. No Spotify ID, request,
+    // external URL or catalog entry is manufactured by this presentation adapter.
+    let item = PlayableItem::Track(Track {
+        uri: track.reference.uri(),
+        name: track.title.clone(),
+        artists: track
+            .artists
+            .iter()
+            .map(|name| ArtistRef {
+                name: name.clone(),
+                ..Default::default()
+            })
+            .collect(),
+        duration_ms: u32::try_from(track.duration_ms).unwrap_or(u32::MAX),
+        track_number: track.number,
+        album: Some(Album {
+            name: track.album.clone(),
+            images: track
+                .artwork
+                .iter()
+                .map(|uri| Image {
+                    url: uri.clone(),
+                    width: Some(640),
+                    height: Some(640),
+                })
+                .collect(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    });
+    let context = RowContext::Uris(std::sync::Arc::default());
+    track_row_response_with_actions(
+        ui,
+        app,
+        TrackRow {
+            index,
+            number: track.number.map(|number| number as usize),
+            item: &item,
+            context: &context,
+            show_cover: false,
+            show_album: false,
+            added_at: None,
+            added_by: None,
+            show_added_by: false,
+            compact: false,
+            thin: false,
+            shift: 0.0,
+            picked: false,
+            picked_songs: &[],
+        },
+        Some(actions),
+    )
+    .1
+}
+
 /// Draws one song in a list.
 ///
 /// Returns the selection behavior for a row-body click. The caller supplies
@@ -1458,6 +1534,15 @@ pub(crate) fn track_row_response(
     ui: &mut Ui,
     app: &mut App,
     row: TrackRow<'_>,
+) -> (egui::Response, Option<RowPick>) {
+    track_row_response_with_actions(ui, app, row, None)
+}
+
+fn track_row_response_with_actions(
+    ui: &mut Ui,
+    app: &mut App,
+    row: TrackRow<'_>,
+    actions: Option<&ProviderRowActions>,
 ) -> (egui::Response, Option<RowPick>) {
     // Virtual lists reuse the visible slots as they scroll. Keep focus and
     // accessibility actions attached to the song and its occurrence instead.
@@ -1473,8 +1558,9 @@ pub(crate) fn track_row_response(
             .map(|number| number.saturating_sub(1))
             .unwrap_or(row.index),
     ));
+    let id = actions.map_or(id, |actions| id.with(actions.provider as u8));
     ui.scope_builder(UiBuilder::new().id(id), |ui| {
-        track_row_contents(ui, app, row)
+        track_row_contents(ui, app, row, actions)
     })
     .inner
 }
@@ -1483,6 +1569,7 @@ fn track_row_contents(
     ui: &mut Ui,
     app: &mut App,
     row: TrackRow<'_>,
+    actions: Option<&ProviderRowActions>,
 ) -> (egui::Response, Option<RowPick>) {
     let palette = app.palette;
     let row_height = if row.thin {
@@ -1518,6 +1605,7 @@ fn track_row_contents(
     }
     // Start a sidebar drag only after egui's drag threshold.
     if ui.is_enabled()
+        && actions.is_none()
         && row.item.is_track()
         && response.drag_started_by(egui::PointerButton::Primary)
     {
@@ -1563,13 +1651,24 @@ fn track_row_contents(
     // A song started from one of its copies in this list marks that copy
     // alone: the others are other places in the list.
     let played_copy = app.row_is_played_copy(row.context, row.index, row.item.uri());
-    let is_current = !matches!(row.context, RowContext::Queue)
-        && played_copy
-        && app
-            .current_track_uri()
-            .is_some_and(|uri| uri == row.item.uri());
-    let pending = played_copy && app.play_pending(row.item.uri());
-    let playing = is_current && app.believed_playing();
+    let is_current = actions.map_or_else(
+        || {
+            !matches!(row.context, RowContext::Queue)
+                && played_copy
+                && app
+                    .current_track_uri()
+                    .is_some_and(|uri| uri == row.item.uri())
+        },
+        |actions| actions.current,
+    );
+    let playing = actions.map_or_else(
+        || is_current && app.believed_playing(),
+        |actions| actions.current && actions.playing,
+    );
+    let pending = actions.map_or_else(
+        || played_copy && app.play_pending(row.item.uri()),
+        |actions| actions.current && actions.loading,
+    );
     let hovered = ui.is_enabled() && (ui.rect_contains_pointer(rect) || response.has_focus());
     if row.picked {
         // Keep the existing translucent selection, using a neutral palette
@@ -1592,7 +1691,11 @@ fn track_row_contents(
     }
     // The row highlight also shows keyboard focus. Do not add an outline
     // when a mouse click gives the row focus for arrow-key navigation.
-    let cols = columns(width, &row);
+    let mut cols = columns(width, &row);
+    if let Some(actions) = actions {
+        cols.more = 0.0;
+        cols.heart = if actions.enqueue.is_some() { 36.0 } else { 0.0 };
+    }
     let painter = ui.painter().clone();
     let mut x = rect.left() + 8.0;
 
@@ -1974,7 +2077,28 @@ fn track_row_contents(
     if cols.heart > 0.0 {
         let saved = app.is_saved(row.item.uri());
         let heart_rect = Rect::from_min_size(pos2(x, rect.top()), vec2(cols.heart, row_height));
-        if row.item.is_track() {
+        if let Some(actions) = actions {
+            let mut child = ui.new_child(
+                UiBuilder::new()
+                    .max_rect(heart_rect)
+                    .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+            );
+            child.add_enabled_ui(actions.can_enqueue, |ui| {
+                if theme::icon_button(
+                    ui,
+                    Icon::ListPlus,
+                    16.0,
+                    palette.secondary,
+                    palette.text,
+                    &actions.queue_label,
+                )
+                .clicked()
+                    && let Some(enqueue) = &actions.enqueue
+                {
+                    app.actions.push(enqueue.clone());
+                }
+            });
+        } else if row.item.is_track() {
             let mut child = ui.new_child(
                 UiBuilder::new()
                     .max_rect(heart_rect)
@@ -2061,11 +2185,15 @@ fn track_row_contents(
     let mut pick = None;
     let accessible_click = response.clicked() && response.interact_pointer_pos().is_none();
     if ui.is_enabled() && (response.double_clicked() || accessible_click) && !unavailable {
-        app.actions.push(Action::PlayFromRow {
-            context: row.context.clone(),
-            uri: row.item.uri().to_string(),
-            index: row.index as u32,
-        });
+        app.actions.push(
+            actions
+                .map(|actions| actions.play.clone())
+                .unwrap_or_else(|| Action::PlayFromRow {
+                    context: row.context.clone(),
+                    uri: row.item.uri().to_string(),
+                    index: row.index as u32,
+                }),
+        );
     } else if ui.is_enabled() && response.clicked() {
         // The cell that holds the play control: the number column when
         // there is one, the cover when there is not.
@@ -2086,11 +2214,16 @@ fn track_row_contents(
             if is_current {
                 app.actions.push(Action::TogglePlay);
             } else {
-                app.actions.push(Action::PlayFromRow {
-                    context: row.context.clone(),
-                    uri: row.item.uri().to_string(),
-                    index: row.index as u32,
-                });
+                app.actions
+                    .push(
+                        actions
+                            .map(|actions| actions.play.clone())
+                            .unwrap_or_else(|| Action::PlayFromRow {
+                                context: row.context.clone(),
+                                uri: row.item.uri().to_string(),
+                                index: row.index as u32,
+                            }),
+                    );
             }
         } else if !on_control {
             // The body of the row, which plays nothing on a single click.
@@ -2111,7 +2244,20 @@ fn track_row_contents(
             // Right-clicking one of several picked rows acts on all of
             // them; on anything else it is the ordinary single-song menu,
             // including a picked row that is the only one picked.
-            if row.picked && row.picked_songs.len() > 1 {
+            if let Some(actions) = actions {
+                if ui.button(gettext(app.locale, "Play")).clicked() {
+                    app.actions.push(actions.play.clone());
+                    ui.close();
+                }
+                if let Some(enqueue) = &actions.enqueue
+                    && ui
+                        .add_enabled(actions.can_enqueue, egui::Button::new(&actions.queue_label))
+                        .clicked()
+                {
+                    app.actions.push(enqueue.clone());
+                    ui.close();
+                }
+            } else if row.picked && row.picked_songs.len() > 1 {
                 // Every picked row shares this table's context, so one
                 // editable playlist covers the whole selection, including
                 // a sorted or filtered view where removal stays URI-based.

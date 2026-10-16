@@ -46,30 +46,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let uri = album.uri.clone();
                 let subtitle = join_names(album.artists.iter().map(|artist| artist.name.as_str()));
                 let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
-                let playing_here = context_here && app.believed_playing();
                 let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
+                let card = item_card(
                     app,
-                    pick_image(&album.images, card_art),
-                    &album.name,
-                    &subtitle,
-                    widgets::CardCover::square(playing_here),
-                );
-                if card.play {
-                    if context_here {
-                        app.actions.push(Action::TogglePlay);
-                    } else {
-                        app.actions.push(Action::PlayContext {
+                    ui,
+                    &crate::provider::LibraryItem {
+                        reference: crate::provider::ItemReference::Spotify { uri: uri.clone() },
+                        name: album.name.clone(),
+                        subtitle: subtitle.to_string(),
+                        artwork: pick_image(&album.images, card_art).map(str::to_owned),
+                        open: Action::Open(Page::Album(id)),
+                        play: Some(Action::PlayContext {
                             uri,
                             offset_uri: None,
                             offset_index: None,
-                        });
-                    }
-                }
-                if card.clicked {
-                    app.actions.push(Action::Open(Page::Album(id)));
-                }
+                        }),
+                        menu: Vec::new(),
+                        kind: crate::provider::MediaKind::Album,
+                        round: false,
+                        selected: false,
+                        current: context_here,
+                    },
+                );
                 egui::Popup::context_menu(&card.response)
                     .id(ui.make_persistent_id(("library-album-menu", &album.uri)))
                     .frame(widgets::menu_frame(&palette))
@@ -104,30 +102,28 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                 let id = artist.id.clone();
                 let uri = artist.uri.clone();
                 let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
-                let playing_here = context_here && app.believed_playing();
                 let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
+                let card = item_card(
                     app,
-                    pick_image(&artist.images, card_art),
-                    &artist.name,
-                    &artist_label,
-                    widgets::CardCover::portrait(playing_here),
-                );
-                if card.play {
-                    if context_here {
-                        app.actions.push(Action::TogglePlay);
-                    } else {
-                        app.actions.push(Action::PlayContext {
+                    ui,
+                    &crate::provider::LibraryItem {
+                        reference: crate::provider::ItemReference::Spotify { uri: uri.clone() },
+                        name: artist.name.clone(),
+                        subtitle: artist_label.to_string(),
+                        artwork: pick_image(&artist.images, card_art).map(str::to_owned),
+                        open: Action::Open(Page::Artist(id)),
+                        play: Some(Action::PlayContext {
                             uri,
                             offset_uri: None,
                             offset_index: None,
-                        });
-                    }
-                }
-                if card.clicked {
-                    app.actions.push(Action::Open(Page::Artist(id)));
-                }
+                        }),
+                        menu: Vec::new(),
+                        kind: crate::provider::MediaKind::Artist,
+                        round: true,
+                        selected: false,
+                        current: context_here,
+                    },
+                );
                 egui::Popup::context_menu(&card.response)
                     .id(ui.make_persistent_id(("library-artist-menu", &artist.uri)))
                     .frame(widgets::menu_frame(&palette))
@@ -275,4 +271,59 @@ fn footer(
         widgets::empty_state(ui, &palette, icon, empty_title, empty_body);
     }
     widgets::load_more_when_near_end(ui, app, page, can_load && !loading);
+}
+
+/// A catalog card with provider-owned identity and actions. The same card and
+/// playback interaction are used by saved libraries and provider search pages.
+pub fn item_card(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    item: &crate::provider::LibraryItem,
+) -> widgets::CardResponse {
+    let playing = item.current && app.believed_playing();
+    let cover = widgets::CardCover {
+        circular: item.round,
+        playable: item.play.is_some(),
+        playing,
+    };
+    let card = widgets::card(
+        ui,
+        app,
+        item.artwork.as_deref(),
+        &item.name,
+        &item.subtitle,
+        cover,
+    );
+    if card.play
+        && let Some(action) = &item.play
+    {
+        app.actions.push(if item.current {
+            Action::TogglePlay
+        } else {
+            action.clone()
+        });
+    }
+    if card.clicked {
+        app.actions.push(item.open.clone());
+    }
+    if !item.menu.is_empty() {
+        egui::Popup::context_menu(&card.response)
+            .id(ui.make_persistent_id(("provider-catalog-menu", item.reference.uri())))
+            .frame(widgets::menu_frame(&app.palette))
+            .show(|ui| {
+                for (label, action) in &item.menu {
+                    if widgets::menu_item(ui, &app.palette, None, label) {
+                        app.actions.push(action.clone());
+                    }
+                }
+            });
+    }
+    card
+}
+
+pub fn item_grid(app: &mut App, ui: &mut egui::Ui, items: &[crate::provider::LibraryItem]) {
+    let height = widgets::card_row_height(ui);
+    widgets::virtual_wrapped_cards(ui, items.len(), height, |ui, index| {
+        item_card(app, ui, &items[index]);
+    });
 }

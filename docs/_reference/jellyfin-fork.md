@@ -317,8 +317,9 @@ Navigation and view dependency map:
 Jellyfin now uses the existing sidebar panel and navigation rows, collection
 cards, album hero and track-row renderer. Provider references and actions retain
 Jellyfin identity without inventing Spotify IDs. Spotify-only row actions are
-replaced with available Play and Add to queue actions. The existing provider
-selector remains; Home currently opens the Jellyfin library list. Home sections,
+replaced with available Play and Add to queue actions. Provider switching lives in the shared left rail and remains available on either
+sign-in screen. Jellyfin music-library links remain under Library; Home currently
+opens the Jellyfin library list. Home sections,
 artist pages and a shared local queue remain follow-up work, not completed parity.
 
 Artwork requests share the existing 8 MiB response limit and request images up to
@@ -326,3 +327,14 @@ Artwork requests share the existing 8 MiB response limit and request images up t
 can update the current track's artwork without resetting playback, position or
 queue. Cache clearing runs on the background worker, including while offline.
 This work adds no dependencies and does not merge catalogs.
+
+
+### Left rail provider switching
+
+The shared sidebar now contains a Music source selector for Jellyfin and Spotify.
+It changes the browsing provider without changing playback or combining catalogs.
+Jellyfin's music-library links select the server library to browse; Spotify keeps
+its existing library controls after sign-in. The temporary top provider bar has
+been removed. The rail is available while signed out of either service, and its
+existing visibility shortcut and a Show sidebar button restore it when hidden.
+This does not implement a combined library, a new Home feed or a shared queue.

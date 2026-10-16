@@ -230,3 +230,64 @@ required. Integrate upstream source changes using the workflow above.
 
 Playback demo pages are `jellyfin-playing` and `jellyfin-queue`, in addition to
 the browser fixtures above. They never open an audio device or read sign-in data.
+
+## Shared views and a future mixed queue
+
+Separate catalogs do not require separate presentation or separate playback queues.
+The current Jellyfin browser and queue controller establish the first provider
+integration. They are not a decision to duplicate the entire Spotify interface.
+The left rail, page shell, collection grids, track lists, album/artist layouts,
+player bar and queue presentation should be reused through provider-aware view
+models. Spotify Home's recommendations and Connect actions remain provider
+capabilities; Jellyfin can supply its own Home sections without impersonating
+Spotify identities or duplicating its network calls.
+
+The next queue step, before adding mixed playback, is to extract the common local
+ordering, priority additions, duplicate occurrence identity, history and persistence
+policy. Entries must carry a tagged Spotify reference or Jellyfin source/account/item
+reference. Provider adapters resolve metadata and play an entry; an exclusive output
+coordinator handles each handoff. Switching browsing providers never changes the
+queue. An explicit Play action and Add to queue keep distinct, documented semantics.
+Existing Spotify behavior and the separate Jellyfin transport tests are the
+regression contract during that extraction.
+
+A mixed local queue can therefore contain both providers while the libraries and
+caches remain separate. Spotify Connect's remote queue is a Spotify-only service;
+it cannot be treated as storage or playback for Jellyfin entries. A future mixed
+queue needs explicit local ownership and remote-device capability handling rather
+than submitting foreign entries to Spotify. Unified catalog browsing, mixed local
+playback and shared UI extraction are independent decisions. None is implemented
+by the current separate queues.
+
+### Roadmap goal after playback verification
+
+Target: the existing Spotify interface powered by the selected provider, including
+Jellyfin, rather than a separate Jellyfin interface. Preserve the familiar left
+rail, Home layout, collection pages, player and queue; vary data and available
+actions through provider capabilities. Jellyfin Home content is intentionally
+undecided: use appropriate sections such as those in a traditional Jellyfin
+client, while retaining the shared page shell.
+
+Finish the current playback milestone before beginning this work. Reuse existing
+UI and infrastructure whenever a provider adapter can power it. Do not build a
+parallel sidebar, Home shell, collection view, queue policy or cache mechanism
+merely because its data comes from Jellyfin. Keep service-specific capabilities
+and requests in adapters; extract existing shared behavior instead of replacing
+it with a second implementation. Separate catalogs remain a product constraint.
+
+Acceptance criteria for the later milestone:
+
+1. Map the existing sidebar, Home sections, collection/album/artist pages, track
+   rows and queue UI to their data and action dependencies before adding views.
+2. Reuse those components with explicit provider references and capabilities;
+   retain Spotify's existing behavior and Jellyfin-only operation without login.
+3. Extract common local queue ordering, duplicates, history and persistence from
+   existing behavior before implementing mixed provider playback. One local queue
+   may contain both providers without a unified catalog. Browsing never resets it.
+4. Reuse cache storage, budgets and atomic writes where applicable, retaining
+   provider/source/account isolation and disposable metadata.
+5. Keep provider transport and protocol differences behind adapters, preserve
+   upstream updates, and verify both providers' behavior with regression tests
+   and representative UI checks. Handle Spotify-only remote Connect explicitly.
+
+This is the recorded next goal, not part of the current playback implementation.

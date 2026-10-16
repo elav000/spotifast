@@ -1077,6 +1077,10 @@ pub enum Dialog {
         shown: Option<String>,
         title: String,
     },
+    RenamePlaylist {
+        target: crate::provider::ItemReference,
+        name: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -1126,6 +1130,14 @@ pub struct Toast {
 /// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {
+    AddProviderPlaylist {
+        playlist: crate::provider::ItemReference,
+        item: crate::provider::ItemReference,
+    },
+    RenameProviderPlaylist {
+        target: crate::provider::ItemReference,
+        name: String,
+    },
     ProviderLibrary(crate::provider::LibraryAction),
     Jellyfin(crate::jellyfin::browser::BrowserAction),
     Open(Page),

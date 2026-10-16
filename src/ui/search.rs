@@ -13,6 +13,10 @@ use crate::theme::{self, Icon};
 use super::widgets::{self, TrackRow};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
+    if app.jellyfin_selected() {
+        provider(app, ui);
+        return;
+    }
     let palette = app.palette;
     if app.search.committed.is_empty() && app.search.typed_at.is_none() {
         recent(app, ui);
@@ -746,4 +750,121 @@ fn episodes(app: &mut App, ui: &mut egui::Ui, results: &SearchResults, limit: us
 #[allow(dead_code)]
 fn align_right(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     ui.with_layout(Layout::right_to_left(Align::Center), add);
+}
+
+fn provider(app: &mut App, ui: &mut egui::Ui) {
+    use crate::jellyfin::{
+        browser::{Rows, View},
+        catalog::{Kind, Query},
+    };
+    let view = app.jellyfin.view.clone();
+    let View::Search {
+        library,
+        term,
+        kind,
+    } = &view
+    else {
+        return;
+    };
+    let filter = match kind {
+        Some(Kind::Song) => SearchFilter::Songs,
+        Some(Kind::Artist) => SearchFilter::Artists,
+        Some(Kind::Album) => SearchFilter::Albums,
+        Some(Kind::Playlist) => SearchFilter::Playlists,
+        None => SearchFilter::All,
+    };
+    let labels: Vec<_> = [
+        SearchFilter::All,
+        SearchFilter::Songs,
+        SearchFilter::Artists,
+        SearchFilter::Albums,
+        SearchFilter::Playlists,
+    ]
+    .into_iter()
+    .map(|filter| (filter, filter.label(app.locale)))
+    .collect();
+    let options: Vec<_> = labels
+        .iter()
+        .map(|(filter, label)| (*filter, label.as_ref()))
+        .collect();
+    if let Some(filter) = widgets::chips(ui, &app.palette, &options, filter) {
+        app.actions.push(Action::SetSearchFilter(filter));
+    }
+    ui.add_space(12.0);
+    if term.is_empty() {
+        widgets::empty_state(
+            ui,
+            &app.palette,
+            Icon::Search,
+            "Search Jellyfin",
+            "Find songs, artists, albums and playlists.",
+        );
+        return;
+    }
+    if app.jellyfin.busy {
+        widgets::loading_row(ui, &app.palette, app.locale);
+    }
+    if let Some(error) = app.jellyfin.error.clone() {
+        widgets::error_row(ui, app, &error, None);
+    }
+    let Some(Rows::Search(sections)) = app.jellyfin.rows.clone() else {
+        return;
+    };
+    if sections.iter().all(|(_, page)| page.items.is_empty()) && !app.jellyfin.busy {
+        widgets::empty_state(
+            ui,
+            &app.palette,
+            Icon::Search,
+            &format!("No results for “{term}”"),
+            "Check the spelling, or try fewer words.",
+        );
+    }
+    for (category, page) in sections {
+        if page.items.is_empty() {
+            continue;
+        }
+        let label = match category {
+            Kind::Song => "Songs",
+            Kind::Artist => "Artists",
+            Kind::Album => "Albums",
+            Kind::Playlist => "Playlists",
+        };
+        theme::section_title(ui, &app.palette, label);
+        ui.add_space(8.0);
+        if category == Kind::Song {
+            super::collection::provider_tracks(
+                app,
+                ui,
+                &page.items,
+                page.start_index,
+                Some(Query::Search {
+                    library: library.clone(),
+                    term: term.clone(),
+                    kind: category,
+                }),
+                "search",
+            );
+        } else {
+            let cards: Vec<_> = page
+                .items
+                .iter()
+                .map(|item| app.jellyfin_library_item(item, category))
+                .collect();
+            super::library::item_grid(app, ui, &cards);
+        }
+        let section_view = View::Search {
+            library: library.clone(),
+            term: term.clone(),
+            kind: Some(category),
+        };
+        super::collection::provider_paging(
+            app,
+            ui,
+            section_view,
+            page.start_index,
+            page.items.len(),
+            page.total_record_count,
+        );
+        ui.add_space(24.0);
+    }
 }

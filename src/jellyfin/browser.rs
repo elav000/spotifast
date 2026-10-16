@@ -6,7 +6,10 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use super::{Item, MusicLibrary};
+use super::{
+    Item, MusicLibrary,
+    catalog::{Kind, Query},
+};
 use crate::{backend::Waker, paths::AppDirs, settings::ProxyConfig};
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +28,16 @@ pub struct Source {
 pub enum View {
     #[default]
     Libraries,
+    Search {
+        library: String,
+        term: String,
+        kind: Option<Kind>,
+    },
+    Catalog {
+        query: Query,
+        name: String,
+    },
+    Settings,
     Albums {
         library_id: String,
         name: String,
@@ -37,9 +50,45 @@ pub enum View {
     },
 }
 
+impl View {
+    pub fn context_id(&self) -> Option<&str> {
+        match self {
+            Self::Tracks { album_id, .. } => Some(album_id),
+            Self::Catalog {
+                query: Query::PlaylistSongs { playlist },
+                ..
+            } => Some(playlist),
+            Self::Catalog {
+                query: Query::ArtistAlbums { artist, .. } | Query::ArtistSongs { artist, .. },
+                ..
+            } => Some(artist),
+            _ => None,
+        }
+    }
+    pub fn track_query(&self) -> Option<&Query> {
+        match self {
+            Self::Catalog {
+                query:
+                    query @ (Query::PlaylistSongs { .. }
+                    | Query::ArtistSongs { .. }
+                    | Query::History { .. }
+                    | Query::Search {
+                        kind: Kind::Song, ..
+                    }),
+                ..
+            } => Some(query),
+            _ => None,
+        }
+    }
+    pub fn is_tracks(&self) -> bool {
+        matches!(self, Self::Tracks { .. }) || self.track_query().is_some()
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Rows {
     Libraries(Vec<MusicLibrary>),
+    Search(Vec<(Kind, super::Page<Item>)>),
     Items {
         items: Vec<Item>,
         start: u32,
@@ -47,11 +96,50 @@ pub enum Rows {
     },
 }
 
+#[derive(Clone, Debug)]
+pub enum PlaylistEdit {
+    Create {
+        name: String,
+        public: bool,
+        items: Vec<String>,
+    },
+    Rename {
+        id: String,
+        name: String,
+    },
+    Delete {
+        id: String,
+    },
+    Add {
+        id: String,
+        items: Vec<String>,
+    },
+    Remove {
+        id: String,
+        entries: Vec<String>,
+    },
+    Move {
+        id: String,
+        entry: String,
+        index: u32,
+    },
+}
+
 pub enum Command {
+    Report(super::reporting::Report),
+    Playlists(Source),
+    Edit {
+        source: Source,
+        request: u64,
+        edit: PlaylistEdit,
+    },
     Restore,
     Begin(String),
     Poll,
-    Browse { view: View, start: u32 },
+    Browse {
+        view: View,
+        start: u32,
+    },
     Cancel,
     SignOut,
     Select(Provider),
@@ -65,6 +153,19 @@ pub struct Job {
 }
 
 pub enum Reply {
+    ReportError {
+        source: Source,
+        error: Option<String>,
+    },
+    Playlists {
+        source: Source,
+        result: Result<Vec<Item>, String>,
+    },
+    Edited {
+        source: Source,
+        request: u64,
+        result: Result<Option<(String, String)>, String>,
+    },
     Catalog {
         request: u64,
         source: Source,
@@ -97,6 +198,7 @@ pub struct Event {
 
 #[derive(Default)]
 pub struct Catalog {
+    pub kind: Kind,
     pub library: Option<MusicLibrary>,
     pub items: Vec<Item>,
     pub busy: bool,
@@ -124,6 +226,25 @@ pub struct Browser {
     pub error: Option<String>,
     pub start: u32,
     pub filter: String,
+    pub reporter: super::reporting::Reporter,
+    pub report_error: Option<String>,
+    pub playlists: Vec<Item>,
+    pub playlists_loading: bool,
+    pub playlists_error: Option<String>,
+    pub edit_request: u64,
+    pub edit_busy: bool,
+    pub edit_error: Option<String>,
+    pub edit_completed: bool,
+    edit_previous: Option<View>,
+    edit_rows: Option<Rows>,
+    edit_generation: u64,
+    edit_deleted: Option<String>,
+    pub dialog_source: Option<Source>,
+    pub search_input: String,
+    pub search_kind: Option<Kind>,
+    pub search_typed_at: Option<Instant>,
+    pub history: Vec<(View, u32)>,
+    pub history_index: usize,
     generation: Arc<AtomicU64>,
     tx: Option<mpsc::Sender<Job>>,
     rx: mpsc::Receiver<Event>,
@@ -170,6 +291,25 @@ impl Browser {
             error: None,
             start: 0,
             filter: String::new(),
+            reporter: super::reporting::Reporter::default(),
+            report_error: None,
+            playlists: Vec::new(),
+            playlists_loading: false,
+            playlists_error: None,
+            edit_request: 0,
+            edit_busy: false,
+            edit_error: None,
+            edit_completed: false,
+            edit_previous: None,
+            edit_rows: None,
+            edit_generation: 0,
+            edit_deleted: None,
+            dialog_source: None,
+            search_input: String::new(),
+            search_kind: None,
+            search_typed_at: None,
+            history: vec![(View::Libraries, 0)],
+            history_index: 0,
             generation,
             tx,
             rx,
@@ -194,7 +334,11 @@ impl Browser {
         while let Ok(event) = self.rx.try_recv() {
             if !matches!(
                 &event.reply,
-                Reply::Catalog { .. } | Reply::CatalogError { .. }
+                Reply::Catalog { .. }
+                    | Reply::CatalogError { .. }
+                    | Reply::Edited { .. }
+                    | Reply::Playlists { .. }
+                    | Reply::ReportError { .. }
             ) && event.generation != self.generation.load(Ordering::SeqCst)
             {
                 continue;
@@ -218,6 +362,82 @@ impl Browser {
 
     fn apply(&mut self, reply: Reply, proxy: &ProxyConfig) {
         match reply {
+            Reply::ReportError { source, error } => {
+                if self.source.as_ref() == Some(&source) {
+                    self.report_error = error;
+                }
+            }
+            Reply::Playlists { source, result } => {
+                if self.source.as_ref() != Some(&source) {
+                    return;
+                }
+                self.playlists_loading = false;
+                match result {
+                    Ok(items) => {
+                        self.playlists = items;
+                        self.playlists_error = None;
+                    }
+                    Err(error) => self.playlists_error = Some(error),
+                }
+            }
+
+            Reply::Edited {
+                source,
+                request,
+                result,
+            } => {
+                if self.source.as_ref() != Some(&source) || self.edit_request != request {
+                    return;
+                }
+                self.edit_busy = false;
+                let unchanged = self.generation.load(Ordering::SeqCst) == self.edit_generation;
+                match result {
+                    Ok(created) => {
+                        self.edit_error = None;
+                        self.edit_completed = true;
+                        self.load_playlists(proxy);
+                        if let Some((id, name)) = created.filter(|_| unchanged) {
+                            self.browse(
+                                View::Catalog {
+                                    query: Query::PlaylistSongs { playlist: id },
+                                    name,
+                                },
+                                0,
+                                proxy,
+                            );
+                        } else if self
+                            .edit_deleted
+                            .as_deref()
+                            .is_some_and(|id| self.view.context_id() == Some(id))
+                        {
+                            self.browse(View::Libraries, 0, proxy);
+                        } else if unchanged {
+                            self.load_view(self.view.clone(), self.start, proxy);
+                        }
+                        self.edit_previous = None;
+                        self.edit_rows = None;
+                        self.edit_deleted = None;
+                    }
+                    Err(error) => {
+                        self.edit_error = Some(error);
+                        let view = self
+                            .edit_previous
+                            .take()
+                            .unwrap_or_else(|| self.view.clone());
+                        if unchanged {
+                            self.rows = self.edit_rows.take();
+                            self.load_view(view, self.start, proxy);
+                        } else {
+                            self.edit_rows = None;
+                        }
+                        self.edit_deleted = None;
+                    }
+                }
+                if let Some(library) = self.catalog.library.clone() {
+                    self.select_catalog(library, proxy);
+                }
+            }
+
             Reply::Catalog {
                 request,
                 source,
@@ -270,6 +490,7 @@ impl Browser {
                     self.server_input = source.server_url.clone();
                     self.source = Some(source);
                     self.browse(View::Libraries, 0, proxy);
+                    self.load_playlists(proxy);
                 }
             }
             Reply::Challenge(code) => {
@@ -282,6 +503,7 @@ impl Browser {
                 self.source = Some(source);
                 self.clear_challenge();
                 self.browse(View::Libraries, 0, proxy);
+                self.load_playlists(proxy);
             }
             Reply::Data { rows, cached } => {
                 if !cached {
@@ -312,6 +534,103 @@ impl Browser {
         }
     }
 
+    pub fn report_playback(
+        &mut self,
+        snapshot: &super::transport::Snapshot,
+        controls_output: bool,
+        proxy: &ProxyConfig,
+    ) {
+        let current = self
+            .source
+            .as_ref()
+            .filter(|source| {
+                controls_output
+                    && !snapshot.finished
+                    && snapshot.source_id.as_deref() == Some(&source.id)
+            })
+            .and_then(|source| {
+                snapshot
+                    .item
+                    .as_ref()
+                    .map(|item| super::reporting::Playback {
+                        source: source.clone(),
+                        item: item.id.clone(),
+                        position_ms: snapshot.position_ms,
+                        playing: snapshot.playing,
+                        loading: snapshot.loading,
+                    })
+            });
+        for report in self.reporter.update(current, Instant::now()) {
+            self.send(proxy, Command::Report(report));
+        }
+    }
+
+    pub fn load_playlists(&mut self, proxy: &ProxyConfig) {
+        if let Some(source) = self.source.clone() {
+            self.playlists_loading = true;
+            self.send(proxy, Command::Playlists(source));
+        }
+    }
+
+    pub fn edit(&mut self, source: Source, edit: PlaylistEdit, proxy: &ProxyConfig) {
+        if self.source.as_ref() != Some(&source) || self.edit_busy {
+            return;
+        }
+        self.edit_previous = Some(self.view.clone());
+        self.edit_rows = self.rows.clone();
+        self.edit_deleted = None;
+        match &edit {
+            PlaylistEdit::Rename { id, name } => {
+                if self.view.context_id() == Some(id)
+                    && let View::Catalog { name: shown, .. } = &mut self.view
+                {
+                    *shown = name.clone();
+                }
+            }
+            PlaylistEdit::Delete { id } => self.edit_deleted = Some(id.clone()),
+            PlaylistEdit::Remove { id, entries } if self.view.context_id() == Some(id) => {
+                if let Some(Rows::Items { items, total, .. }) = &mut self.rows {
+                    let before = items.len();
+                    items.retain(|item| {
+                        item.details
+                            .playlist_item_id
+                            .as_ref()
+                            .is_none_or(|entry| !entries.contains(entry))
+                    });
+                    *total = total.saturating_sub((before - items.len()) as u32);
+                }
+            }
+            PlaylistEdit::Move { id, entry, index } if self.view.context_id() == Some(id) => {
+                if let Some(Rows::Items { items, start, .. }) = &mut self.rows
+                    && let Some(old) = items
+                        .iter()
+                        .position(|item| item.details.playlist_item_id.as_ref() == Some(entry))
+                    && let Some(next) = index
+                        .checked_sub(*start)
+                        .map(|index| index as usize)
+                        .filter(|index| *index < items.len())
+                {
+                    let item = items.remove(old);
+                    items.insert(next, item);
+                }
+            }
+            _ => {}
+        }
+        self.edit_request = self.edit_request.wrapping_add(1);
+        self.edit_busy = true;
+        self.edit_error = None;
+        self.advance();
+        self.edit_generation = self.generation.load(Ordering::SeqCst);
+        self.send(
+            proxy,
+            Command::Edit {
+                source,
+                request: self.edit_request,
+                edit,
+            },
+        );
+    }
+
     pub fn select(&mut self, provider: Provider, proxy: &ProxyConfig) {
         self.selection_changed = true;
         self.provider = provider;
@@ -324,9 +643,19 @@ impl Browser {
         self.catalog_generation.fetch_add(1, Ordering::SeqCst);
         self.catalog = Catalog::default();
         self.libraries.clear();
+        self.playlists.clear();
+        self.report_error = None;
+        self.playlists_loading = false;
+        self.playlists_error = None;
+        self.edit_busy = false;
+        self.edit_error = None;
         self.album = None;
         self.source = None;
         self.view = View::Libraries;
+        self.history = vec![(View::Libraries, 0)];
+        self.history_index = 0;
+        self.search_input.clear();
+        self.search_typed_at = None;
         self.busy = true;
         self.send(proxy, Command::Begin(self.server_input.clone()));
     }
@@ -341,17 +670,29 @@ impl Browser {
         self.catalog_generation.fetch_add(1, Ordering::SeqCst);
         self.catalog = Catalog::default();
         self.libraries.clear();
+        self.playlists.clear();
+        self.report_error = None;
+        self.playlists_loading = false;
+        self.playlists_error = None;
+        self.edit_busy = false;
+        self.edit_error = None;
         self.album = None;
         self.advance();
         self.rows = None;
         self.view = View::Libraries;
+        self.history = vec![(View::Libraries, 0)];
+        self.history_index = 0;
+        self.search_input.clear();
+        self.search_typed_at = None;
         self.busy = true;
         self.send(proxy, Command::SignOut);
     }
 
     pub fn select_catalog(&mut self, library: MusicLibrary, proxy: &ProxyConfig) {
         self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+        let kind = self.catalog.kind;
         self.catalog = Catalog {
+            kind,
             library: Some(library),
             busy: true,
             ..Catalog::default()
@@ -366,9 +707,19 @@ impl Browser {
                 generation: self.generation.load(Ordering::SeqCst),
                 proxy: proxy.clone(),
                 command: Command::Browse {
-                    view: View::Albums {
-                        library_id: library.id.clone(),
-                        name: library.name.clone(),
+                    view: if self.catalog.kind == Kind::Album {
+                        View::Albums {
+                            library_id: library.id.clone(),
+                            name: library.name.clone(),
+                        }
+                    } else {
+                        View::Catalog {
+                            query: Query::Shelf {
+                                library: library.id.clone(),
+                                kind: self.catalog.kind,
+                            },
+                            name: format!("{:?}s", self.catalog.kind),
+                        }
                     },
                     start,
                 },
@@ -376,8 +727,42 @@ impl Browser {
         }
     }
 
+    pub fn set_shelf(&mut self, kind: Kind, proxy: &ProxyConfig) {
+        self.catalog.kind = kind;
+        if let Some(library) = self.catalog.library.clone() {
+            self.select_catalog(library, proxy);
+        }
+    }
+
+    pub fn navigate_history(&mut self, back: bool, proxy: &ProxyConfig) {
+        let next = if back {
+            self.history_index.checked_sub(1)
+        } else {
+            self.history_index
+                .checked_add(1)
+                .filter(|next| *next < self.history.len())
+        };
+        if let Some(next) = next {
+            self.history_index = next;
+            let (view, start) = self.history[next].clone();
+            self.load_view(view, start, proxy);
+        }
+    }
+
     pub fn browse(&mut self, view: View, start: u32, proxy: &ProxyConfig) {
+        if self.view != view || self.start != start {
+            self.history.truncate(self.history_index + 1);
+            self.history.push((view.clone(), start));
+            self.history_index = self.history.len() - 1;
+        }
+        self.load_view(view, start, proxy);
+    }
+
+    fn load_view(&mut self, view: View, start: u32, proxy: &ProxyConfig) {
         self.play_album = None;
+        if let View::Search { kind, .. } = &view {
+            self.search_kind = *kind;
+        }
         let library_id = match &view {
             View::Albums { library_id, .. } | View::Tracks { library_id, .. } => Some(library_id),
             _ => None,
@@ -393,20 +778,24 @@ impl Browser {
             self.select_catalog(library, proxy);
         }
         let same = self.view == view && self.start == start;
-        if let View::Tracks { album_id, .. } = &view {
-            if !matches!(&self.view, View::Tracks { album_id: current, .. } if current == album_id)
-            {
+        if let Some(album_id) = view.context_id() {
+            if self.view.context_id() != Some(album_id) {
                 self.album = self
                     .catalog
                     .items
                     .iter()
-                    .find(|item| &item.id == album_id)
+                    .find(|item| item.id == album_id)
                     .cloned()
                     .or_else(|| {
                         self.rows.as_ref().and_then(|rows| match rows {
                             Rows::Items { items, .. } => {
-                                items.iter().find(|item| &item.id == album_id).cloned()
+                                items.iter().find(|item| item.id == album_id).cloned()
                             }
+                            Rows::Search(sections) => sections
+                                .iter()
+                                .flat_map(|(_, page)| &page.items)
+                                .find(|item| item.id == album_id)
+                                .cloned(),
                             _ => None,
                         })
                     });
@@ -421,8 +810,11 @@ impl Browser {
         }
         self.view = view.clone();
         self.start = start;
-        self.busy = true;
-        self.send(proxy, Command::Browse { view, start });
+        self.busy = !matches!(&view, View::Settings)
+            && !matches!(&view, View::Search { term, .. } if term.is_empty());
+        if self.busy {
+            self.send(proxy, Command::Browse { view, start });
+        }
     }
 
     fn clear_challenge(&mut self) {
@@ -449,14 +841,28 @@ impl Browser {
 
 #[derive(Clone, Debug)]
 pub enum BrowserAction {
+    Edit {
+        source: Source,
+        edit: PlaylistEdit,
+    },
     Select(Provider),
     ServerInput(String),
     Filter(String),
     Connect,
     Cancel,
     SignOut,
-    Browse { view: View, start: u32 },
+    Browse {
+        view: View,
+        start: u32,
+    },
     Play(String),
+    PlayItem {
+        source: Source,
+        item: Box<Item>,
+        context: String,
+        query: Option<Query>,
+        index: Option<usize>,
+    },
     PlayAlbum(View),
     PlayQueue(usize),
     Queue(String),
@@ -464,17 +870,32 @@ pub enum BrowserAction {
     ClearQueue,
     Resume,
     SelectLibrary(String),
+    SelectCollection {
+        source: Source,
+        id: String,
+    },
 }
 
 impl crate::app::App {
     pub(crate) fn apply_jellyfin_action(&mut self, action: BrowserAction) {
         match action {
+            BrowserAction::Edit { source, edit } => {
+                self.jellyfin
+                    .edit(source, edit, &self.applied_jellyfin_proxy())
+            }
             BrowserAction::PlayAlbum(view) => {
-                if let View::Tracks { album_id, .. } = &view {
-                    let album_id = album_id.clone();
+                if view.is_tracks() {
+                    let album_id = view.context_id().unwrap_or("tracks").to_owned();
                     self.jellyfin
                         .browse(view, 0, &self.applied_jellyfin_proxy());
                     self.jellyfin.play_album = Some(album_id);
+                }
+            }
+            BrowserAction::SelectCollection { source, id } => {
+                if self.jellyfin.source.as_ref() == Some(&source) {
+                    self.jellyfin
+                        .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                    self.apply_jellyfin_action(BrowserAction::SelectLibrary(id));
                 }
             }
             BrowserAction::SelectLibrary(id) => {
@@ -501,13 +922,45 @@ impl crate::app::App {
             BrowserAction::ServerInput(value) => self.jellyfin.server_input = value,
             BrowserAction::Filter(value) => self.jellyfin.filter = value,
             BrowserAction::Connect => {
+                self.jellyfin.report_playback(
+                    &self.jellyfin_player.snapshot(),
+                    false,
+                    &self.applied_jellyfin_proxy(),
+                );
                 self.jellyfin_player.stop();
                 self.jellyfin.connect(&self.applied_jellyfin_proxy());
             }
             BrowserAction::Cancel => self.jellyfin.cancel(&self.applied_jellyfin_proxy()),
             BrowserAction::SignOut => {
+                self.jellyfin.report_playback(
+                    &self.jellyfin_player.snapshot(),
+                    false,
+                    &self.applied_jellyfin_proxy(),
+                );
                 self.jellyfin_player.stop();
                 self.jellyfin.sign_out(&self.applied_jellyfin_proxy());
+            }
+            BrowserAction::PlayItem {
+                source,
+                item,
+                context,
+                query,
+                index,
+            } => {
+                if self.jellyfin.source.as_ref() != Some(&source) {
+                    return;
+                }
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.configure(crate::app::engine_config(
+                    &self.dirs,
+                    &self.settings,
+                    self.applied_jellyfin_proxy(),
+                    self.winamp.tap.clone(),
+                    self.winamp.eq.clone(),
+                    self.local_output.clone(),
+                ));
+                self.jellyfin_player
+                    .play_catalog(source, context, *item, query, index);
             }
             BrowserAction::Play(id) => {
                 let (
@@ -548,14 +1001,21 @@ impl crate::app::App {
                 self.jellyfin_player.play_index(index);
             }
             BrowserAction::Queue(id) => {
-                if !matches!(self.jellyfin.view, View::Tracks { .. }) {
-                    return;
-                }
-                if let (Some(source), Some(Rows::Items { items, .. })) =
-                    (&self.jellyfin.source, &self.jellyfin.rows)
-                    && let Some(item) = items.iter().find(|item| item.id == id)
-                {
-                    self.jellyfin_player.enqueue(source, item.clone());
+                if let Some(source) = &self.jellyfin.source {
+                    let item = match &self.jellyfin.rows {
+                        Some(Rows::Items { items, .. }) if self.jellyfin.view.is_tracks() => {
+                            items.iter().find(|item| item.id == id)
+                        }
+                        Some(Rows::Search(sections)) => sections
+                            .iter()
+                            .filter(|(kind, _)| *kind == Kind::Song)
+                            .flat_map(|(_, page)| &page.items)
+                            .find(|item| item.id == id),
+                        _ => None,
+                    };
+                    if let Some(item) = item {
+                        self.jellyfin_player.enqueue(source, item.clone());
+                    }
                 }
             }
             BrowserAction::PlayManual(index) => {
@@ -616,8 +1076,18 @@ impl Browser {
                 self.code = Some("123456".into());
                 self.busy = true;
             }
-        } else if page == "jellyfin-albums" || page == "jellyfin-tracks" || page == "jellyfin-error"
-        {
+        } else if matches!(
+            page,
+            "jellyfin-albums"
+                | "jellyfin-tracks"
+                | "jellyfin-error"
+                | "jellyfin-search"
+                | "jellyfin-artists"
+                | "jellyfin-playlists"
+                | "jellyfin-playlist"
+                | "jellyfin-artist"
+                | "jellyfin-history"
+        ) {
             self.view = View::Albums {
                 library_id: "music1".into(),
                 name: "My music".into(),
@@ -664,7 +1134,10 @@ impl Browser {
                 self.cached = true;
                 self.error = Some("Could not reach the Jellyfin server.".into());
             }
-            if page == "jellyfin-tracks" {
+            if matches!(
+                page,
+                "jellyfin-tracks" | "jellyfin-search" | "jellyfin-playlist" | "jellyfin-history"
+            ) {
                 self.view = View::Tracks {
                     library_id: "music1".into(),
                     library_name: "My music".into(),
@@ -700,6 +1173,116 @@ impl Browser {
                 });
             }
         }
+        if page == "jellyfin-search" {
+            let songs = match self.rows.take() {
+                Some(Rows::Items { items, .. }) => items,
+                _ => Vec::new(),
+            };
+            let albums = self.catalog.items.clone();
+            self.search_input = "Bonobo".into();
+            self.view = View::Search {
+                library: "music1".into(),
+                term: "Bonobo".into(),
+                kind: None,
+            };
+            self.rows = Some(Rows::Search(vec![
+                (
+                    Kind::Song,
+                    super::Page {
+                        total_record_count: songs.len() as u32,
+                        start_index: 0,
+                        items: songs,
+                    },
+                ),
+                (
+                    Kind::Album,
+                    super::Page {
+                        total_record_count: albums.len() as u32,
+                        start_index: 0,
+                        items: albums,
+                    },
+                ),
+            ]));
+        }
+        if matches!(page, "jellyfin-artists" | "jellyfin-playlists") {
+            let kind = if page == "jellyfin-artists" {
+                Kind::Artist
+            } else {
+                Kind::Playlist
+            };
+            self.catalog.kind = kind;
+            for (index, item) in self.catalog.items.iter_mut().enumerate() {
+                item.details.kind = Some(kind.item_type().into());
+                if kind == Kind::Artist {
+                    item.name = Some(
+                        [
+                            "Bonobo",
+                            "Khruangbin",
+                            "Nils Frahm",
+                            "Floating Points",
+                            "Jon Hopkins",
+                            "Four Tet",
+                        ][index % 6]
+                            .into(),
+                    );
+                }
+            }
+            self.view = View::Catalog {
+                query: Query::Shelf {
+                    library: "music1".into(),
+                    kind,
+                },
+                name: if kind == Kind::Artist {
+                    "Artists".into()
+                } else {
+                    "Playlists".into()
+                },
+            };
+            self.rows = Some(Rows::Items {
+                items: self.catalog.items.clone(),
+                start: 0,
+                total: self.catalog.items.len() as u32,
+            });
+        }
+        if page == "jellyfin-playlist" {
+            self.view = View::Catalog {
+                query: Query::PlaylistSongs {
+                    playlist: "playlist1".into(),
+                },
+                name: "Late night focus".into(),
+            };
+            if let Some(Rows::Items { items, .. }) = &mut self.rows {
+                for (index, item) in items.iter_mut().enumerate() {
+                    item.details.playlist_item_id = Some(format!("entry{index}"));
+                }
+                items[1].id = items[0].id.clone();
+            }
+        }
+        if page == "jellyfin-history" {
+            self.view = View::Catalog {
+                query: Query::History {
+                    library: "music1".into(),
+                },
+                name: "Recently played".into(),
+            };
+        }
+        if page == "jellyfin-artist" {
+            let mut artist = self.catalog.items[0].clone();
+            artist.name = Some("Bonobo".into());
+            artist.artists.clear();
+            self.album = Some(artist);
+            self.view = View::Catalog {
+                query: Query::ArtistAlbums {
+                    library: "music1".into(),
+                    artist: "artist1".into(),
+                },
+                name: "Bonobo".into(),
+            };
+        }
+        if page.starts_with("jellyfin") {
+            self.history = vec![(View::Libraries, 0), (self.view.clone(), self.start)];
+            self.history_index = 1;
+        }
     }
 }
 
@@ -727,6 +1310,120 @@ mod tests {
         model
     }
     use std::path::PathBuf;
+
+    #[test]
+    fn provider_navigation_keeps_history_and_shelf_queries_independent() {
+        let mut model = model();
+        let (tx, jobs) = mpsc::channel();
+        model.tx = Some(tx);
+        model.set_shelf(Kind::Artist, &ProxyConfig::Off);
+        assert!(matches!(
+            jobs.try_recv().unwrap().command,
+            Command::Browse {
+                view: View::Catalog {
+                    query: Query::Shelf {
+                        kind: Kind::Artist,
+                        ..
+                    },
+                    ..
+                },
+                start: 0
+            }
+        ));
+        let search = View::Search {
+            library: "music1".into(),
+            term: "BT".into(),
+            kind: Some(Kind::Song),
+        };
+        model.browse(search.clone(), 100, &ProxyConfig::Off);
+        let library = model.catalog.library.clone();
+        model.browse(View::Settings, 0, &ProxyConfig::Off);
+        assert!(!model.busy);
+        model.navigate_history(true, &ProxyConfig::Off);
+        assert_eq!(model.view, search);
+        assert_eq!(model.start, 100);
+        assert_eq!(model.catalog.library, library);
+        assert_eq!(model.catalog.kind, Kind::Artist);
+        model.browse(View::Libraries, 0, &ProxyConfig::Off);
+        assert_eq!(model.history_index + 1, model.history.len());
+    }
+
+    #[test]
+    fn playlist_edits_preserve_occurrences_restore_failed_changes_and_reject_stale_accounts() {
+        let mut model = model();
+        model.demo("jellyfin-playlist");
+        let source = model.source.clone().unwrap();
+        let original = match &model.rows {
+            Some(Rows::Items { items, .. }) => items.clone(),
+            _ => panic!("fixture tracks"),
+        };
+        model.edit(
+            source.clone(),
+            PlaylistEdit::Remove {
+                id: "playlist1".into(),
+                entries: vec!["entry1".into()],
+            },
+            &ProxyConfig::Off,
+        );
+        let request = model.edit_request;
+        let Some(Rows::Items { items, .. }) = &model.rows else {
+            panic!("tracks")
+        };
+        assert_eq!(items.len(), original.len() - 1);
+        assert!(
+            items
+                .iter()
+                .any(|item| item.details.playlist_item_id.as_deref() == Some("entry0"))
+        );
+        assert!(
+            !items
+                .iter()
+                .any(|item| item.details.playlist_item_id.as_deref() == Some("entry1"))
+        );
+        let mut other = source.clone();
+        other.user_id = "other".into();
+        model.apply(
+            Reply::Edited {
+                source: other,
+                request,
+                result: Ok(None),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.edit_busy);
+        model.apply(
+            Reply::Edited {
+                source: source.clone(),
+                request,
+                result: Err("Denied".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(!model.edit_busy);
+        assert_eq!(model.edit_error.as_deref(), Some("Denied"));
+        let Some(Rows::Items { items, .. }) = &model.rows else {
+            panic!("restored")
+        };
+        assert_eq!(*items, original);
+        model.edit(
+            source.clone(),
+            PlaylistEdit::Rename {
+                id: "playlist1".into(),
+                name: "New name".into(),
+            },
+            &ProxyConfig::Off,
+        );
+        model.browse(View::Settings, 0, &ProxyConfig::Off);
+        model.apply(
+            Reply::Edited {
+                source,
+                request: model.edit_request,
+                result: Err("Denied".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(model.view, View::Settings);
+    }
 
     #[test]
     fn catalog_pages_are_independent_of_center_navigation_and_reject_stale_scope() {

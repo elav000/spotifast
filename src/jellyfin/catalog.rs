@@ -3,14 +3,7 @@ use super::{Client, Error, Item, Page, Token, validate_id, with_json};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Kind {
-    #[default]
-    Album,
-    Artist,
-    Playlist,
-    Song,
-}
+pub use crate::provider::MediaKind as Kind;
 
 impl Kind {
     pub fn item_type(self) -> &'static str {
@@ -25,6 +18,7 @@ impl Kind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Query {
+    Playlists,
     Shelf {
         library: String,
         kind: Kind,
@@ -93,6 +87,7 @@ impl Client {
         let mut search = None;
         let mut history = false;
         let kind = match query {
+            Query::Playlists => Kind::Playlist,
             Query::Shelf { library, kind } => {
                 parent = Some(library.as_str());
                 *kind
@@ -207,8 +202,34 @@ impl Client {
         name: &str,
         token: &Token,
     ) -> Result<String, Error> {
+        self.create_playlist_with_visibility(user, name, false, token)
+            .await
+    }
+
+    pub async fn create_playlist_with_visibility(
+        &self,
+        user: &str,
+        name: &str,
+        public: bool,
+        token: &Token,
+    ) -> Result<String, Error> {
+        self.create_playlist_with_items(user, name, public, &[], token)
+            .await
+    }
+
+    pub async fn create_playlist_with_items(
+        &self,
+        user: &str,
+        name: &str,
+        public: bool,
+        items: &[String],
+        token: &Token,
+    ) -> Result<String, Error> {
         validate_id(user)?;
         validate_name(name)?;
+        if !items.is_empty() {
+            validate_ids(items)?;
+        }
         #[derive(Deserialize)]
         #[serde(rename_all = "PascalCase")]
         struct Created {
@@ -216,7 +237,7 @@ impl Client {
         }
         let request = with_json(
             self.request(Method::POST, &["Playlists"], Some(token))?,
-            &serde_json::json!({"Name":name,"UserId":user,"MediaType":"Audio","IsPublic":false}),
+            &serde_json::json!({"Name":name,"UserId":user,"MediaType":"Audio","IsPublic":public,"Ids":items}),
         )?;
         let created: Created = self.json(request).await?;
         validate_id(&created.id)?;

@@ -10,6 +10,8 @@ use std::time::Duration;
 use symphonia::core::io::MediaSource;
 
 pub const RANGE_BYTES: usize = 256 * 1024;
+/// About six seconds of CD-quality WAV, with one more range fetched ahead.
+const PLAYBACK_RANGE_BYTES: usize = 1024 * 1024;
 
 #[derive(Default)]
 pub struct Metrics {
@@ -35,8 +37,9 @@ impl Metrics {
     }
 }
 
-/// One validated HTTP range is retained. A failed range never replaces the
-/// previous buffer or advances the cursor. No credentials enter error strings.
+/// Validated, bounded HTTP ranges. Playback retains the current range and at
+/// most one range fetched ahead. Failed ranges never replace the current buffer
+/// or advance the cursor. No credentials enter error strings.
 pub struct HttpRangeSource {
     http: reqwest::blocking::Client,
     url: Url,
@@ -48,10 +51,31 @@ pub struct HttpRangeSource {
     validator: Option<(header::HeaderName, header::HeaderValue)>,
     pub metrics: Arc<Metrics>,
     cancel: Arc<AtomicBool>,
+    range_bytes: usize,
+    read_ahead: bool,
+    pending: Option<(u64, std::thread::JoinHandle<io::Result<Vec<u8>>>)>,
 }
 
 impl HttpRangeSource {
     pub fn new(request: Request, proxy: &ProxyConfig, cancel: Arc<AtomicBool>) -> io::Result<Self> {
+        Self::build(request, proxy, cancel, false)
+    }
+
+    /// Fetch the next bounded range while the decoder/output consumes this one.
+    pub fn buffered(
+        request: Request,
+        proxy: &ProxyConfig,
+        cancel: Arc<AtomicBool>,
+    ) -> io::Result<Self> {
+        Self::build(request, proxy, cancel, true)
+    }
+
+    fn build(
+        request: Request,
+        proxy: &ProxyConfig,
+        cancel: Arc<AtomicBool>,
+        read_ahead: bool,
+    ) -> io::Result<Self> {
         let http = crate::http::blocking_builder(proxy)
             .map_err(|_| failure("Invalid proxy configuration."))?
             .redirect(reqwest::redirect::Policy::none())
@@ -71,10 +95,18 @@ impl HttpRangeSource {
             validator: None,
             metrics: Arc::default(),
             cancel,
+            range_bytes: if read_ahead {
+                PLAYBACK_RANGE_BYTES
+            } else {
+                RANGE_BYTES
+            },
+            read_ahead,
+            pending: None,
         };
         source.headers.remove(header::RANGE);
         source.headers.remove(header::IF_RANGE);
         source.fetch(0, true)?;
+        source.prefetch_next();
         Ok(source)
     }
 
@@ -93,9 +125,70 @@ impl HttpRangeSource {
         }
     }
 
+    fn fill(&mut self, start: u64) -> io::Result<()> {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|(next, _)| *next == start)
+        {
+            let (_, pending) = self.pending.take().unwrap();
+            let bytes = pending
+                .join()
+                .map_err(|_| failure("Audio prefetch failed."))??;
+            self.check_cancel()?;
+            self.buffer = bytes;
+            self.buffer_start = start;
+            Ok(())
+        } else {
+            // A seek never waits for an unrelated speculative request and never
+            // splices its bytes into the new position.
+            self.fetch(start, false)
+        }
+    }
+
+    fn prefetch_next(&mut self) {
+        if !self.read_ahead || self.cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        let next = self.buffer_start + self.buffer.len() as u64;
+        if let Some((start, pending)) = &self.pending {
+            if *start == next || !pending.is_finished() {
+                return;
+            }
+            self.pending.take();
+        }
+        if next >= self.length {
+            return;
+        }
+        let mut reader = Self {
+            http: self.http.clone(),
+            url: self.url.clone(),
+            headers: self.headers.clone(),
+            buffer: Vec::new(),
+            buffer_start: 0,
+            position: next,
+            length: self.length,
+            validator: self.validator.clone(),
+            metrics: self.metrics.clone(),
+            cancel: self.cancel.clone(),
+            range_bytes: self.range_bytes,
+            read_ahead: false,
+            pending: None,
+        };
+        if let Ok(pending) = std::thread::Builder::new()
+            .name("jellyfin-prefetch".into())
+            .spawn(move || {
+                reader.fetch(next, false)?;
+                Ok(reader.buffer)
+            })
+        {
+            self.pending = Some((next, pending));
+        }
+    }
+
     fn fetch(&mut self, start: u64, initial: bool) -> io::Result<()> {
         self.check_cancel()?;
-        let end = start.saturating_add(RANGE_BYTES as u64 - 1);
+        let end = start.saturating_add(self.range_bytes as u64 - 1);
         let mut request = self
             .http
             .get(self.url.clone())
@@ -197,7 +290,7 @@ fn parse_range(value: &str) -> io::Result<(u64, u64, u64)> {
     let total = total
         .parse::<u64>()
         .map_err(|_| failure("Unknown audio length."))?;
-    if first > last || last >= total || last - first >= RANGE_BYTES as u64 {
+    if first > last || last >= total || last - first >= PLAYBACK_RANGE_BYTES as u64 {
         return Err(failure("Invalid audio range bounds."));
     }
     Ok((first, last, total))
@@ -212,8 +305,9 @@ impl Read for HttpRangeSource {
         if self.position < self.buffer_start
             || self.position >= self.buffer_start + self.buffer.len() as u64
         {
-            self.fetch(self.position, false)?;
+            self.fill(self.position)?;
         }
+        self.prefetch_next();
         let offset = (self.position - self.buffer_start) as usize;
         let count = out.len().min(self.buffer.len() - offset);
         out[..count].copy_from_slice(&self.buffer[offset..offset + count]);

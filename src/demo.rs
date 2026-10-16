@@ -11291,6 +11291,22 @@ mod tests {
     }
 
     #[test]
+    fn playback_failures_remain_visible_in_the_shared_provider_page() {
+        let (ctx, mut app) = accessible_app("provider-playback-error");
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = app.jellyfin.catalog.items[0].clone();
+        app.jellyfin_player.enqueue(&source, item);
+        let error = app.jellyfin_player.snapshot().error.unwrap();
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::show);
+        assert!(painted.iter().any(|(text, _)| text == &error));
+        accessible_node(&tree, "Account", egui::accesskit::Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_navigation_works_without_a_spotify_grant() {
         use crate::jellyfin::browser::{BrowserAction, Provider, View};
         use egui::accesskit::{Action as AccessibleAction, Role};

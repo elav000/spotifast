@@ -60,10 +60,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             {
                 player_bar::show(app, ui);
             }
+            if app.jellyfin.source.is_some() && app.settings.sidebar_visible {
+                sidebar::show(app, ui);
+            }
             if app.show_queue_panel {
                 playback_queue_panel(app, ui);
             }
             jellyfin::show(app, ui);
+            if app.jellyfin.source.is_some() {
+                keep_room_for_panels(app, ctx);
+            }
             caption_buttons(ui, &app.palette, app.locale);
             fastframe_titlebar::resize(ui);
             return;

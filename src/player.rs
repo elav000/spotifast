@@ -73,11 +73,15 @@ impl EngineConfig {
     }
 
     pub fn open_cache(&self) -> Result<Cache> {
+        let policy = crate::media::cache::Policy::new(
+            self.audio_cache_dir.as_deref(),
+            self.audio_cache_limit,
+        );
         Cache::new(
             None,
             Some(self.volume_dir.as_path()),
             self.audio_cache_dir.as_deref(),
-            self.audio_cache_limit,
+            policy.spotify_limit,
         )
         .map(Cache::with_memory_credentials)
         .context("unable to open the playback cache")

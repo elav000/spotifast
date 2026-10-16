@@ -2,7 +2,7 @@
 //! Browsing selection remains independent of playback ownership and catalogs.
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Provider {
     Spotify,
     #[default]
@@ -48,49 +48,146 @@ pub struct TrackPresentation {
     pub number: Option<u32>,
 }
 
-/// Navigation is supplied as data; the existing left panel owns its rendering.
-pub struct NavigationItem {
-    pub label: String,
-    pub home: bool,
+/// Data and capabilities consumed by the existing Library controls and rows.
+/// A future Combined provider can compose these entries while retaining identity.
+pub struct LibraryItem {
+    pub reference: ItemReference,
+    pub name: String,
+    pub subtitle: String,
+    pub artwork: Option<String>,
+    pub open: crate::model::Action,
+    pub play: Option<crate::model::Action>,
     pub selected: bool,
-    pub action: crate::model::Action,
+    pub current: bool,
+}
+
+pub struct LibraryData {
+    pub items: Vec<LibraryItem>,
+    pub collections: Vec<(String, String)>,
+    pub collection: Option<String>,
+    pub filter: String,
+    pub sort: crate::settings::LibrarySort,
+    pub loading: bool,
+    pub error: Option<String>,
+    pub home: crate::model::Action,
+    pub home_selected: bool,
+    pub shelves: Vec<crate::settings::LibraryShelf>,
+    pub sorts: Vec<crate::settings::LibrarySort>,
+}
+
+#[derive(Clone, Debug)]
+pub enum LibraryAction {
+    Filter(String),
+    Sort(crate::settings::LibrarySort),
+    Collection(String),
+    Refresh,
+}
+
+impl ItemReference {
+    /// Account-scoped context keys also feed the existing recent-context order.
+    pub fn context_key(&self) -> String {
+        match self {
+            Self::Spotify { uri } => uri.clone(),
+            Self::Jellyfin {
+                source,
+                account,
+                item,
+            } => format!("provider:jellyfin:{source}:{account}:album:{item}"),
+        }
+    }
 }
 
 impl crate::app::App {
-    pub fn provider_navigation(&self) -> Option<Vec<NavigationItem>> {
-        use crate::jellyfin::browser::{BrowserAction, View};
-        use crate::model::Action;
-        if self.jellyfin.provider != Provider::Jellyfin || self.jellyfin.source.is_none() {
+    pub fn provider_library(&self) -> Option<LibraryData> {
+        use crate::{
+            jellyfin::browser::{BrowserAction, View},
+            model::Action,
+        };
+        if self.jellyfin.provider != Provider::Jellyfin {
             return None;
         }
-        let mut entries = vec![NavigationItem {
-            label: crate::i18n::gettext(self.locale, "Home").into_owned(),
-            home: true,
-            selected: matches!(self.jellyfin.view, View::Libraries),
-            action: Action::Jellyfin(BrowserAction::Browse {
+        let source = self.jellyfin.source.as_ref()?;
+        let catalog = &self.jellyfin.catalog;
+        let library = catalog.library.as_ref();
+        let context = self.jellyfin_player.context();
+        let items = catalog.items.iter().map(|item| {
+            let reference = ItemReference::Jellyfin { source: source.id.clone(), account: source.user_id.clone(), item: item.id.clone() };
+            LibraryItem {
+                reference,
+                name: item.name.clone().unwrap_or_else(|| "Untitled".into()),
+                subtitle: item.artists.join(", "),
+                artwork: crate::jellyfin::artwork::Reference::for_item(source, item).map(|art| art.uri()),
+                open: Action::Jellyfin(BrowserAction::Browse { view: View::Tracks {
+                    library_id: library.map(|lib| lib.id.clone()).unwrap_or_default(),
+                    library_name: library.map(|lib| lib.name.clone()).unwrap_or_default(),
+                    album_id: item.id.clone(), name: item.name.clone().unwrap_or_default(),
+                }, start: 0 }),
+                play: library.map(|library| Action::Jellyfin(BrowserAction::PlayAlbum(View::Tracks {
+                    library_id: library.id.clone(), library_name: library.name.clone(),
+                    album_id: item.id.clone(), name: item.name.clone().unwrap_or_default(),
+                }))),
+                selected: matches!(&self.jellyfin.view, View::Tracks { album_id, .. } if album_id == &item.id),
+                current: self.jellyfin_player.controls_output() && context.as_ref().is_some_and(|(current, album)| current == source && album == &item.id),
+            }
+        }).collect();
+        Some(LibraryData {
+            items,
+            collections: self
+                .jellyfin
+                .libraries
+                .iter()
+                .map(|lib| (lib.id.clone(), lib.name.clone()))
+                .collect(),
+            collection: library.map(|lib| lib.id.clone()),
+            filter: catalog.filter.clone(),
+            sort: catalog
+                .sort
+                .unwrap_or(crate::settings::LibrarySort::RecentlyPlayed),
+            loading: catalog.busy,
+            error: catalog.error.clone(),
+            home: Action::Jellyfin(BrowserAction::Browse {
                 view: View::Libraries,
                 start: 0,
             }),
-        }];
-        entries.extend(self.jellyfin.libraries.iter().map(|library| {
-            let selected = matches!(
-                &self.jellyfin.view,
-                View::Albums { library_id, .. } | View::Tracks { library_id, .. }
-                    if library_id == &library.id
-            );
-            NavigationItem {
-                label: library.name.clone(),
-                home: false,
-                selected,
-                action: Action::Jellyfin(BrowserAction::Browse {
-                    view: View::Albums {
-                        library_id: library.id.clone(),
-                        name: library.name.clone(),
-                    },
-                    start: 0,
-                }),
+            home_selected: matches!(self.jellyfin.view, View::Libraries),
+            shelves: vec![crate::settings::LibraryShelf::Albums],
+            sorts: vec![
+                crate::settings::LibrarySort::Library,
+                crate::settings::LibrarySort::RecentlyPlayed,
+                crate::settings::LibrarySort::Name,
+            ],
+        })
+    }
+
+    pub(crate) fn apply_provider_library(&mut self, action: LibraryAction) {
+        if self.jellyfin.provider != Provider::Jellyfin {
+            return;
+        }
+        match action {
+            LibraryAction::Filter(value) => self.jellyfin.catalog.filter = value,
+            LibraryAction::Sort(value)
+                if matches!(
+                    value,
+                    crate::settings::LibrarySort::Name
+                        | crate::settings::LibrarySort::Library
+                        | crate::settings::LibrarySort::RecentlyPlayed
+                ) =>
+            {
+                self.jellyfin.catalog.sort = Some(value)
             }
-        }));
-        Some(entries)
+            LibraryAction::Collection(id) => self
+                .apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::SelectLibrary(id)),
+            LibraryAction::Refresh => {
+                if let Some(library) = self.jellyfin.catalog.library.clone() {
+                    let filter = self.jellyfin.catalog.filter.clone();
+                    let sort = self.jellyfin.catalog.sort;
+                    self.jellyfin
+                        .select_catalog(library, &self.applied_jellyfin_proxy());
+                    self.jellyfin.catalog.filter = filter;
+                    self.jellyfin.catalog.sort = sort;
+                }
+            }
+            _ => {}
+        }
     }
 }

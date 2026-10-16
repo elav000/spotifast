@@ -5,48 +5,10 @@ use crate::{
     model::Action,
     theme,
 };
-use egui::{Align, Frame, Layout, Margin, RichText, vec2};
+use egui::{Align, Frame, Layout, RichText, vec2};
 
 fn emit(app: &mut App, action: A) {
     app.actions.push(Action::Jellyfin(action));
-}
-
-pub fn provider_bar(app: &mut App, ui: &mut egui::Ui) {
-    let palette = app.palette;
-    egui::Panel::top("provider-selector")
-        .exact_size(46.0 + theme::titlebar_inset(ui.ctx()))
-        .resizable(false)
-        .frame(
-            Frame::new()
-                .fill(palette.panel)
-                .inner_margin(Margin::symmetric(20, 6)),
-        )
-        .show(ui, |ui| {
-            ui.add_space(theme::titlebar_inset(ui.ctx()));
-            fastframe_titlebar::drag(ui, ui.max_rect());
-            ui.horizontal(|ui| {
-                ui.label(RichText::new("Spotifast").strong().color(palette.text));
-                ui.add_space(16.0);
-                for (provider, label) in [
-                    (Provider::Jellyfin, "Jellyfin"),
-                    (Provider::Spotify, "Spotify"),
-                ] {
-                    if ui
-                        .selectable_label(app.jellyfin.provider == provider, label)
-                        .clicked()
-                    {
-                        emit(app, A::Select(provider));
-                    }
-                }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(
-                        RichText::new("Your music, your providers")
-                            .small()
-                            .color(palette.secondary),
-                    );
-                });
-            });
-        });
 }
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
@@ -61,6 +23,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
     egui::CentralPanel::default().frame(Frame::new().fill(palette.window).inner_margin(24))
         .show(ui, |ui| {
+            ui.add_space(super::provider_titlebar_inset(ui.ctx()));
+            super::sidebar::reveal_button(app, ui);
             let browser = &app.jellyfin;
             let mut actions = Vec::new();
             ui.horizontal(|ui| {
@@ -150,7 +114,9 @@ fn connected(app: &mut App, ui: &mut egui::Ui) {
                 .inner_margin(widgets::PAGE_PADDING),
         )
         .show(ui, |ui| {
+            ui.add_space(super::provider_titlebar_inset(ui.ctx()));
             ui.horizontal(|ui| {
+                super::sidebar::reveal_button(app, ui);
                 if ui.link("Libraries").clicked() {
                     actions.push(A::Browse {
                         view: View::Libraries,

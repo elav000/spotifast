@@ -12028,6 +12028,50 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_buffering_keeps_shared_pause_resume_and_next_available() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-buffering-controls");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play album", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert!(app.jellyfin_player.snapshot().loading);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let pause = accessible_node(&tree, "Pause", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(pause, AccessibleAction::Click, None)],
+        );
+        assert!(!app.jellyfin_player.snapshot().playing);
+        assert!(!app.jellyfin_player.snapshot().loading);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let play = accessible_node(&tree, "Play", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(play, AccessibleAction::Click, None)],
+        );
+        assert!(app.jellyfin_player.snapshot().playing);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let next = accessible_node(&tree, "Next", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(next, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.now_playing().unwrap().title, "Otomo");
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_uses_the_shared_player_and_keeps_its_queue_and_session_separate() {
         use crate::jellyfin::browser::{BrowserAction as A, Provider, View};
         use egui::accesskit::{Action as AccessibleAction, Role};

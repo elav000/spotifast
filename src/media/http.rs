@@ -6,7 +6,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use symphonia::core::io::MediaSource;
 
 pub const RANGE_BYTES: usize = 256 * 1024;
@@ -56,6 +56,7 @@ pub struct HttpRangeSource {
     pub metrics: Arc<Metrics>,
     cancel: Arc<AtomicBool>,
     range_bytes: usize,
+    request_timeout: Duration,
     read_ahead: bool,
     cache: Option<super::cache::Binding>,
     pending: Option<(u64, std::thread::JoinHandle<io::Result<Vec<u8>>>)>,
@@ -116,6 +117,7 @@ impl HttpRangeSource {
             } else {
                 RANGE_BYTES
             },
+            request_timeout: Duration::from_secs(20),
             read_ahead,
             cache,
             pending: None,
@@ -200,6 +202,7 @@ impl HttpRangeSource {
             metrics: self.metrics.clone(),
             cancel: self.cancel.clone(),
             range_bytes: self.range_bytes,
+            request_timeout: self.request_timeout,
             read_ahead: false,
             cache: self.cache.clone(),
             pending: None,
@@ -250,6 +253,9 @@ impl HttpRangeSource {
         let mut request = self
             .http
             .get(self.url.clone())
+            // Request-level timeout also reaches the async body deadline. The
+            // blocking client timeout alone restarts on every body read.
+            .timeout(self.request_timeout)
             .headers(self.headers.clone())
             .header(header::ACCEPT_ENCODING, "identity")
             .header(header::RANGE, format!("bytes={start}-{end}"));
@@ -262,9 +268,11 @@ impl HttpRangeSource {
             request = request.header(header::IF_RANGE, value);
         }
         self.metrics.requests.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
         let mut response = request
             .send()
             .map_err(|_| failure("Audio request failed."))?;
+        let headers_elapsed = started.elapsed();
         // Reject 200 even when the server ignores Range: do not buffer a whole
         // file, or silently splice a changed file into an existing decoder.
         if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
@@ -316,7 +324,13 @@ impl HttpRangeSource {
         let expected = (last - first + 1) as usize;
         let mut bytes = vec![0; expected];
         response.read_exact(&mut bytes).map_err(|_| {
-            failure("Audio range was interrupted. Retry from the last playback position.")
+            log::warn!(
+                "audio range interrupted: start={start} expected_bytes={expected} elapsed_ms={}",
+                started.elapsed().as_millis()
+            );
+            failure(
+                "Audio range was interrupted or timed out. Retry from the last playback position.",
+            )
         })?;
         let mut extra = [0];
         if response
@@ -327,6 +341,14 @@ impl HttpRangeSource {
             return Err(failure("Oversized audio range."));
         }
         self.check_cancel()?;
+        if started.elapsed() >= Duration::from_secs(2) {
+            log::warn!(
+                "audio range delayed: start={start} bytes={} headers_ms={} total_ms={}",
+                bytes.len(),
+                headers_elapsed.as_millis(),
+                started.elapsed().as_millis()
+            );
+        }
         self.metrics
             .bytes
             .fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -336,7 +358,14 @@ impl HttpRangeSource {
         if self.range_bytes > 1
             && let (Some(cache), Some(validator)) = (&self.cache, self.cache_validator_key())
         {
+            let disk_started = Instant::now();
             let _ = cache.write(&validator, total, start, &bytes);
+            if disk_started.elapsed() >= Duration::from_millis(250) {
+                log::warn!(
+                    "audio cache write delayed: elapsed_ms={}",
+                    disk_started.elapsed().as_millis()
+                );
+            }
         }
         self.buffer = bytes;
         self.buffer_start = start;

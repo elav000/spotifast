@@ -4,3 +4,4 @@
 pub mod cache;
 pub mod decode;
 pub mod http;
+pub mod pipeline;

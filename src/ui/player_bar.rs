@@ -664,6 +664,21 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
             .circle_filled(disc.center(), 18.0, palette.text);
         let mut cell = centered(ui, disc);
         theme::spinner(&mut cell, 22.0, palette.window);
+        if playing {
+            let pause = ui
+                .interact(disc, ui.id().with("buffering-pause"), Sense::click())
+                .on_hover_text(gettext(app.locale, "Pause"));
+            pause.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    gettext(app.locale, "Pause"),
+                )
+            });
+            if pause.clicked() {
+                app.actions.push(Action::TogglePlay);
+            }
+        }
     } else {
         let icon = if playing {
             Icon::PauseFilled

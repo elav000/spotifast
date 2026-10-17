@@ -866,6 +866,20 @@ pub enum BrowserAction {
     PlayAlbum(View),
     PlayQueue(usize),
     Queue(String),
+    EnqueueItem {
+        source: Source,
+        item: Box<Item>,
+    },
+    EditManual {
+        source: Source,
+        expected: std::sync::Arc<Vec<Item>>,
+        index: usize,
+        to: Option<usize>,
+    },
+    OpenQueueContext {
+        source: Source,
+        view: View,
+    },
     PlayManual(usize),
     ClearQueue,
     Resume,
@@ -999,6 +1013,25 @@ impl crate::app::App {
             BrowserAction::PlayQueue(index) => {
                 self.prepare_jellyfin_playback();
                 self.jellyfin_player.play_index(index);
+            }
+            BrowserAction::EditManual {
+                source,
+                expected,
+                index,
+                to,
+            } => self
+                .jellyfin_player
+                .edit_manual(&source, &expected, index, to),
+            BrowserAction::OpenQueueContext { source, view } => {
+                if self.jellyfin.source.as_ref() == Some(&source) {
+                    self.jellyfin
+                        .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                    self.jellyfin
+                        .browse(view, 0, &self.applied_jellyfin_proxy());
+                }
+            }
+            BrowserAction::EnqueueItem { source, item } => {
+                self.jellyfin_player.enqueue(&source, *item)
             }
             BrowserAction::Queue(id) => {
                 if let Some(source) = &self.jellyfin.source {

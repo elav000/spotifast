@@ -58,13 +58,14 @@ and source/account scoped. There is no Combined provider yet. Switching provider
 not send a playback command; existing Spotify playback can continue while you
 browse Jellyfin. Play an album or individual track to start Jellyfin playback.
 The shared player bar provides Play/Pause, Seek, Volume and Next/Previous.
-Jellyfin has a separate queue: manually added songs play before the remaining
+Jellyfin retains its own queue controller behind the shared queue page and panel: manually added songs play before the remaining
 album, duplicates are preserved, and Clear removes only manually queued songs.
 Switching browsing providers leaves playback running.
 
 `src/provider.rs` defines browsing selection. `src/jellyfin/` owns Jellyfin client
 and presentation data; its worker is mounted under `backend::jellyfin` for network,
-credential and disk work. `src/ui/jellyfin.rs` retains the provider sign-in and current queue panel.
+credential and disk work. `src/ui/jellyfin.rs` retains provider sign-in. `src/ui/queue.rs` renders both providers
+through the playback-owned presentation adapter in `src/provider/queue.rs`.
 Connected browsing uses the existing central page and shared UI modules, with
 provider actions applied in `App`, following upstream's UI contract.
 
@@ -412,7 +413,7 @@ Remaining architectural work is explicit:
 - Let the track renderer consume neutral metadata directly, replacing the current
   adapter through Spotify-shaped display structs (which contain no fake IDs).
 - Extract the existing local queue presentation, ordering, history and persistence
-  before adding mixed playback. Jellyfin's current queue panel/controller remains
+  before adding mixed playback. At that milestone Jellyfin's queue panel/controller remained
   separate; Spotify Connect requires explicit provider capability handling.
 - Provider-appropriate Home sections and artist/playlist support remain later
   capabilities. No new bespoke panels should be introduced to implement them.
@@ -644,3 +645,38 @@ provider panel, setting or mixed queue is introduced. This pipeline is reusable
 by other HTTP providers; Spotify retains its native decoder/queue. A finite
 buffer cannot hide arbitrarily long server stalls. Incremental delivery of a
 partly received range and automatic retry remain further work.
+
+
+## Shared queue interface
+
+The bespoke Jellyfin right-hand panel has been deleted. Both providers use the
+existing queue panel/page, Queue/Recent chips, persisted width and responsive
+layout, headings, artwork rows, Clear, Save as a playlist and close control.
+Provider metadata and explicit actions feed the same track-row renderer already
+used by the shared browsing views. Playback ownership selects the queue; changing
+the browsing provider does not substitute another source's queue.
+
+For Jellyfin, manually added occurrences appear under Playing next, followed by
+the current context under Next up. Clear removes only manual rows. Shared row
+menus support removing one manual occurrence or moving it up/down. Snapshot
+identity and source/account checks reject edits from stale menus. Selecting a
+queue row retains the existing transport behavior. Add-to-queue actions carry
+playback metadata, so they work after browsing away from the original page.
+
+The Save button creates a private Jellyfin playlist from the current and upcoming
+queue, deduplicated in playback order, matching the existing Spotify save policy.
+It uses an explicit Jellyfin source action even while Spotify browsing is open.
+Queue/history rows use account-qualified artwork references and never issue
+Spotify metadata, playlist or recent-play requests for Jellyfin items.
+
+Recent currently shows the Jellyfin transport's bounded playback history for its
+current context, including repeated occurrences. It does not fetch the complete
+server history. Spotify retains its existing merged local/server recent history
+and loading behavior. Jellyfin drag insertion/reordering remains disabled until
+a provider-neutral drag payload and the shared queue controller are implemented;
+manual-row menu edits work now. Spotify drag-and-drop behavior is unchanged.
+
+This is shared interface and presentation infrastructure. Playback queue
+controllers and catalogs remain separate; cross-provider playback ordering and
+Combined provider composition are later milestones. No Settings fields,
+dependency sources or saved-state schemas changed.

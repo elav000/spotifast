@@ -11642,6 +11642,59 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_mini_player_stays_open_without_spotify_and_can_return_to_main() {
+        let (ctx, mut app) = accessible_app("jellyfin-mini-player");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.settings.winamp_window = true;
+        for provider in [
+            crate::provider::Provider::Jellyfin,
+            crate::provider::Provider::Spotify,
+        ] {
+            app.jellyfin.provider = provider;
+            for _ in 0..3 {
+                accessible_frame(&ctx, &mut app, vec![]);
+                assert!(app.settings.winamp_window);
+                assert!(
+                    !app.switch_intent,
+                    "a signed-in Jellyfin session keeps the mini player open"
+                );
+            }
+        }
+        app.apply(Action::ToggleWinampWindow, &ctx);
+        assert!(!app.settings.winamp_window);
+        assert!(
+            app.switch_intent,
+            "returning to the main window still works"
+        );
+        app.switch_intent = false;
+        app.settings.winamp_window = true;
+        app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
+            "track0".into(),
+        ));
+        app.jellyfin_player.demo_ready(65_000, true);
+        let uri = app.now_playing().unwrap().uri;
+        app.jellyfin.source = None;
+        for _ in 0..3 {
+            accessible_frame(&ctx, &mut app, vec![]);
+            assert!(app.settings.winamp_window);
+            assert!(!app.switch_intent);
+            let now = app.now_playing().unwrap();
+            assert_eq!(now.uri, uri);
+            assert!(now.playing);
+        }
+        app.jellyfin_player.stop();
+        accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !app.settings.winamp_window,
+            "without either session, return to sign-in"
+        );
+        assert!(app.switch_intent);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_uses_full_library_rows_search_sort_and_grid_without_spotify_actions() {
         use crate::provider::LibraryAction;
         use egui::accesskit::{Action as AccessibleAction, Role};

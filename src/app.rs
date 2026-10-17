@@ -13197,10 +13197,13 @@ impl App {
                 self.leave_lyrics_fullscreen(ctx);
             }
         }
-        // Switch to the main window when sign-in is required.
+        // Switch to the main window when no provider can keep the mini player
+        // usable. Jellyfin does not require a Spotify sign-in.
         let needs_sign_in = !(self.is_connected() && self.user.is_some())
             && !matches!(self.auth, AuthStatus::Connecting | AuthStatus::Starting)
-            && !(self.is_connected() && self.user.is_none());
+            && !(self.is_connected() && self.user.is_none())
+            && !(self.jellyfin.enabled && self.jellyfin.source.is_some())
+            && !self.jellyfin_player.controls_output();
         if self.settings.winamp_window && needs_sign_in && !self.switch_intent {
             self.actions.push(Action::ToggleWinampWindow);
         }

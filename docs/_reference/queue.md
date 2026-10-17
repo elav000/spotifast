@@ -167,3 +167,18 @@ counts once, and the notification reports only the rows actually added.
     rewrites the queue by clearing it and re-adding the rest, so it is
     offered only while this computer is the active player. *Next up* rows
     have no such entry; they play from the current context.
+
+
+## Provider queues in the elav000 fork
+
+The fork uses this same queue page and side panel for Jellyfin. Playback
+ownership selects the displayed queue, independently of the catalog being
+browsed. Jellyfin supplies its current track, manual occurrences, context rows,
+artwork and actions through a presentation adapter. It retains its own queue
+controller for now; the catalogs and playback ordering are not combined.
+
+Clear, manual-row removal and Move up/down affect only manual Jellyfin rows.
+Save as a playlist creates a private Jellyfin playlist, deduplicated in playback
+order. Recent shows the transport's bounded current-context playback history.
+Jellyfin drag-and-drop and complete server-history browsing remain follow-up
+work. The existing Spotify behavior and the rules above remain unchanged.

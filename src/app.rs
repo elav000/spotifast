@@ -5772,6 +5772,9 @@ impl App {
     }
 
     pub fn load_recents(&mut self, force: bool) {
+        if !self.queue_uses_spotify() {
+            return;
+        }
         if !self.network_reachable || self.recents.loading {
             return;
         }
@@ -11844,6 +11847,7 @@ impl App {
                 self.queue_tab = tab;
                 self.session_dirty = true;
                 if tab == QueueTab::Recents
+                    && self.queue_uses_spotify()
                     && self.recents.items.is_empty()
                     && !self.recents.loading
                 {

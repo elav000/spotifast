@@ -1129,20 +1129,46 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
         }
     }
     if let Some(page) = page.filter(|page| page.starts_with("jellyfin")) {
-        app.jellyfin
-            .demo(if matches!(page, "jellyfin-playing" | "jellyfin-queue") {
+        app.jellyfin.demo(
+            if matches!(
+                page,
+                "jellyfin-playing"
+                    | "jellyfin-queue"
+                    | "jellyfin-queue-manual"
+                    | "jellyfin-queue-recent"
+            ) {
                 "jellyfin-tracks"
             } else {
                 page
-            });
+            },
+        );
         app.user = None;
         seed_jellyfin_artwork(app);
-        if matches!(page, "jellyfin-playing" | "jellyfin-queue") {
+        if matches!(
+            page,
+            "jellyfin-playing"
+                | "jellyfin-queue"
+                | "jellyfin-queue-manual"
+                | "jellyfin-queue-recent"
+        ) {
             app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
                 "track0".into(),
             ));
             app.jellyfin_player.demo_ready(65_000, true);
-            app.show_queue_panel = page == "jellyfin-queue";
+            app.show_queue_panel = page.starts_with("jellyfin-queue");
+            if matches!(page, "jellyfin-queue-manual" | "jellyfin-queue-recent") {
+                app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Queue(
+                    "track1".into(),
+                ));
+                app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Queue(
+                    "track1".into(),
+                ));
+            }
+            if page == "jellyfin-queue-recent" {
+                app.jellyfin_player.step(true);
+                app.jellyfin_player.demo_ready(0, true);
+                app.queue_tab = crate::model::QueueTab::Recents;
+            }
         }
     }
     if let Some(page) = page.and_then(Page::decode) {
@@ -12031,6 +12057,161 @@ mod tests {
             vec![accessible_action(close, AccessibleAction::Click, None)],
         );
         assert!(!app.show_queue_panel);
+        assert_eq!(app.now_playing().unwrap().title, "Rosewood");
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_queue_uses_shared_tabs_artwork_rows_and_playback_owned_history() {
+        use crate::{jellyfin::browser::BrowserAction as A, provider::queue::QueueEntry};
+        use egui::accesskit::{Action as Click, Role};
+        let (ctx, mut app) = accessible_app("shared-jellyfin-queue");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
+        app.jellyfin_player.demo_ready(0, true);
+        app.show_queue_panel = true;
+        app.apply(Action::Jellyfin(A::Queue("track1".into())), &ctx);
+        let view = app.playback_queue();
+        assert!(!view.spotify_drag);
+        assert_eq!(view.manual_len, 1);
+        assert_eq!(view.rows.len(), 6);
+        assert!(
+            matches!(view.current, Some(QueueEntry::Provider(ref row)) if row.0.artwork.is_some())
+        );
+        assert!(matches!(view.save, Some(Action::Jellyfin(A::Edit { .. }))));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Save as a playlist", Role::Button);
+        accessible_node(&tree, "Recent", Role::Button);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Jellyfin queue"))
+        );
+        app.apply(Action::Next, &ctx);
+        app.jellyfin_player.demo_ready(0, true);
+        assert_eq!(app.playback_queue().recent.rows.len(), 1);
+        app.jellyfin.provider = crate::provider::Provider::Spotify;
+        assert!(
+            !app.queue_uses_spotify(),
+            "browsing selection cannot replace the playback queue"
+        );
+        app.recents.items.clear();
+        app.recents.complete = false;
+        app.recents.loading = false;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let recent = accessible_node(&tree, "Recent", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(recent, Click::Click, None)],
+        );
+        assert_eq!(app.queue_tab, crate::model::QueueTab::Recents);
+        assert!(
+            !app.recents.loading,
+            "Jellyfin Recent must not issue a Spotify request"
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Play Rosewood, Bonobo", Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_queue_rows_enqueue_from_playback_metadata_without_the_browsed_page() {
+        use crate::{
+            jellyfin::browser::{BrowserAction as A, View},
+            provider::queue::QueueEntry,
+        };
+        let (ctx, mut app) = accessible_app("shared-queue-source");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
+        app.jellyfin_player.demo_ready(0, true);
+        let view = app.playback_queue();
+        let QueueEntry::Provider(row) = view.current.unwrap() else {
+            panic!("provider row missing")
+        };
+        app.jellyfin.rows = None;
+        app.jellyfin.view = View::Libraries;
+        app.jellyfin.provider = crate::provider::Provider::Spotify;
+        app.apply(row.1.enqueue.unwrap(), &ctx);
+        assert_eq!(app.jellyfin_player.snapshot().queued.len(), 1);
+        assert_eq!(app.jellyfin_player.snapshot().queued[0].id, "track0");
+        assert!(!app.queue_uses_spotify());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_manual_rows_use_shared_context_menus_for_move_and_remove() {
+        use crate::jellyfin::browser::BrowserAction as A;
+        use egui::accesskit::{Action as Click, Role};
+        let (ctx, mut app) = accessible_app("shared-queue-menu");
+        app.user = None;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
+        app.jellyfin_player.demo_ready(0, true);
+        app.show_queue_panel = true;
+        for id in ["track1", "track2"] {
+            app.apply(Action::Jellyfin(A::Queue(id.into())), &ctx);
+        }
+        for _ in 0..3 {
+            accessible_frame(&ctx, &mut app, vec![]);
+        }
+        let queue_row_center = |tree: &egui::accesskit::TreeUpdate| {
+            let bounds = tree
+                .nodes
+                .iter()
+                .filter(|(_, node)| {
+                    node.role() == Role::Button && node.label() == Some("Play Otomo, Bonobo")
+                })
+                .filter_map(|(_, node)| node.bounds())
+                .max_by(|a, b| a.x0.total_cmp(&b.x0).then_with(|| b.y0.total_cmp(&a.y0)))
+                .unwrap();
+            egui::pos2(
+                (bounds.x0 + 60.0) as f32,
+                ((bounds.y0 + bounds.y1) / 2.0) as f32,
+            )
+        };
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(queue_row_center(&tree), egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let down = accessible_node(&tree, "Move down", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(down, Click::Click, None)],
+        );
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["track2", "track1"]
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(queue_row_center(&tree), egui::PointerButton::Secondary),
+        );
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let remove = accessible_node(&tree, "Remove from queue", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(remove, Click::Click, None)],
+        );
+        assert_eq!(app.jellyfin_player.snapshot().queued.len(), 1);
+        assert_eq!(app.jellyfin_player.snapshot().queued[0].id, "track2");
+        assert_eq!(app.jellyfin_player.snapshot().tracks.len(), 6);
         assert_eq!(app.now_playing().unwrap().title, "Rosewood");
         app.backend.shutdown();
     }

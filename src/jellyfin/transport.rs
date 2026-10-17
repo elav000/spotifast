@@ -435,6 +435,32 @@ impl Transport {
         }
     }
 
+    /// Remove selected occurrences together, against the snapshot the UI drew.
+    pub(crate) fn remove_manual(
+        &self,
+        source: &Source,
+        expected: &Arc<Vec<Item>>,
+        indices: &[usize],
+    ) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state
+            .template
+            .as_ref()
+            .is_some_and(|job| &job.source == source)
+            || !Arc::ptr_eq(expected, &state.snapshot.queued)
+            || indices.iter().any(|index| *index >= expected.len())
+        {
+            return;
+        }
+        let mut indices = indices.to_vec();
+        indices.sort_unstable();
+        indices.dedup();
+        let queue = Arc::make_mut(&mut state.snapshot.queued);
+        for index in indices.into_iter().rev() {
+            queue.remove(index);
+        }
+    }
+
     pub fn clear_queue(&self) {
         self.shared
             .state
@@ -1669,6 +1695,45 @@ mod tests {
         );
         assert_eq!(transport.snapshot().tracks.len(), 2);
         assert_eq!(transport.snapshot().item.unwrap().id, "a");
+    }
+
+    #[test]
+    fn manual_batch_removal_is_atomic_and_rejects_stale_or_other_account_snapshots() {
+        let transport = transport();
+        let source = source();
+        transport.play(
+            source.clone(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        for id in ["x", "x", "y"] {
+            transport.enqueue(&source, item(id));
+        }
+        let expected = transport.snapshot().queued;
+        let mut other = source.clone();
+        other.user_id.push('x');
+        transport.remove_manual(&other, &expected, &[0, 2]);
+        transport.remove_manual(&source, &expected, &[0, 99]);
+        assert_eq!(transport.snapshot().queued.len(), 3);
+        transport.remove_manual(&source, &expected, &[2, 0, 2]);
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["x"]
+        );
+        transport.remove_manual(&source, &expected, &[0]);
+        assert_eq!(
+            transport.snapshot().queued.len(),
+            1,
+            "a stale selection cannot delete the remaining duplicate"
+        );
+        assert_eq!(transport.snapshot().item.unwrap().id, "a");
+        assert_eq!(transport.snapshot().tracks.len(), 2);
     }
 
     #[test]

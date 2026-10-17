@@ -11642,6 +11642,23 @@ mod tests {
     }
 
     #[test]
+    fn saving_the_spotify_queue_while_browsing_jellyfin_keeps_its_provider() {
+        let (ctx, mut app) = accessible_app("spotify-queue-save-provider");
+        app.jellyfin.demo("jellyfin-tracks");
+        assert!(app.jellyfin_selected());
+        assert!(app.queue_uses_spotify());
+        let action = app.playback_queue().save.unwrap();
+        app.apply(action, &ctx);
+        assert!(app.playlist_busy);
+        assert!(!app.jellyfin.edit_busy);
+        assert!(app.jellyfin.dialog_source.is_none());
+        assert!(
+            matches!(&app.dialog, Some(crate::model::Dialog::CreatePlaylist { add_uris, .. }) if !add_uris.is_empty() && add_uris.iter().all(|uri| uri.starts_with("spotify:")))
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_mini_player_stays_open_without_spotify_and_can_return_to_main() {
         let (ctx, mut app) = accessible_app("jellyfin-mini-player");
         app.user = None;

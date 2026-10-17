@@ -80,6 +80,12 @@ drag the lower-right corner to resize the window. Use X or **PL** to close it.
   queue, and **REM → Remove all** clears every song you queued. Both work when
   this computer is playing. Songs from the playing album or playlist stay.
 
+With Jellyfin playback, this same pane shows the queue from the main window,
+including repeated songs. ADD opens Jellyfin search or the music library;
+LIST OPTS loads or saves Jellyfin playlists. Song info opens the album when its
+identity is available. Switching the provider you browse leaves these queue
+actions attached to the provider playing the music.
+
 Notices from the main window scroll through the mini player's text display.
 
 ## Equalizer

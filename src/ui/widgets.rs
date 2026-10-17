@@ -1366,6 +1366,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
 /// Provider-supplied actions for the same track-row presentation. Service
 /// menus, saved-song requests and Spotify drag payloads are absent in this mode.
 pub struct ProviderRowActions {
+    pub navigation: Vec<(String, Action)>,
     pub provider: crate::provider::Provider,
     pub play: Action,
     pub enqueue: Option<Action>,
@@ -2215,7 +2216,7 @@ fn track_row_contents(
                         ui.data_mut(|data| data.insert_temp(id, query));
                     });
                 }
-                for (label, action) in &actions.menu {
+                for (label, action) in actions.navigation.iter().chain(&actions.menu) {
                     if ui.button(label).clicked() {
                         app.actions.push(action.clone());
                         ui.close();

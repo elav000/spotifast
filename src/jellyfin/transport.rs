@@ -240,6 +240,18 @@ impl Transport {
             .map(|job| (job.source.clone(), job.album.clone()))
     }
 
+    pub(crate) fn recent_items(&self) -> Vec<Item> {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .history
+            .iter()
+            .rev()
+            .map(|cursor| cursor.item.clone())
+            .collect()
+    }
+
     pub fn controls_output(&self) -> bool {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.snapshot.item.is_some()
@@ -394,6 +406,33 @@ impl Transport {
         }
         Arc::make_mut(&mut state.snapshot.queued).push(item);
         state.snapshot.error = None;
+    }
+
+    /// Apply row edits only while the same immutable queue snapshot is current.
+    /// This guards repeated occurrences and account switches during a menu action.
+    pub(crate) fn edit_manual(
+        &self,
+        source: &Source,
+        expected: &Arc<Vec<Item>>,
+        index: usize,
+        to: Option<usize>,
+    ) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state
+            .template
+            .as_ref()
+            .is_some_and(|job| &job.source == source)
+            || !Arc::ptr_eq(expected, &state.snapshot.queued)
+            || index >= state.snapshot.queued.len()
+        {
+            return;
+        }
+        let queue = Arc::make_mut(&mut state.snapshot.queued);
+        let item = queue.remove(index);
+        if let Some(to) = to {
+            let to = to.min(queue.len());
+            queue.insert(to, item);
+        }
     }
 
     pub fn clear_queue(&self) {
@@ -1581,6 +1620,55 @@ mod tests {
             }
             Ok(())
         }
+    }
+
+    #[test]
+    fn manual_row_edits_preserve_occurrences_and_reject_stale_or_other_account_actions() {
+        let transport = transport();
+        let source = source();
+        transport.play(
+            source.clone(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        for id in ["x", "x", "y"] {
+            transport.enqueue(&source, item(id));
+        }
+        let expected = transport.snapshot().queued;
+        let mut other = source.clone();
+        other.user_id.push('x');
+        transport.edit_manual(&other, &expected, 0, None);
+        assert_eq!(transport.snapshot().queued.len(), 3);
+        transport.edit_manual(&source, &expected, 0, Some(2));
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["x", "y", "x"]
+        );
+        transport.edit_manual(&source, &expected, 0, None);
+        assert_eq!(
+            transport.snapshot().queued.len(),
+            3,
+            "stale menu cannot remove a different occurrence"
+        );
+        let expected = transport.snapshot().queued;
+        transport.edit_manual(&source, &expected, 0, None);
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["y", "x"]
+        );
+        assert_eq!(transport.snapshot().tracks.len(), 2);
+        assert_eq!(transport.snapshot().item.unwrap().id, "a");
     }
 
     #[test]

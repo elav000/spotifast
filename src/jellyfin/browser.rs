@@ -876,6 +876,15 @@ pub enum BrowserAction {
         index: usize,
         to: Option<usize>,
     },
+    RemoveManual {
+        source: Source,
+        expected: std::sync::Arc<Vec<Item>>,
+        indices: Vec<usize>,
+    },
+    PlayQueueContext {
+        source: Source,
+        view: View,
+    },
     OpenQueueContext {
         source: Source,
         view: View,
@@ -1022,6 +1031,19 @@ impl crate::app::App {
             } => self
                 .jellyfin_player
                 .edit_manual(&source, &expected, index, to),
+            BrowserAction::RemoveManual {
+                source,
+                expected,
+                indices,
+            } => {
+                self.jellyfin_player
+                    .remove_manual(&source, &expected, &indices);
+            }
+            BrowserAction::PlayQueueContext { source, view } => {
+                if self.jellyfin.source.as_ref() == Some(&source) {
+                    self.apply_jellyfin_action(BrowserAction::PlayAlbum(view));
+                }
+            }
             BrowserAction::OpenQueueContext { source, view } => {
                 if self.jellyfin.source.as_ref() == Some(&source) {
                     self.jellyfin

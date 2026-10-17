@@ -60,8 +60,15 @@ browse Jellyfin. Play an album or individual track to start Jellyfin playback.
 The shared player bar provides Play/Pause, Seek, Volume and Next/Previous.
 The existing Winamp mini player also stays open with a Jellyfin session or active
 Jellyfin playback, without requiring Spotify sign-in. Its main transport controls
-use the same playback actions. The mini player's playlist menus and queue adapter
-remain Spotify-specific follow-up work.
+use the same playback actions. Its existing playlist pane consumes the shared
+queue presentation: current song, manual occurrences and remaining context keep
+the same order as the main queue. Double-click starts that occurrence. REM removes
+selected manual occurrences atomically or clears the manual queue. ADD opens
+Jellyfin search or the music library; MISC and I open the song's album when known.
+LIST OPTS loads Jellyfin playlists or saves the queue using the same provider
+action as the main view. Browsing another provider does not retarget these actions.
+Spotify retains its existing stale-response row handling. Saving its queue while
+browsing Jellyfin still creates a Spotify playlist.
 Jellyfin retains its own queue controller behind the shared queue page and panel: manually added songs play before the remaining
 album, duplicates are preserved, and Clear removes only manually queued songs.
 Switching browsing providers leaves playback running.

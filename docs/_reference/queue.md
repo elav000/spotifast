@@ -18,6 +18,12 @@ playing from somewhere Spotify reports.
 These are the rules the app follows. The queue tests in `src/app.rs`
 check every one of them.
 
+The Winamp playlist pane also consumes the playback-owned queue presentation.
+Its Jellyfin rows, row-play actions, selected-occurrence removal, clear and save
+actions target the same queue as the main panel. Selected manual occurrences are
+removed together against the displayed snapshot, so duplicates and intervening
+playback changes cannot make later removals target a different row.
+
 Starting and resuming are separate actions. With Shuffle off, a playlist's
 **Play** button starts at its first available song in the selected order.
 Double-clicking a row starts there, including with Shuffle on. **Play** in

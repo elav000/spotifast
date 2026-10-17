@@ -33,16 +33,6 @@ use crate::backend::AuthStatus;
 use crate::model::{Action, Loadable, Page, ToastKind};
 use crate::theme::{self, Icon};
 
-fn playback_queue_panel(app: &mut App, ui: &mut egui::Ui) {
-    if app.jellyfin_player.controls_output()
-        || (app.jellyfin.provider == crate::provider::Provider::Jellyfin && !app.is_connected())
-    {
-        jellyfin::queue_panel(app, ui);
-    } else {
-        queue::side_panel(app, ui);
-    }
-}
-
 /// Leave room for native Mac controls or the existing custom caption buttons.
 fn provider_titlebar_inset(ctx: &Context) -> f32 {
     theme::titlebar_inset(ctx).max(if fastframe_titlebar::enabled() {
@@ -77,7 +67,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 sidebar::show(app, ui);
             }
             if app.show_queue_panel {
-                playback_queue_panel(app, ui);
+                queue::side_panel(app, ui);
             }
             if app.jellyfin.source.is_some() {
                 central(app, ui);
@@ -100,7 +90,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if app.jellyfin_player.controls_output() {
             player_bar::show(app, ui);
             if app.show_queue_panel {
-                jellyfin::queue_panel(app, ui);
+                queue::side_panel(app, ui);
             }
         }
         player_bar::end_tint_session(ctx);
@@ -131,7 +121,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             sidebar::show(app, ui);
         }
         if app.show_queue_panel {
-            playback_queue_panel(app, ui);
+            queue::side_panel(app, ui);
         }
         if app.show_lyrics_panel {
             lyrics::side_panel(app, ui);

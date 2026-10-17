@@ -1389,6 +1389,36 @@ pub fn provider_track_row(
     index: usize,
     actions: &ProviderRowActions,
 ) -> Option<RowPick> {
+    provider_track_row_with_layout(
+        ui,
+        app,
+        track,
+        index,
+        actions,
+        ProviderTrackLayout {
+            number: track.number.map(|number| number as usize),
+            ..Default::default()
+        },
+    )
+}
+
+#[derive(Default)]
+pub struct ProviderTrackLayout {
+    pub number: Option<usize>,
+    pub show_cover: bool,
+    pub show_album: bool,
+    pub compact: bool,
+    pub shift: f32,
+}
+
+pub fn provider_track_row_with_layout(
+    ui: &mut Ui,
+    app: &mut App,
+    track: &crate::provider::TrackPresentation,
+    index: usize,
+    actions: &ProviderRowActions,
+    layout: ProviderTrackLayout,
+) -> Option<RowPick> {
     debug_assert_eq!(track.reference.provider(), actions.provider);
     // Reuse the renderer's existing display metadata. No Spotify ID, request,
     // external URL or catalog entry is manufactured by this presentation adapter.
@@ -1426,17 +1456,17 @@ pub fn provider_track_row(
         app,
         TrackRow {
             index,
-            number: track.number.map(|number| number as usize),
+            number: layout.number,
             item: &item,
             context: &context,
-            show_cover: false,
-            show_album: false,
+            show_cover: layout.show_cover,
+            show_album: layout.show_album,
             added_at: None,
             added_by: None,
             show_added_by: false,
-            compact: false,
+            compact: layout.compact,
             thin: false,
-            shift: 0.0,
+            shift: layout.shift,
             picked: false,
             picked_songs: &[],
         },

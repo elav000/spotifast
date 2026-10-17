@@ -4,19 +4,20 @@ use std::sync::Arc;
 
 use egui::{Align, Frame, Layout, Margin};
 
-use crate::api::models::PlayableItem;
 use crate::app::App;
 use crate::i18n::{Locale, gettext};
-use crate::model::{Action, DragTrack, Loadable, QueueTab, RowContext};
+use crate::model::{Action, DragTrack, QueueTab, RowContext};
 use crate::theme::{self, Icon};
 
 use super::widgets::{self, TrackRow};
+use crate::provider::queue::{QueueEntry, QueuePresentation, QueueStatus};
 
 pub fn page(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     ui.add_space(8.0);
     // The queue refreshes on track changes, additions, and while visible.
-    let offer_save = !app.queue_playlist_uris().is_empty();
+    let view = app.playback_queue();
+    let offer_save = view.save.is_some();
     ui.horizontal(|ui| {
         theme::text(
             ui,
@@ -25,16 +26,19 @@ pub fn page(app: &mut App, ui: &mut egui::Ui) {
             palette.text,
         );
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if save_button(ui, &palette, offer_save, app.locale) {
-                app.actions.push(Action::SaveQueueAsPlaylist);
+            if save_button(ui, &palette, offer_save, app.locale)
+                && let Some(action) = &view.save
+            {
+                app.actions.push(action.clone());
             }
         });
     });
     ui.add_space(12.0);
-    contents(app, ui, false);
+    contents(app, ui, false, &view);
 }
 
 pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
+    let view = app.playback_queue();
     let palette = app.palette;
     let fit = super::yielding_panel(
         ui.ctx(),
@@ -64,7 +68,7 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         // Measure buttons first and give the remaining width to the chips.
         // Without `shrink_left`, wrapped chips can overlap the close button.
         let tab = app.queue_tab;
-        let offer_save = tab == QueueTab::Queue && !app.queue_playlist_uris().is_empty();
+        let offer_save = tab == QueueTab::Queue && view.save.is_some();
         let mut picked = None;
         let mut close = false;
         let mut save = false;
@@ -101,18 +105,19 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
         if close {
             app.actions.push(Action::ToggleQueuePanel);
         }
-        if save {
-            app.actions.push(Action::SaveQueueAsPlaylist);
+        if save && let Some(action) = &view.save {
+            app.actions.push(action.clone());
         }
         ui.add_space(8.0);
         // Lazy load recents when tab becomes visible.
         if app.queue_tab == QueueTab::Recents
-            && !app.recents.loading
-            && !app.recents.complete
-            && app.recents.items.is_empty()
-            && app.recents.error.is_none()
+            && !view.recent.loading
+            && !view.recent.complete
+            && view.recent.rows.is_empty()
+            && view.recent.error.is_none()
+            && let Some(action) = &view.recent.load
         {
-            app.actions.push(Action::LoadMoreRecents);
+            app.actions.push(action.clone());
         }
         crate::autoscroll::show(
             ui,
@@ -121,8 +126,8 @@ pub fn side_panel(app: &mut App, ui: &mut egui::Ui) {
                 .auto_shrink([false, false]),
             egui::Vec2b::new(false, true),
             |ui| match app.queue_tab {
-                QueueTab::Queue => contents(app, ui, true),
-                QueueTab::Recents => recents_contents(app, ui),
+                QueueTab::Queue => contents(app, ui, true, &view),
+                QueueTab::Recents => recents_contents(app, ui, &view),
             },
         );
     });
@@ -155,10 +160,10 @@ fn save_button(
 }
 
 /// Clears manual rows from the active local queue.
-fn clear_button(app: &mut App, ui: &mut egui::Ui) {
-    if !app.can_clear_queue() {
+fn clear_button(app: &mut App, ui: &mut egui::Ui, view: &QueuePresentation) {
+    let Some(action) = &view.clear else {
         return;
-    }
+    };
     let palette = app.palette;
     if theme::icon_button(
         ui,
@@ -170,7 +175,7 @@ fn clear_button(app: &mut App, ui: &mut egui::Ui) {
     )
     .clicked()
     {
-        app.actions.push(Action::ClearQueue);
+        app.actions.push(action.clone());
     }
 }
 
@@ -190,13 +195,16 @@ fn queue_drop(ui: &egui::Ui, rect: egui::Rect) -> Option<Arc<DragTrack>> {
 /// section's heading.
 const SECTION_GAP: f32 = 14.0;
 
-fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
+fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresentation) {
     let palette = app.palette;
     // Neither the Web API nor librespot can reorder or insert into a live
     // remote queue, so without local playback active every drop just
     // appends, same as the "Add to queue" menu item.
-    let reorderable = app.queue_locally_reorderable();
-    if !reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
+    let reorderable = view.spotify_drag && app.queue_locally_reorderable();
+    if view.spotify_drag
+        && !reorderable
+        && let Some(track) = queue_drop(ui, ui.clip_rect())
+    {
         app.actions.push(Action::QueueMany {
             songs: track
                 .items
@@ -205,36 +213,21 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 .collect(),
         });
     }
-    match &app.queue {
-        Loadable::Loaded(_) => {}
-        Loadable::Loading | Loadable::NotLoaded => {
+    match &view.status {
+        QueueStatus::Ready => {}
+        QueueStatus::Loading => {
             widgets::loading_row(ui, &palette, app.locale);
             return;
         }
-        Loadable::Failed(error) => {
-            let error = error.clone();
-            widgets::error_row(ui, app, &error, Some(crate::model::Page::Queue));
+        QueueStatus::Failed(error) => {
+            widgets::error_row(ui, app, error, Some(crate::model::Page::Queue));
             return;
         }
-    };
-    let now = app.now_playing();
-    // Prefer the player's current track because the Web API can lag after a
-    // skip.
-    let current: Option<PlayableItem> = match &now {
-        Some(now) => app
-            .queue
-            .get()
-            .and_then(|queue| queue.currently_playing.clone())
-            .filter(|item| item.uri() == now.uri)
-            .or_else(|| app.now_playing_item()),
-        None => app
-            .queue
-            .get()
-            .and_then(|queue| queue.currently_playing.clone()),
-    };
+    }
+    let current = view.current.as_ref();
     // Where the songs come from, above the song itself. A radio has no
     // page, so its name is plain text.
-    if let Some(from) = app.playing_from().filter(|_| current.is_some()) {
+    if let Some((name, open)) = view.context.as_ref().filter(|_| current.is_some()) {
         ui.horizontal(|ui| {
             theme::text(
                 ui,
@@ -242,14 +235,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 theme::regular(13.0),
                 palette.secondary,
             );
-            match from.page {
-                Some(page) => {
-                    if theme::link(ui, from.name, theme::semibold(13.0), palette.text).clicked() {
-                        app.actions.push(Action::Open(page));
+            match open {
+                Some(action) => {
+                    if theme::link(ui, name, theme::semibold(13.0), palette.text).clicked() {
+                        app.actions.push(action.clone());
                     }
                 }
                 None => {
-                    theme::text(ui, from.name, theme::semibold(13.0), palette.text);
+                    theme::text(ui, name, theme::semibold(13.0), palette.text);
                 }
             }
         });
@@ -263,30 +256,32 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
             palette.text,
         );
         ui.add_space(4.0);
-        let context = RowContext::Uris(Arc::from([current.uri().to_string()]));
-        widgets::track_row(
-            ui,
+        let context = match current {
+            QueueEntry::Spotify(item) => RowContext::Uris(Arc::from([item.uri().to_string()])),
+            _ => RowContext::Queue,
+        };
+        show_entry(
             app,
-            TrackRow {
-                index: 0,
+            ui,
+            current,
+            &context,
+            widgets::ProviderTrackLayout {
                 number: Some(1),
-                item: current,
-                context: &context,
                 show_cover: true,
                 show_album: !compact,
-                added_at: None,
-                added_by: None,
-                show_added_by: false,
                 compact,
-                thin: false,
                 shift: 0.0,
-                picked: false,
-                picked_songs: &[],
             },
+            0,
+            None,
         );
         ui.add_space(SECTION_GAP);
     }
-    if queue_is_empty(app) {
+    if view.rows.is_empty() {
+        if view.pending {
+            widgets::loading_row(ui, &palette, app.locale);
+            return;
+        }
         // Nothing queued at all yet: the only slot a drop could land on is
         // the first one.
         if reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
@@ -309,11 +304,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
     } else {
         theme::ROW_HEIGHT
     };
-    let queue_len = app.queue.get().map(|queue| queue.queue.len()).unwrap_or(0);
+    let queue_len = view.rows.len();
     // The user's own songs get their own section on top; the playing
     // context's rows follow under the usual heading. One numbering runs
     // through both, because that is the order things play.
-    let queued_len = app.queued_rows_len().min(queue_len);
+    let queued_len = view.manual_len.min(queue_len);
     if queued_len > 0 {
         // The trash sits with the songs it removes: only this section is
         // the user's to clear, the context below plays itself.
@@ -329,7 +324,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 palette.text,
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                clear_button(app, ui);
+                clear_button(app, ui, view);
             });
         });
         ui.add_space(4.0);
@@ -375,7 +370,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
                 },
                 crate::motion::seconds(ui.ctx(), 0.12),
             );
-            queue_row(app, ui, index, compact, shift);
+            queue_row(app, ui, view, index, compact, shift);
             ui.allocate_space(egui::vec2(width, gap));
         });
         if let Some(slot) = move_slot {
@@ -437,25 +432,21 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool) {
         );
         ui.add_space(4.0);
         widgets::virtual_rows(ui, queue_len - queued_len, row_height, |ui, index| {
-            queue_row(app, ui, queued_len + index, compact, 0.0);
+            queue_row(app, ui, view, queued_len + index, compact, 0.0);
         });
     }
 }
 
-fn queue_is_empty(app: &App) -> bool {
-    app.queue.get().is_none_or(|queue| queue.queue.is_empty())
-}
-
-fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
+fn recents_contents(app: &mut App, ui: &mut egui::Ui, view: &QueuePresentation) {
     let palette = app.palette;
     // Snapshot to avoid borrow issues while drawing. The rows are both
     // histories as one: what was played here, which Spotify is never told
     // about, and what Spotify knows of every other device.
-    let items = app.recents_view.clone();
-    let loading = app.recents.loading;
-    let error = app.recents.error.clone();
-    let complete = app.recents.complete;
-    let loaded_once = app.recents.loaded_once;
+    let items = &view.recent.rows;
+    let loading = view.recent.loading;
+    let error = view.recent.error.clone();
+    let complete = view.recent.complete;
+    let loaded_once = view.recent.loaded_once;
 
     if items.is_empty() {
         if loading {
@@ -475,8 +466,9 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
                     false,
                 )
                 .clicked()
+                    && let Some(action) = &view.recent.reload
                 {
-                    app.actions.push(Action::ReloadRecents);
+                    app.actions.push(action.clone());
                 }
             });
             return;
@@ -508,8 +500,9 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
                 false,
             )
             .clicked()
+                && let Some(action) = &view.recent.load
             {
-                app.actions.push(Action::LoadMoreRecents);
+                app.actions.push(action.clone());
             }
         });
         ui.add_space(6.0);
@@ -518,29 +511,24 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     let row_height = theme::COMPACT_ROW_HEIGHT;
     // Build PlayableItems on the fly; virtual_rows needs stable index.
     widgets::virtual_rows(ui, items.len(), row_height, |ui, index| {
-        let entry = &items[index];
-        // Need owned PlayableItem for track_row; clone track.
-        let item = PlayableItem::Track(entry.track.clone());
-        let context = RowContext::Uris(Arc::from([entry.track.uri.clone()]));
-        widgets::track_row(
-            ui,
+        let (entry, played_at) = &items[index];
+        let context = match entry {
+            QueueEntry::Spotify(item) => RowContext::Uris(Arc::from([item.uri().to_string()])),
+            _ => RowContext::Queue,
+        };
+        show_entry(
             app,
-            TrackRow {
-                index,
+            ui,
+            entry,
+            &context,
+            widgets::ProviderTrackLayout {
                 number: None,
-                item: &item,
-                context: &context,
                 show_cover: true,
-                show_album: false,
-                added_at: entry.played_at.as_deref(),
-                added_by: None,
-                show_added_by: false,
                 compact: true,
-                thin: false,
-                shift: 0.0,
-                picked: false,
-                picked_songs: &[],
+                ..Default::default()
             },
+            index,
+            played_at.as_deref(),
         );
     });
 
@@ -551,12 +539,15 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
     } else if !complete {
         ui.add_space(8.0);
         // Auto-load when near end, plus manual button as fallback.
-        let can_load = app.recents.can_load_more();
+        let can_load = view.recent.load.is_some();
         // Check if scroll is near end (same heuristic as widgets::load_more_when_near_end)
         let clip = ui.clip_rect();
         let cursor = ui.cursor().top();
-        if can_load && cursor - clip.bottom() < 900.0 {
-            app.actions.push(Action::LoadMoreRecents);
+        if can_load
+            && cursor - clip.bottom() < 900.0
+            && let Some(action) = &view.recent.load
+        {
+            app.actions.push(action.clone());
         }
         if theme::soft_button(
             ui,
@@ -566,8 +557,9 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
             false,
         )
         .clicked()
+            && let Some(action) = &view.recent.load
         {
-            app.actions.push(Action::LoadMoreRecents);
+            app.actions.push(action.clone());
         }
     }
 }
@@ -575,33 +567,67 @@ fn recents_contents(app: &mut App, ui: &mut egui::Ui) {
 /// One row of the queue, numbered and indexed by its place in the whole
 /// queue, whichever section it sits in. `shift` parts rows around the slot
 /// a dragged row would land in, in the "Playing next" section only.
-fn queue_row(app: &mut App, ui: &mut egui::Ui, index: usize, compact: bool, shift: f32) {
-    let Some(item) = app
-        .queue
-        .get()
-        .and_then(|queue| queue.queue.get(index))
-        .cloned()
-    else {
-        return;
-    };
-    widgets::track_row(
-        ui,
-        app,
-        TrackRow {
+fn queue_row(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    view: &QueuePresentation,
+    index: usize,
+    compact: bool,
+    shift: f32,
+) {
+    if let Some(entry) = view.rows.get(index) {
+        show_entry(
+            app,
+            ui,
+            entry,
+            &RowContext::Queue,
+            widgets::ProviderTrackLayout {
+                number: Some(index + 1),
+                show_cover: true,
+                show_album: !compact,
+                compact,
+                shift,
+            },
             index,
-            number: Some(index + 1),
-            item: &item,
-            context: &RowContext::Queue,
-            show_cover: true,
-            show_album: !compact,
-            added_at: None,
-            added_by: None,
-            show_added_by: false,
-            compact,
-            thin: false,
-            shift,
-            picked: false,
-            picked_songs: &[],
-        },
-    );
+            None,
+        );
+    }
+}
+
+fn show_entry(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    entry: &QueueEntry,
+    context: &RowContext,
+    layout: widgets::ProviderTrackLayout,
+    index: usize,
+    added_at: Option<&str>,
+) {
+    match entry {
+        QueueEntry::Spotify(item) => {
+            widgets::track_row(
+                ui,
+                app,
+                TrackRow {
+                    index,
+                    number: layout.number,
+                    item,
+                    context,
+                    show_cover: layout.show_cover,
+                    show_album: layout.show_album,
+                    added_at,
+                    added_by: None,
+                    show_added_by: false,
+                    compact: layout.compact,
+                    thin: false,
+                    shift: layout.shift,
+                    picked: false,
+                    picked_songs: &[],
+                },
+            );
+        }
+        QueueEntry::Provider(row) => {
+            widgets::provider_track_row_with_layout(ui, app, &row.0, index, &row.1, layout);
+        }
+    }
 }

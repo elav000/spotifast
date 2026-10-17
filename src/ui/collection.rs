@@ -39,6 +39,8 @@ pub(super) struct Hero<'a> {
 #[derive(Default)]
 pub(super) struct HeroImages<'a> {
     pub image: Option<&'a str>,
+    /// The largest artwork Spotify has, which clicking the cover shows.
+    pub enlarged: Option<&'a str>,
     pub previous: Option<&'a str>,
     pub thumbnail: Option<&'a str>,
     pub align_thumbnail: bool,
@@ -75,6 +77,7 @@ pub(super) fn hero_images<'a>(
     let thumbnail = crate::api::models::SMALL_ART_WIDTH;
     HeroImages {
         image,
+        enlarged: pick_image(images, u32::MAX),
         previous: image.and_then(|image| {
             preview
                 .and_then(|images| pick_image(images, art.card))
@@ -103,7 +106,33 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
     };
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 24.0;
-        let (rect, _) = ui.allocate_exact_size(Vec2::splat(cover_size), Sense::hover());
+        // Clicking the cover shows it enlarged (#586).
+        let enlarged = hero.images.enlarged.filter(|_| !hero.liked);
+        let (rect, response) = ui.allocate_exact_size(
+            Vec2::splat(cover_size),
+            if enlarged.is_some() {
+                Sense::click()
+            } else {
+                Sense::hover()
+            },
+        );
+        if let Some(url) = enlarged {
+            let label = gettext(app.locale, "Enlarge cover");
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label.as_ref())
+            });
+            theme::focus_ring(ui, &response);
+            if response
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            {
+                app.actions.push(Action::ShowDialog(Dialog::CoverArt {
+                    url: url.to_string(),
+                    shown: hero.images.image.map(str::to_string),
+                    title: hero.title.to_string(),
+                }));
+            }
+        }
         let radius = if hero.round { cover_size / 2.0 } else { 6.0 };
         widgets::paint_shadow(ui, &palette, rect, radius);
         if hero.liked {
@@ -388,23 +417,7 @@ pub fn actions_row(
                     }
                     if let Some((page, loading)) = &actions.reload {
                         widgets::menu_separator(ui, &palette);
-                        let clicked = ui
-                            .add_enabled_ui(!loading, |ui| {
-                                widgets::menu_item(
-                                    ui,
-                                    &palette,
-                                    Some(Icon::Refresh),
-                                    &if *loading {
-                                        gettext(locale, "Refreshing…")
-                                    } else {
-                                        gettext(locale, "Refresh")
-                                    },
-                                )
-                            })
-                            .inner;
-                        if clicked {
-                            app.actions.push(Action::Reload(page.clone()));
-                        }
+                        refresh_menu_item(app, ui, page, *loading);
                     }
                 });
         }
@@ -423,6 +436,30 @@ pub fn actions_row(
         }
     });
     ui.add_space(14.0);
+}
+
+/// A page's **Refresh** menu item, which reloads it from Spotify. It reads
+/// **Refreshing…** and is disabled while the page is loading.
+pub fn refresh_menu_item(app: &mut App, ui: &mut egui::Ui, page: &Page, loading: bool) {
+    let palette = app.palette;
+    let locale = app.locale;
+    let clicked = ui
+        .add_enabled_ui(!loading, |ui| {
+            widgets::menu_item(
+                ui,
+                &palette,
+                Some(Icon::Refresh),
+                &if loading {
+                    gettext(locale, "Refreshing…")
+                } else {
+                    gettext(locale, "Refresh")
+                },
+            )
+        })
+        .inner;
+    if clicked {
+        app.actions.push(Action::Reload(page.clone()));
+    }
 }
 
 /// A track table with virtualised rows and paging.
@@ -781,6 +818,7 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         .filter(|(item, _, _)| !item.uri().is_empty())
         .map(|(item, _, _)| item.clone())
         .collect();
+    let picked_positions = picked_positions(&table, &picked, &item_index);
     let mut pick = None;
     let mut row_responses = Vec::new();
     let mut missing = None;
@@ -867,6 +905,8 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 shift,
                 picked: picked.contains(&row),
                 picked_songs: &picked_songs,
+                picked_positions: &picked_positions,
+                position: playlist_position(&table, index),
             },
         );
         row_responses.push((row, response));
@@ -943,8 +983,12 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         }
     }
     if finite.is_none() && table.loading {
-        ui.add_space(8.0);
-        widgets::loading_row(ui, &palette, app.locale);
+        if table.items.is_empty() {
+            widgets::skeleton_rows(ui, &palette, app.locale, 8);
+        } else {
+            ui.add_space(8.0);
+            widgets::loading_row(ui, &palette, app.locale);
+        }
     }
     if finite.is_none()
         && let Some(error) = table.error
@@ -990,6 +1034,10 @@ fn list_shortcuts(
     item_index: &dyn Fn(usize) -> Option<usize>,
     picked_songs: Vec<PlayableItem>,
 ) {
+    let picked_positions = app
+        .picked_rows(&table.page)
+        .map(|picked| picked_positions(table, picked, item_index))
+        .unwrap_or_default();
     if ui.ctx().text_edit_focused() || app.dialog.is_some() {
         return;
     }
@@ -1060,6 +1108,7 @@ fn list_shortcuts(
         app.actions.push(Action::RemoveFromPlaylist {
             playlist_id: playlist_id.clone(),
             uris,
+            positions: picked_positions.clone(),
         });
     }
     if let (true, Some(playlist_id)) = (cut, &editable) {
@@ -1071,6 +1120,7 @@ fn list_shortcuts(
         app.actions.push(Action::RemoveFromPlaylist {
             playlist_id: playlist_id.clone(),
             uris,
+            positions: picked_positions,
         });
     } else if copy {
         app.actions.push(Action::CopySongs(picked_songs));
@@ -1149,6 +1199,47 @@ fn placeholder_row(
                 egui::Button::new(gettext(locale, "Retry").as_ref()),
             )
             .clicked()
+}
+
+/// The playlist positions of the picked songs, so removing one copy of a
+/// repeated song leaves the others; none when some picked row has none.
+fn picked_positions(
+    table: &Table<'_>,
+    picked: &std::collections::BTreeSet<usize>,
+    item_index: &dyn Fn(usize) -> Option<usize>,
+) -> Vec<u32> {
+    picked
+        .iter()
+        .filter_map(|row| item_index(*row))
+        .filter(|index| {
+            table
+                .items
+                .get(*index)
+                .is_some_and(|(item, _, _)| !item.uri().is_empty())
+        })
+        .map(|index| playlist_position(table, index))
+        .collect::<Option<_>>()
+        .unwrap_or_default()
+}
+
+/// The playlist position of the table's item at `index`, which the view's
+/// sort or filter does not change; `None` outside a playlist.
+fn playlist_position(table: &Table<'_>, index: usize) -> Option<u32> {
+    let (RowContext::Context { uri, .. }
+    | RowContext::View {
+        context_uri: uri, ..
+    }) = &table.context
+    else {
+        return None;
+    };
+    if !uri.starts_with("spotify:playlist:") {
+        return None;
+    }
+    let local = match table.pagination.and_then(|page| page.positions) {
+        Some(positions) => *positions.get(index)?,
+        None => index,
+    };
+    u32::try_from(absolute_row_index(table.row_offset, local)).ok()
 }
 
 fn absolute_row_index(row_offset: u32, local_index: usize) -> usize {
@@ -1429,7 +1520,7 @@ pub fn top_songs(app: &mut App, ui: &mut egui::Ui) {
     let tracks = match &app.home.top_songs {
         Loadable::Loaded(tracks) => tracks,
         Loadable::Loading | Loadable::NotLoaded => {
-            widgets::loading_row(ui, &palette, app.locale);
+            widgets::skeleton_rows(ui, &palette, app.locale, 10);
             return;
         }
         Loadable::Failed(error) => {
@@ -1641,7 +1732,7 @@ pub fn playlist(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     ),
                 );
             } else {
-                widgets::loading_row(ui, &app.palette, app.locale);
+                widgets::skeleton_rows(ui, &app.palette, app.locale, 8);
             }
         }
         Loadable::Failed(error) => {
@@ -1840,7 +1931,7 @@ pub fn album(app: &mut App, ui: &mut egui::Ui, id: &str) {
                     ),
                 );
             } else {
-                widgets::loading_row(ui, &app.palette, app.locale);
+                widgets::skeleton_rows(ui, &app.palette, app.locale, 8);
             }
         }
         Loadable::Failed(error) => {
@@ -3942,7 +4033,9 @@ mod tests {
         match table.app.actions.as_slice() {
             [
                 Action::CopySongs(copied),
-                Action::RemoveFromPlaylist { playlist_id, uris },
+                Action::RemoveFromPlaylist {
+                    playlist_id, uris, ..
+                },
             ] => {
                 let copied: Vec<String> =
                     copied.iter().map(|item| item.uri().to_string()).collect();
@@ -4104,14 +4197,15 @@ mod tests {
         table.key(egui::Key::ArrowDown);
         table.key(egui::Key::Delete);
         assert!(matches!(table.app.actions.as_slice(),
-            [Action::RemoveFromPlaylist { playlist_id, uris }]
+            [Action::RemoveFromPlaylist { playlist_id, uris, .. }]
                 if playlist_id == "test" && uris == &["spotify:track:t_1"]));
         table.app.actions.clear();
         table.modified_key(egui::Key::ArrowDown, egui::Modifiers::SHIFT);
         table.key(egui::Key::Delete);
         assert!(matches!(table.app.actions.as_slice(),
-            [Action::RemoveFromPlaylist { playlist_id, uris }]
-                if playlist_id == "test" && uris == &["spotify:track:t_1", "spotify:track:t_2"]));
+            [Action::RemoveFromPlaylist { playlist_id, uris, positions }]
+                if playlist_id == "test" && uris == &["spotify:track:t_1", "spotify:track:t_2"]
+                    && positions == &[1, 2]));
         table.app.actions.clear();
         table.editable = false;
         table.key(egui::Key::Delete);
@@ -4139,7 +4233,7 @@ mod tests {
         table.key(egui::Key::Backspace);
         if cfg!(target_os = "macos") {
             assert!(matches!(table.app.actions.as_slice(),
-                [Action::RemoveFromPlaylist { playlist_id, uris }]
+                [Action::RemoveFromPlaylist { playlist_id, uris, .. }]
                     if playlist_id == "test" && uris == &["spotify:track:t_1", "spotify:track:t_2"]));
         } else {
             assert!(table.app.actions.is_empty());

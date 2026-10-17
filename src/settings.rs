@@ -216,6 +216,16 @@ impl ProxyPreferences {
     }
 }
 
+/// An equalizer preset saved by name: the preamp and the ten bands, so a
+/// headphone correction curve keeps the headroom it needs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserEqPreset {
+    pub name: String,
+    #[serde(default)]
+    pub preamp_db: f32,
+    pub bands_db: [f32; 10],
+}
+
 fn proxy_mode_is_system(mode: &ProxyMode) -> bool {
     *mode == ProxyMode::System
 }
@@ -352,6 +362,8 @@ pub struct Settings {
     pub eq_preamp_db: f32,
     /// The ten bands, in decibels, 60 Hz to 16 kHz.
     pub eq_bands_db: [f32; 10],
+    /// Equalizer presets saved here, listed after the built-in ones (#702).
+    pub eq_user_presets: Vec<UserEqPreset>,
     /// The balance, -1 all left to 1 all right.
     pub balance: f32,
     /// Play both channels the same.
@@ -483,6 +495,7 @@ impl Default for Settings {
             eq_on: false,
             eq_preamp_db: 0.0,
             eq_bands_db: [0.0; 10],
+            eq_user_presets: Vec::new(),
             balance: 0.0,
             mono: false,
             playlist_shaded: false,
@@ -610,6 +623,14 @@ impl Settings {
         if let Err(error) = fastframe_file::write(path, text) {
             log::warn!("unable to save settings to {}: {error}", path.display());
         }
+    }
+
+    /// Whether local playback plays through Spotifast's own output, whose
+    /// device `audio_device` names, rather than a librespot backend such as
+    /// PulseAudio, where the desktop's sound settings choose the output.
+    pub fn uses_own_output(&self) -> bool {
+        self.platform_backend()
+            .is_none_or(|backend| backend == crate::sink::NAME)
     }
 
     pub fn platform_backend(&self) -> Option<String> {
@@ -1007,6 +1028,17 @@ mod tests {
     }
 
     #[test]
+    fn queue_width_round_trips_through_saved_settings() {
+        let settings = Settings {
+            queue_width: 300.0,
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&settings).unwrap();
+        let restored: Settings = serde_json::from_str(&text).unwrap();
+        assert_eq!(restored.queue_width, 300.0);
+    }
+
+    #[test]
     fn mac_notch_widget_defaults_to_false_when_absent_and_round_trips_true() {
         let empty: Settings = serde_json::from_str("{}").unwrap();
         assert!(!empty.mac_notch_widget);
@@ -1134,6 +1166,23 @@ mod tests {
             [super::LIKED_SONGS_KEY, "spotify:playlist:one"]
         );
         assert_eq!(settings.sidebar_order, ["spotify:playlist:two"]);
+    }
+
+    /// Saved equalizer presets read back as written; files from before them
+    /// have none, and a preset without a preamp keeps it at zero (#702).
+    #[test]
+    fn saved_equalizer_presets_round_trip_and_default_to_none() {
+        let settings: Settings = serde_json::from_str(r#"{"zoom": 1.2}"#).unwrap();
+        assert!(settings.eq_user_presets.is_empty());
+        let settings: Settings = serde_json::from_str(
+            r#"{"eq_user_presets":[{"name":"AirPods","preamp_db":-3.0,"bands_db":[1.2,0,-1.9,-2,0,1.6,1.6,2.6,0,-4.4]},{"name":"Old","bands_db":[0,0,0,0,0,0,0,0,0,1]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(settings.eq_user_presets[0].preamp_db, -3.0);
+        assert_eq!(settings.eq_user_presets[1].preamp_db, 0.0);
+        let again: Settings =
+            serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
+        assert_eq!(again.eq_user_presets, settings.eq_user_presets);
     }
 
     #[test]
@@ -1583,6 +1632,8 @@ pub struct CachedRootlist {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct SessionState {
+    /// Recent explicit output choices, scoped to the verified Spotify account.
+    pub device_history: crate::device_history::DeviceHistory,
     pub last_page: Option<String>,
     /// Context URIs most recently played, newest first.
     pub recent_contexts: Vec<String>,
@@ -1605,6 +1656,9 @@ pub struct SessionState {
     pub rootlist: Option<CachedRootlist>,
     /// Shuffle mode saved across contexts and restarts.
     pub shuffle_on: bool,
+    /// Local repeat mode ("off", "context" or "track") saved across
+    /// restarts. Sessions saved before it existed read as off.
+    pub repeat: String,
     /// Each table's chosen sort, by encoded page, restored at start.
     pub sorts: Vec<(String, crate::model::TableSort)>,
     /// Last window inner size, to restore on next launch. Logical pixels
@@ -1689,6 +1743,25 @@ mod session_tests {
         let state: SessionState = serde_json::from_str(r#"{"last_page":"home"}"#).unwrap();
         assert_eq!(state.last_page.as_deref(), Some("home"));
         assert_eq!(state.rootlist, None);
+        assert_eq!(
+            crate::player::RepeatMode::from_api(&state.repeat),
+            crate::player::RepeatMode::Off,
+            "no saved repeat mode is off"
+        );
+    }
+
+    #[test]
+    fn the_repeat_mode_round_trips() {
+        let state = SessionState {
+            repeat: crate::player::RepeatMode::Track.api_name().into(),
+            ..SessionState::default()
+        };
+        let json = serde_json::to_string(&state).unwrap();
+        let read = serde_json::from_str::<SessionState>(&json).unwrap();
+        assert_eq!(
+            crate::player::RepeatMode::from_api(&read.repeat),
+            crate::player::RepeatMode::Track
+        );
     }
 
     #[test]

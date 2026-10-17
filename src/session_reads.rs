@@ -19,6 +19,7 @@ use librespot_protocol::extended_metadata::{
     BatchedEntityRequest, BatchedExtensionResponse, EntityRequest, ExtensionQuery,
 };
 use librespot_protocol::extension_kind::ExtensionKind;
+use librespot_protocol::playlist4_external::{Item, ListItems, MetaItem, SelectedListContent};
 use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::api::ApiError;
@@ -276,6 +277,147 @@ async fn write_collection(
     Ok(())
 }
 
+/// One playlist row picked for removal: its song, its position among the
+/// rows the app holds, and how many copies of the song sit before it there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RemovedRow {
+    pub uri: String,
+    pub position: u32,
+    pub copy: u32,
+}
+
+/// Removes exactly the picked rows, so the other copies of a song a list
+/// holds more than once stay, with their dates (#937). The Web API removes
+/// by URI, every copy at once, and ignores positions; the playlist service
+/// Spotify's own clients edit removes by index. The indices come from the
+/// list as it stands now, and the change is based on that revision, so a
+/// list edited meanwhile refuses it rather than losing another row. Returns
+/// the new snapshot when Spotify reports it.
+pub async fn remove_playlist_rows(
+    session: &Session,
+    id: &str,
+    rows: &[RemovedRow],
+) -> anyhow::Result<Option<String>> {
+    const CHANGED: &str = "The playlist changed meanwhile. Check it and try again.";
+    let (revision, uris) = playlist_uris(session, id).await?;
+    let indices = removal_indices(&uris, rows).ok_or_else(|| anyhow::anyhow!(CHANGED))?;
+    let changes = removal_changes(
+        &revision,
+        &session.username(),
+        jiff::Timestamp::now().as_millisecond(),
+        &indices,
+    );
+    // librespot sends a change once: it is not idempotent.
+    let bytes = session
+        .spclient()
+        .post_playlist_changes(&SpotifyId::from_base62(id)?, &changes)
+        .await
+        .map_err(|error| match error.kind {
+            ErrorKind::Aborted => anyhow::anyhow!(CHANGED),
+            _ => anyhow::anyhow!("Spotify did not remove the song: {error}"),
+        })?;
+    Ok(SelectedListContent::parse_from_bytes(&bytes)
+        .ok()
+        .map(|answer| answer.revision().to_vec())
+        .filter(|revision| !revision.is_empty())
+        .map(|revision| snapshot(&revision)))
+}
+
+/// The list's revision and every row's URI, read page by page from the
+/// same revision.
+async fn playlist_uris(session: &Session, id: &str) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
+    const PAGE: u32 = 1000;
+    let failed = |failure: Failure| match failure {
+        Failure::Definitive(error) => anyhow::anyhow!("{error}"),
+        Failure::Retry(error) => error,
+    };
+    let mut revision = None;
+    let mut uris = Vec::new();
+    loop {
+        let from = uris.len() as u32;
+        let list = window(session, id, from, PAGE).await.map_err(failed)?;
+        match &revision {
+            None => revision = Some(list.revision.clone()),
+            Some(first) => anyhow::ensure!(
+                *first == list.revision,
+                "The playlist changed meanwhile. Check it and try again."
+            ),
+        }
+        let page = rows(&list, from, PAGE);
+        uris.extend(page.iter().map(|row| row.id.to_uri()));
+        if page.is_empty() || uris.len() as u32 >= total(&list) {
+            break;
+        }
+    }
+    Ok((revision.unwrap_or_default(), uris))
+}
+
+/// Where each picked row sits in `uris`, the list as Spotify holds it: at
+/// its own position when that row holds its song, as when every row before
+/// it is one both sources count, or else the same copy of the song counted
+/// from the start. `None` when a row is not there any more, so nothing is
+/// removed on a guess. Highest index first, so each removal leaves the
+/// indices of the next ones in place.
+fn removal_indices(uris: &[String], rows: &[RemovedRow]) -> Option<Vec<(u32, String)>> {
+    let mut indices = rows
+        .iter()
+        .map(|row| {
+            let at = row.position as usize;
+            let index = if uris.get(at) == Some(&row.uri) {
+                at
+            } else {
+                uris.iter()
+                    .enumerate()
+                    .filter(|(_, uri)| **uri == row.uri)
+                    .nth(row.copy as usize)?
+                    .0
+            };
+            Some((u32::try_from(index).ok()?, row.uri.clone()))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    indices.sort_by_key(|(index, _)| std::cmp::Reverse(*index));
+    indices.dedup_by_key(|(index, _)| *index);
+    Some(indices)
+}
+
+/// One change that removes each `(index, uri)` row on its own, highest
+/// index first. Naming the row's song lets Spotify refuse a row that does
+/// not hold it; `items_as_key` stays unset, since it would remove every
+/// copy of the song instead of the row.
+fn removal_changes(
+    revision: &[u8],
+    user: &str,
+    timestamp_ms: i64,
+    indices: &[(u32, String)],
+) -> librespot_protocol::playlist4_external::ListChanges {
+    use librespot_protocol::playlist4_external::{ChangeInfo, Delta, ListChanges, Op, Rem, op};
+    let ops = indices
+        .iter()
+        .map(|(index, uri)| {
+            let mut item = Item::new();
+            item.set_uri(uri.clone());
+            let mut rem = Rem::new();
+            rem.set_from_index(*index as i32);
+            rem.set_length(1);
+            rem.items.push(item);
+            let mut op = Op::new();
+            op.set_kind(op::Kind::REM);
+            op.rem = protobuf::MessageField::some(rem);
+            op
+        })
+        .collect();
+    let mut info = ChangeInfo::new();
+    info.set_user(user.to_string());
+    info.set_timestamp(timestamp_ms);
+    let mut delta = Delta::new();
+    delta.ops = ops;
+    delta.info = protobuf::MessageField::some(info);
+    let mut changes = ListChanges::new();
+    changes.set_base_revision(revision.to_vec());
+    changes.deltas.push(delta);
+    changes
+}
+
 /// A playlist's header: name, owner, cover, and snapshot.
 pub async fn playlist(session: &Session, id: &str) -> Result<Playlist, Failure> {
     let list = window(session, id, 0, 0).await?;
@@ -361,6 +503,174 @@ fn page(items: Vec<PlaylistItem>, total: u32, offset: u32, limit: u32) -> Page<P
         offset,
         next,
     }
+}
+
+/// The account's rootlist, page by page in Spotify's order: one request per
+/// 500 rows, each row decorated with its playlist's name, cover, owner,
+/// length, and what the account may do to it.
+pub async fn rootlist(session: &Session) -> anyhow::Result<Vec<ListItems>> {
+    let mut pages = Vec::new();
+    let mut from = 0usize;
+    loop {
+        let bytes = session
+            .spclient()
+            .get_rootlist(from, Some(ROOTLIST_PAGE))
+            .await
+            .map_err(|error| anyhow::anyhow!("rootlist: {error}"))?;
+        let Some((contents, more)) =
+            rootlist_answer_page(SelectedListContent::parse_from_bytes(&bytes)?, from)?
+        else {
+            break;
+        };
+        let count = contents.items.len();
+        pages.push(contents);
+        if !more {
+            break;
+        }
+        from += count;
+    }
+    Ok(pages)
+}
+
+const ROOTLIST_PAGE: usize = 500;
+
+/// One rootlist answer read at `from`: its page, and whether rows follow
+/// it; `None` when the list ends before `from`. An answer that leaves rows
+/// out while saying some remain, either with no page where the list's
+/// length says rows are or with an empty page marked as cut short, is an
+/// error, so the read is retried rather than taken as the whole list.
+fn rootlist_answer_page(
+    response: SelectedListContent,
+    from: usize,
+) -> anyhow::Result<Option<(ListItems, bool)>> {
+    let length = response
+        .has_length()
+        .then(|| usize::try_from(response.length()).unwrap_or_default());
+    let Some(contents) = response.contents.into_option() else {
+        if let Some(length) = length.filter(|length| *length > from) {
+            anyhow::bail!("rootlist answered no rows at {from} of {length}");
+        }
+        return Ok(None);
+    };
+    let truncated = contents.truncated();
+    if truncated && contents.items.is_empty() {
+        anyhow::bail!("rootlist answered an empty page at {from} marked as cut short");
+    }
+    Ok(Some((contents, truncated)))
+}
+
+/// The account's playlist library, as the Web API's list of the account's
+/// playlists gives it: every playlist it saved or follows, Spotify's own
+/// among them, in the order Spotify keeps them, read from the rootlist
+/// without the shared app's quota (#698, #816). The rootlist names each
+/// owner by id only, so their display names come from their profiles, as
+/// for a playlist header read here; a name that does not arrive in time
+/// leaves the id showing, as the header read does.
+pub async fn library(session: &Session) -> Result<Vec<Playlist>, Failure> {
+    let pages = rootlist(session).await.map_err(Failure::Retry)?;
+    let mut playlists = library_rows(&pages)?;
+    let names = owner_names(session, &playlists).await;
+    for playlist in &mut playlists {
+        if let Some(name) = playlist.owner.id.as_ref().and_then(|id| names.get(id)) {
+            playlist.owner.display_name = Some(name.clone());
+        }
+    }
+    Ok(playlists)
+}
+
+/// How long the library waits for its owners' names before showing ids.
+const OWNER_NAMES_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// Profile reads in flight at once, and owners asked about at most.
+const OWNER_NAMES_AT_ONCE: usize = 4;
+const OWNER_NAMES_MAX: usize = 100;
+
+/// The display names of the owners of `playlists`, Spotify's own aside,
+/// read from their profiles a few at a time within [`OWNER_NAMES_WAIT`].
+async fn owner_names(session: &Session, playlists: &[Playlist]) -> HashMap<String, String> {
+    let owners: BTreeSet<String> = playlists
+        .iter()
+        .filter_map(|playlist| playlist.owner.id.clone())
+        .filter(|owner| owner != "spotify")
+        .take(OWNER_NAMES_MAX)
+        .collect();
+    let mut names = HashMap::new();
+    let slots = std::sync::Arc::new(tokio::sync::Semaphore::new(OWNER_NAMES_AT_ONCE));
+    let mut reads = tokio::task::JoinSet::new();
+    for owner in owners {
+        let session = session.clone();
+        let slots = slots.clone();
+        reads.spawn(async move {
+            let _slot = slots.acquire_owned().await.ok()?;
+            let name = user_profile(&session, &owner).await?.name?;
+            Some((owner, name))
+        });
+    }
+    let _ = tokio::time::timeout(OWNER_NAMES_WAIT, async {
+        while let Some(read) = reads.join_next().await {
+            if let Ok(Some((owner, name))) = read {
+                names.insert(owner, name);
+            }
+        }
+    })
+    .await;
+    names
+}
+
+/// The playlists among the rootlist's rows. A page whose rows came without
+/// the details Spotify decorates them with would list nameless playlists,
+/// so it is a retry, for the Web API to answer instead.
+fn library_rows(pages: &[ListItems]) -> Result<Vec<Playlist>, Failure> {
+    let mut playlists = Vec::new();
+    for page in pages {
+        if page.meta_items.len() != page.items.len() {
+            return Err(Failure::Retry(anyhow::anyhow!(
+                "rootlist page answered {} rows with {} details",
+                page.items.len(),
+                page.meta_items.len()
+            )));
+        }
+        for (item, meta) in page.items.iter().zip(&page.meta_items) {
+            if let Some(playlist) = library_row(item, meta) {
+                playlists.push(playlist);
+            }
+        }
+    }
+    Ok(playlists)
+}
+
+/// One playlist row of the rootlist; `None` for a folder marker, and for a
+/// playlist Spotify says is gone or hidden from this account, which the
+/// Web API leaves out of the list too.
+fn library_row(item: &Item, meta: &MetaItem) -> Option<Playlist> {
+    let id = item.uri().strip_prefix("spotify:playlist:")?;
+    if !matches!(meta.status_code(), 0 | 200) {
+        return None;
+    }
+    let attributes = PlaylistAttributes::try_from(&*meta.attributes).ok()?;
+    let owner = non_empty(meta.owner_username());
+    Some(Playlist {
+        id: id.to_string(),
+        uri: item.uri().to_string(),
+        description: non_empty(&attributes.description),
+        images: playlist_images(&attributes),
+        owner: Owner {
+            uri: owner.as_ref().map(|owner| format!("spotify:user:{owner}")),
+            id: owner,
+            display_name: None,
+        },
+        public: item
+            .attributes
+            .as_ref()
+            .filter(|attributes| attributes.has_public())
+            .map(|attributes| attributes.public()),
+        collaborative: attributes.is_collaborative,
+        snapshot_id: meta.has_revision().then(|| snapshot(meta.revision())),
+        items_count: meta.has_length().then(|| TrackCount {
+            total: u32::try_from(meta.length()).unwrap_or_default(),
+        }),
+        name: attributes.name,
+        ..Default::default()
+    })
 }
 
 /// The songs of Spotify's radio `station`, in Spotify's order, with their
@@ -903,12 +1213,89 @@ mod tests {
         }
     }
     use librespot_metadata::Metadata as _;
-    use librespot_protocol::playlist4_external::{Item, SelectedListContent};
 
     use super::*;
 
     const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
     const EPISODE: &str = "spotify:episode:7GhIk7Il098yCjg4BQjzvb";
+
+    fn removed(uri: &str, position: u32, copy: u32) -> RemovedRow {
+        RemovedRow {
+            uri: uri.into(),
+            position,
+            copy,
+        }
+    }
+
+    /// The picked copy is the row removed, never the first copy (#937).
+    #[test]
+    fn removal_finds_the_picked_copy_of_a_repeated_song() {
+        let list: Vec<String> = ["a", "b", "a", "c", "a"].map(String::from).to_vec();
+        assert_eq!(
+            removal_indices(&list, &[removed("a", 2, 1)]),
+            Some(vec![(2, "a".into())])
+        );
+        // Spotify's list holds a row the app's did not count before it, so
+        // the copy is found by its place among the song's copies instead.
+        assert_eq!(
+            removal_indices(&list, &[removed("a", 3, 2)]),
+            Some(vec![(4, "a".into())])
+        );
+        // Several rows come back highest first, each once.
+        assert_eq!(
+            removal_indices(
+                &list,
+                &[removed("a", 0, 0), removed("c", 3, 0), removed("a", 4, 2)]
+            ),
+            Some(vec![(4, "a".into()), (3, "c".into()), (0, "a".into())])
+        );
+        // A copy no longer there removes nothing.
+        assert_eq!(removal_indices(&list, &[removed("a", 9, 3)]), None);
+        assert_eq!(
+            removal_indices(&list, &[removed("b", 1, 0), removed("d", 5, 0)]),
+            None
+        );
+    }
+
+    #[test]
+    fn removal_changes_remove_rows_by_index_against_the_revision() {
+        let changes = removal_changes(
+            b"revision",
+            "dummy-user",
+            1_700_000_000_000,
+            &[(4, "a".into()), (0, "a".into())],
+        );
+        let decoded = librespot_protocol::playlist4_external::ListChanges::parse_from_bytes(
+            &changes.write_to_bytes().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(decoded.base_revision(), b"revision");
+        let [delta] = decoded.deltas.as_slice() else {
+            panic!("one change");
+        };
+        assert_eq!(delta.info.user(), "dummy-user");
+        assert_eq!(delta.info.timestamp(), 1_700_000_000_000);
+        let removals: Vec<(i32, i32, Vec<&str>, bool)> = delta
+            .ops
+            .iter()
+            .map(|op| {
+                assert_eq!(
+                    op.kind(),
+                    librespot_protocol::playlist4_external::op::Kind::REM
+                );
+                (
+                    op.rem.from_index(),
+                    op.rem.length(),
+                    op.rem.items.iter().map(|item| item.uri()).collect(),
+                    op.rem.has_items_as_key(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            removals,
+            vec![(4, 1, vec!["a"], false), (0, 1, vec!["a"], false)]
+        );
+    }
 
     /// Another market's ranking must not replace the account's own or worldwide list.
     #[test]
@@ -1754,5 +2141,156 @@ mod tests {
                 "spotify:track:4uLU6hMCjMI75M1A2tKUQC",
             ]
         );
+    }
+
+    /// A rootlist row and the details Spotify decorates it with.
+    fn listed(uri: &str, decorate: impl FnOnce(&mut MetaItem)) -> (Item, MetaItem) {
+        let mut item = Item::new();
+        item.set_uri(uri.into());
+        let mut meta = MetaItem::new();
+        decorate(&mut meta);
+        (item, meta)
+    }
+
+    fn rootlist_page(rows: Vec<(Item, MetaItem)>) -> ListItems {
+        let mut page = ListItems::new();
+        for (item, meta) in rows {
+            page.items.push(item);
+            page.meta_items.push(meta);
+        }
+        page
+    }
+
+    fn rootlist_answer(length: Option<i32>, contents: Option<ListItems>) -> SelectedListContent {
+        let mut response = SelectedListContent::new();
+        if let Some(length) = length {
+            response.set_length(length);
+        }
+        if let Some(contents) = contents {
+            response.contents = protobuf::MessageField::some(contents);
+        }
+        response
+    }
+
+    fn rootlist_contents(rows: usize, truncated: bool) -> ListItems {
+        let mut contents = ListItems::new();
+        contents.set_truncated(truncated);
+        contents.items = (0..rows).map(|_| Item::new()).collect();
+        contents
+    }
+
+    /// An answer that leaves rows out while saying some remain is retried,
+    /// not taken as the whole list; one with no rows left ends the read,
+    /// and so does a present empty page, the empty library's answer.
+    #[test]
+    fn a_rootlist_answer_missing_rows_it_owes_is_an_error() {
+        let page =
+            |length, contents, from| rootlist_answer_page(rootlist_answer(length, contents), from);
+
+        assert!(
+            page(Some(700), None, 500).is_err(),
+            "no page with rows left"
+        );
+        assert!(page(Some(500), None, 500).unwrap().is_none(), "none left");
+        assert!(page(None, None, 0).unwrap().is_none(), "no length at all");
+        assert!(
+            page(Some(700), Some(rootlist_contents(0, true)), 500).is_err(),
+            "an empty page cut short"
+        );
+
+        let (empty, more) = page(Some(0), Some(rootlist_contents(0, false)), 0)
+            .unwrap()
+            .unwrap();
+        assert!(empty.items.is_empty());
+        assert!(!more);
+
+        let (first, more) = page(Some(700), Some(rootlist_contents(500, true)), 0)
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.items.len(), 500);
+        assert!(more);
+        let (last, more) = page(Some(700), Some(rootlist_contents(200, false)), 500)
+            .unwrap()
+            .unwrap();
+        assert_eq!(last.items.len(), 200);
+        assert!(!more);
+    }
+
+    /// The rootlist's playlists become the library's rows in Spotify's
+    /// order, Spotify's own among them, with the name, cover, owner, song
+    /// count, snapshot, and public flag the Web API's list would carry.
+    /// Folder markers, and playlists Spotify says are gone, are not rows.
+    #[test]
+    fn the_rootlist_becomes_the_playlist_library() {
+        let mine = listed("spotify:playlist:mine", |meta| {
+            meta.set_owner_username("me".into());
+            meta.set_length(12);
+            meta.set_revision(vec![1, 2, 3]);
+            let attributes = meta.attributes.mut_or_insert_default();
+            attributes.set_name("Road trip".into());
+            attributes.set_description("Loud".into());
+            let mut picture = librespot_protocol::playlist4_external::PictureSize::new();
+            picture.set_target_name("default".into());
+            picture.set_url("spotify:image:ab67".into());
+            attributes.picture_size.push(picture);
+        });
+        let (mut item, meta) = listed("spotify:playlist:daily", |meta| {
+            meta.set_owner_username("spotify".into());
+            meta.set_status_code(200);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Daily Mix 1".into());
+        });
+        item.attributes.mut_or_insert_default().set_public(false);
+        let gone = listed("spotify:playlist:gone", |meta| {
+            meta.set_status_code(404);
+            meta.attributes
+                .mut_or_insert_default()
+                .set_name("Gone".into());
+        });
+        let pages = [
+            rootlist_page(vec![
+                listed("spotify:start-group:f1:Mixes", |_| {}),
+                (item, meta),
+                listed("spotify:end-group:f1", |_| {}),
+            ]),
+            rootlist_page(vec![gone, mine]),
+        ];
+        let Ok(rows) = library_rows(&pages) else {
+            panic!("expected the library");
+        };
+        let ids: Vec<_> = rows.iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, ["daily", "mine"]);
+
+        let daily = &rows[0];
+        assert_eq!(daily.name, "Daily Mix 1");
+        assert_eq!(daily.uri, "spotify:playlist:daily");
+        assert_eq!(daily.owner.id.as_deref(), Some("spotify"));
+        assert_eq!(daily.owner_name(), "Spotify");
+        assert_eq!(daily.public, Some(false));
+        assert_eq!(daily.items_count, None, "no length given");
+
+        let mine = &rows[1];
+        assert_eq!(mine.name, "Road trip");
+        assert_eq!(mine.description.as_deref(), Some("Loud"));
+        assert_eq!(mine.owner.uri.as_deref(), Some("spotify:user:me"));
+        assert_eq!(mine.track_total(), 12);
+        assert_eq!(mine.public, None, "unknown, not private");
+        assert_eq!(mine.snapshot_id.as_deref(), Some("AQID"));
+        assert_eq!(mine.images.len(), 1);
+        assert_eq!(mine.images[0].url, "https://i.scdn.co/image/ab67");
+        assert_eq!(mine.images[0].width, Some(300));
+    }
+
+    /// A page whose rows came without their details would list nameless
+    /// playlists, so the Web API is asked instead.
+    #[test]
+    fn an_undecorated_rootlist_page_is_left_to_the_web_api() {
+        let mut page = rootlist_page(vec![listed("spotify:playlist:a", |_| {})]);
+        let mut bare = Item::new();
+        bare.set_uri("spotify:playlist:b".into());
+        page.items.push(bare);
+        assert!(matches!(library_rows(&[page]), Err(Failure::Retry(_))));
+        assert!(matches!(library_rows(&[]), Ok(rows) if rows.is_empty()));
     }
 }

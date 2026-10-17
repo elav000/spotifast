@@ -676,6 +676,7 @@ pub fn picked_menu(
     ui: &mut Ui,
     app: &mut App,
     songs: &[PlayableItem],
+    positions: &[u32],
     editable_playlist: Option<&(String, Option<String>)>,
 ) {
     let palette = app.palette;
@@ -704,6 +705,17 @@ pub fn picked_menu(
     });
     ui.add_space(4.0);
     menu_separator(ui, &palette);
+    if menu_item_enabled(
+        ui,
+        &palette,
+        Some(Icon::SkipForward),
+        &gettext(locale, "Play next"),
+        app.queue_locally_reorderable(),
+    ) {
+        app.actions.push(Action::PlayNext {
+            items: songs.to_vec(),
+        });
+    }
     if menu_item(
         ui,
         &palette,
@@ -733,9 +745,9 @@ pub fn picked_menu(
             saved: !all_saved,
         });
     }
-    // Removal is URI-based, so one entry covers the whole selection on
-    // both the unsorted context and a sorted or filtered view. The caller
-    // only passes a playlist when every picked row shares it.
+    // One entry covers the whole selection on both the unsorted context and
+    // a sorted or filtered view. The caller only passes a playlist when
+    // every picked row shares it.
     if let Some((playlist_id, _)) = editable_playlist
         && menu_item(
             ui,
@@ -747,6 +759,7 @@ pub fn picked_menu(
         app.actions.push(Action::RemoveFromPlaylist {
             playlist_id: playlist_id.clone(),
             uris: uris.clone(),
+            positions: positions.to_vec(),
         });
     }
     add_to_playlist_menu(ui, app, songs);
@@ -940,12 +953,36 @@ pub fn item_menu(
     context: Option<&RowContext>,
     index: Option<usize>,
 ) {
+    item_menu_at(ui, app, item, context, index, None);
+}
+
+/// [`item_menu`] for a playlist row at `position`, so removing it removes
+/// that copy of a song the list holds more than once.
+fn item_menu_at(
+    ui: &mut Ui,
+    app: &mut App,
+    item: &PlayableItem,
+    context: Option<&RowContext>,
+    index: Option<usize>,
+    position: Option<u32>,
+) {
     let palette = app.palette;
     let locale = app.locale;
     ui.set_min_width(220.0);
     ui.set_max_width(300.0);
     let uri = item.uri().to_string();
     let label = item.name().to_string();
+    if menu_item_enabled(
+        ui,
+        &palette,
+        Some(Icon::SkipForward),
+        &gettext(locale, "Play next"),
+        app.queue_locally_reorderable(),
+    ) {
+        app.actions.push(Action::PlayNext {
+            items: vec![item.clone()],
+        });
+    }
     if menu_item(
         ui,
         &palette,
@@ -994,8 +1031,8 @@ pub fn item_menu(
     ) {
         app.actions.push(Action::ToggleSaved(uri.clone()));
     }
-    // Removal is URI-based, so it stays available on a sorted or
-    // filtered view. Moves are positional, so they stay on the unsorted
+    // Removal names the row's song and position, so it stays available on
+    // a sorted or filtered view. Moves are positional, so they stay on the unsorted
     // context only, where screen positions match server positions.
     let editable = match context {
         Some(RowContext::Context {
@@ -1046,6 +1083,7 @@ pub fn item_menu(
             app.actions.push(Action::RemoveFromPlaylist {
                 playlist_id: playlist_id.clone(),
                 uris: vec![uri.clone()],
+                positions: position.into_iter().collect(),
             });
         }
     }
@@ -1283,6 +1321,11 @@ pub struct TrackRow<'a> {
     /// the menu can update a destination playlist before Spotify answers.
     /// Empty where a list does not offer picking.
     pub picked_songs: &'a [PlayableItem],
+    /// The playlist position of each of `picked_songs`, when the list is a
+    /// playlist that knows them; empty otherwise.
+    pub picked_positions: &'a [u32],
+    /// This row's position in its playlist, whatever the view's order.
+    pub position: Option<u32>,
 }
 
 /// Draw each credited artist separately so its Spotify id remains clickable.
@@ -1470,6 +1513,8 @@ pub fn provider_track_row_with_layout(
             shift: layout.shift,
             picked: false,
             picked_songs: &[],
+            picked_positions: &[],
+            position: None,
         },
         Some(actions),
     )
@@ -1603,9 +1648,11 @@ fn track_row_contents(
     // A queue row is a position, not the song itself: the same song can
     // sit in the queue while it plays (a repeat wrapping around, a song
     // queued twice), and only the Now playing row is the playing one.
+    let played_copy = app.row_is_played_copy(row.context, row.index, row.item.uri());
     let is_current = actions.map_or_else(
         || {
             !matches!(row.context, RowContext::Queue)
+                && played_copy
                 && app
                     .current_track_uri()
                     .is_some_and(|uri| uri == row.item.uri())
@@ -1617,7 +1664,7 @@ fn track_row_contents(
         |actions| actions.current && actions.playing,
     );
     let pending = actions.map_or_else(
-        || app.play_pending(row.item.uri()),
+        || played_copy && app.play_pending(row.item.uri()),
         |actions| actions.current && actions.loading,
     );
     let hovered = ui.is_enabled() && (ui.rect_contains_pointer(rect) || response.has_focus());
@@ -2104,7 +2151,16 @@ fn track_row_contents(
         egui::Popup::menu(&more)
             .id(menu_id)
             .frame(menu_frame(&palette))
-            .show(|ui| item_menu(ui, app, row.item, Some(row.context), Some(row.index)));
+            .show(|ui| {
+                item_menu_at(
+                    ui,
+                    app,
+                    row.item,
+                    Some(row.context),
+                    Some(row.index),
+                    row.position,
+                )
+            });
     }
 
     // Row interactions.
@@ -2237,9 +2293,16 @@ fn track_row_contents(
                     } => Some(playlist),
                     _ => None,
                 };
-                picked_menu(ui, app, row.picked_songs, editable);
+                picked_menu(ui, app, row.picked_songs, row.picked_positions, editable);
             } else {
-                item_menu(ui, app, row.item, Some(row.context), Some(row.index));
+                item_menu_at(
+                    ui,
+                    app,
+                    row.item,
+                    Some(row.context),
+                    Some(row.index),
+                    row.position,
+                );
             }
         });
     crate::autoscroll::row(ui, &response);
@@ -2861,6 +2924,95 @@ pub fn grid(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
         ui.spacing_mut().item_spacing = vec2(CARD_GAP / 2.0, CARD_GAP);
         add_contents(ui);
     });
+}
+
+/// The colour of a skeleton's shapes: the surface a loaded row or card
+/// draws on, so the page keeps its look while it loads.
+fn skeleton_fill(palette: &Palette) -> egui::Color32 {
+    palette
+        .surface_hover
+        .gamma_multiply(if palette.dark { 0.9 } else { 1.0 })
+}
+
+/// How wide a skeleton's text bar is, as a share of its room: varied by
+/// row so the placeholder reads as a list rather than a grid.
+fn skeleton_share(index: usize, line: usize) -> f32 {
+    const SHARES: [f32; 5] = [0.62, 0.48, 0.71, 0.55, 0.4];
+    SHARES[(index * 2 + line) % SHARES.len()] * if line == 0 { 1.0 } else { 0.7 }
+}
+
+/// Placeholder rows shaped like the songs a page is loading, in place of a
+/// spinner (#674): a cover and two lines each. They are drawn once and do
+/// not move, so loading asks for no frames. Screen readers hear Loading….
+pub fn skeleton_rows(ui: &mut Ui, palette: &Palette, locale: Locale, count: usize) {
+    let fill = skeleton_fill(palette);
+    let (rect, response) = ui.allocate_exact_size(
+        vec2(ui.available_width(), theme::ROW_HEIGHT * count as f32),
+        Sense::hover(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Label, true, gettext(locale, "Loading…"))
+    });
+    if !ui.is_rect_visible(rect) {
+        return;
+    }
+    let painter = ui.painter_at(rect);
+    for index in 0..count {
+        let top = rect.top() + theme::ROW_HEIGHT * index as f32;
+        let cover = Rect::from_min_size(
+            pos2(rect.left() + 12.0, top + (theme::ROW_HEIGHT - 40.0) / 2.0),
+            Vec2::splat(40.0),
+        );
+        painter.rect_filled(cover, CornerRadius::same(4), fill);
+        let room = (rect.right() - cover.right() - 32.0).clamp(0.0, 420.0);
+        for (line, (y, height)) in [(top + 18.0, 10.0), (top + 34.0, 8.0)]
+            .into_iter()
+            .enumerate()
+        {
+            let bar = Rect::from_min_size(
+                pos2(cover.right() + 14.0, y),
+                vec2(room * skeleton_share(index, line), height),
+            );
+            painter.rect_filled(bar, CornerRadius::same(4), fill);
+        }
+    }
+}
+
+/// Placeholder cards for a shelf that is loading, the size of the cards it
+/// will show, round for artists. Like [`skeleton_rows`], they do not move.
+pub fn skeleton_cards(ui: &mut Ui, palette: &Palette, locale: Locale, count: usize, round: bool) {
+    let fill = skeleton_fill(palette);
+    const PAD: f32 = 12.0;
+    let height = PAD + CARD_ART + 10.0 + 14.0 + 6.0 + 10.0 + PAD;
+    for index in 0..count {
+        let (rect, response) = ui.allocate_exact_size(vec2(CARD_WIDTH, height), Sense::hover());
+        if index == 0 {
+            response.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Label,
+                    true,
+                    gettext(locale, "Loading…"),
+                )
+            });
+        }
+        if !ui.is_rect_visible(rect) {
+            continue;
+        }
+        let painter = ui.painter();
+        let art = Rect::from_min_size(rect.min + vec2(PAD, PAD), Vec2::splat(CARD_ART));
+        let radius = if round { CARD_ART / 2.0 } else { 6.0 };
+        painter.rect_filled(art, CornerRadius::same(radius as u8), fill);
+        let title = Rect::from_min_size(
+            pos2(art.left(), art.bottom() + 12.0),
+            vec2(CARD_ART * skeleton_share(index, 0), 12.0),
+        );
+        painter.rect_filled(title, CornerRadius::same(4), fill);
+        let subtitle = Rect::from_min_size(
+            pos2(art.left(), title.bottom() + 8.0),
+            vec2(CARD_ART * skeleton_share(index, 1), 9.0),
+        );
+        painter.rect_filled(subtitle, CornerRadius::same(4), fill);
+    }
 }
 
 pub fn loading_row(ui: &mut Ui, palette: &Palette, locale: Locale) {
@@ -4283,6 +4435,8 @@ mod tests {
                                     shift: 0.0,
                                     picked,
                                     picked_songs: &[],
+                                    picked_positions: &[],
+                                    position: None,
                                 },
                             );
                             rect = response.rect;

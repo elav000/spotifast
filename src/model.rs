@@ -623,6 +623,7 @@ pub struct HomeData {
     pub made_for_you_loading: bool,
     /// Whether playback was ready when the current shelf request began.
     pub made_for_you_session_requested: bool,
+    pub top_mixes: Loadable<Vec<Playlist>>,
     /// Saved podcasts with their newest episodes, in library order, for the
     /// podcast shelf. A refresh replaces them only once it answers.
     pub podcasts: Vec<(Show, Vec<Episode>)>,
@@ -666,6 +667,7 @@ pub struct HomeSnapshot {
     /// The ordered shelf and its origin, retained across restarts.
     pub made_for_you: Option<Vec<Playlist>>,
     pub made_for_you_personalized: bool,
+    pub top_mixes: Option<Vec<Playlist>>,
     /// Legacy search shelves, read for compatibility with older cache files.
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub discover: std::collections::BTreeMap<String, Vec<Playlist>>,
@@ -954,6 +956,14 @@ pub enum Dialog {
         target: crate::provider::ItemReference,
         name: String,
     },
+    /// A page's header cover, enlarged. Clicking anywhere or Esc closes it.
+    CoverArt {
+        /// The largest artwork Spotify has.
+        url: String,
+        /// The header's own artwork, already loaded, shown until `url` is.
+        shown: Option<String>,
+        title: String,
+    },
     CreatePlaylist {
         name: String,
         public: bool,
@@ -1086,6 +1096,10 @@ pub enum Action {
     QueueMany {
         songs: Vec<(String, String)>,
     },
+    /// Put songs first in the manual queue, in order, only on this computer.
+    PlayNext {
+        items: Vec<PlayableItem>,
+    },
     /// Move a row within the manually queued "Playing next" section, from a
     /// drag dropped back on the queue. Only applied while the local player
     /// is the active target; see [`crate::app::App::queue_locally_reorderable`].
@@ -1132,6 +1146,10 @@ pub enum Action {
     RemoveFromPlaylist {
         playlist_id: String,
         uris: Vec<String>,
+        /// The picked rows' server positions, one for each of `uris`, when
+        /// the view knows them; empty otherwise. With them, a song the list
+        /// holds more than once loses only the picked copies.
+        positions: Vec<u32>,
     },
     MoveInPlaylist {
         playlist_id: String,
@@ -1158,6 +1176,10 @@ pub enum Action {
     /// Send the account to a receiver found on the local network.
     ActivateReceiver(Box<crate::zeroconf::Receiver>),
     RefreshDevices,
+    /// List this computer's audio outputs for the device picker.
+    ListOutputDevices,
+    /// Play through this output, by name; `None` is the system default.
+    SetAudioDevice(Option<String>),
     /// Empty Next up of its queued songs, keeping the context's own.
     ClearQueue,
     /// Save the current and upcoming queue as a playlist.
@@ -1287,6 +1309,13 @@ pub enum Action {
     SetEqPreamp(f32),
     /// One of Winamp's presets, by its place in the list.
     ApplyEqPreset(usize),
+    /// A preset saved here, by name: its preamp and bands.
+    ApplyUserEqPreset(String),
+    /// Save the preamp and bands as a preset of this name, replacing one
+    /// already saved under it.
+    SaveEqPreset(String),
+    /// Forget a saved preset, by name.
+    DeleteEqPreset(String),
     /// The balance, -1 all left to 1 all right.
     SetBalance(f32),
     ToggleMono,

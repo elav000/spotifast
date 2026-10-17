@@ -63,6 +63,14 @@ only until you sign out of Windows, Spotifast saves it again with Local
 persistence, which also survives a restart. Failures are logged with their
 Windows error code, never with the grant.
 
+Since 0.13.4, Spotifast on Windows also keeps a copy of each grant in
+`credential-storage\` in the data folder, encrypted with the Windows Data
+Protection API so that only your Windows account can read it. Every save
+writes both, and sign-out deletes both. The copy is read only when Credential
+Manager refuses the grant or no longer has it, as on machines where the
+entries disappear during a restart. Grants saved by earlier versions gain
+their copy the next time Spotifast starts.
+
 On upgrade, each legacy grant is written to the protected store and read back
 before its old file is removed. Valid grants migrate without signing in again.
 If Spotify rejects a saved refresh grant, only that grant is forgotten so the
@@ -157,6 +165,16 @@ restart even if Spotify's next read still reports the old state. This cache
 contains metadata, not offline audio, and can be deleted without signing out.
 Signing out deletes it.
 
+Device-picker choices are kept in `session.json` as the last 32 selected
+preference keys and their Spotify account ID. Signed-in outputs use device IDs;
+waiting Cast receivers use an opaque hash of their transfer ID, address and port
+so same-named endpoints do not share preferences. This separate Cast preference
+resets when its endpoint changes and is not proof of authenticity.
+The keys order available outputs by frequency and recency. This history stores
+no raw network address, adds no
+background request, and is cleared on sign-out. Older session files without
+it remain readable.
+
 The last good playlist folder tree is kept in `session.json`, scoped to the
 account that supplied it. This keeps folders visible when local playback is
 temporarily unavailable. Live session data is still required for edit grants.
@@ -174,8 +192,8 @@ Playlists created or deleted in the meantime stay that way. The list is
 saved again only when Spotify has confirmed every change in it. This cache
 contains metadata only and can be deleted at any time.
 
-Home's Recently played, Your top artists, Top tracks, Made for you and Your
-podcasts shelves are stored the same way under `home/`. They are shown when
+Home's Recently played, Your top artists, Top tracks, Made for you, Your top
+mixes and Your podcasts shelves are stored the same way under `home/`. They are shown when
 the account is verified and replaced shelf by shelf as Spotify answers. A
 shelf Spotify turns away keeps what it showed, and Home is read again once
 the network is back. Each shelf is saved as soon as its new answer arrives;
@@ -261,13 +279,14 @@ main fields are:
 | `autoplay` | `true` | Keep playing similar music at the end |
 | `gapless` | `true` | Gapless playback |
 | `audio_backend` | platform | `pulseaudio` or `rodio` on Linux. `rodio` is Spotifast's own output, through ALSA; librespot's separate rodio backend is no longer built in, and a backend this build lacks plays through Spotifast's own output |
+| `audio_device` | `null` | The output local playback uses, by the name **Audio output** in the device picker lists; `null` is the system default. A device that is not there plays through the default. With the `pulseaudio` backend it names a PulseAudio sink instead, and the picker does not list outputs |
 | `audio_cache_mb` | `1024` | On-disk audio cache budget |
 | `theme` | `system` | Follow the system appearance by default; explicit `dark` and `light` choices remain available |
 | `language` | `system` | Since 0.10.0: the interface language. `system` follows the operating system's preferred languages and falls back to English; a tag such as `es`, `de-DE`, `pt-BR` or `zh-Hant` selects that language. An unknown tag follows the system |
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
-| `accent_from_art` | `true` | Tint pages with album art |
+| `accent_from_art` | `true` | Tint pages with album art, and colour the player bar visualizer with the cover's colours |
 | `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
 | `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
 | `visualizer_fps` | `60` | Frame rate of the player bar and mini player visualizers; `0` is uncapped. Half that out of focus, at most 30 while the system saves energy, none while the window is hidden. MilkDrop uses `milkdrop_fps` |
@@ -294,6 +313,7 @@ main fields are:
 | `eq_on` | `false` | The equalizer shapes local playback |
 | `eq_preamp_db` | `0` | The preamp, in decibels, -12 to 12 |
 | `eq_bands_db` | ten zeros | The bands from 60 Hz to 16 kHz, in decibels, -12 to 12 |
+| `eq_user_presets` | `[]` | Equalizer presets you saved, each with a `name`, its `preamp_db` and its ten `bands_db`, listed after the built-in presets |
 | `balance` | `0` | Left to right, -1 to 1, for local playback |
 | `mono` | `false` | Play both channels the same |
 | `playlist_shaded` | `false` | The playlist window is rolled up to its title bar |
@@ -342,27 +362,30 @@ settings.
 
 `--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
-`queue`, `playing-next`, `devices`, `shortcuts`, `premium`, `create`, `duplicate`, `light`,
+`queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `premium`, `create`, `duplicate`, `light`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`,
 `collection-loading`, `shuffle-selected`, `shuffle-started`, `library-list`,
 `library-list-narrow`, `library-list-wide`, `library-grid`, `library-grid-narrow`,
-`library-grid-wide`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
+`library-grid-wide`, `eq-user-presets`, `rtl`, `player-bar-spectrum`, `player-bar-waveform`,
 `lyrics-fullscreen-view`, `lyrics-fullscreen-instrumental`, `signed-out`, and `connecting`. The Library variants show the list or cover grid with
 a normal, narrow, or wide sidebar and collapsed artwork for matching captures.
 `shuffle-selected` and `shuffle-started` capture the selected-mode and
 playback-started outcomes of a collection Shuffle click. `update` shows a sample
 update badge for checking its layout. `personal-app` shows the personal Spotify
-app introduction.
+app introduction. `audio-outputs` opens the device picker with sample audio
+outputs to choose from, as Spotifast's own output lists them.
 `signed-out` and `connecting` show the sign-in card before and while the
 session connects.
 `player-bar-spectrum` and `player-bar-waveform` play a fixed, music-like
 sound on this computer with that player bar visualizer on.
 `lyrics-fullscreen-view` and `lyrics-fullscreen-instrumental` draw full-screen
 lyrics, with words or without, at the window's own size.
+`eq-user-presets` saves a sample equalizer preset and puts it in use.
 `rtl` gives the first songs of `playlist:pl1` invented Hebrew and Arabic
 titles, some mixed with English, numbers, and brackets.
 `collection-loading` keeps known collection metadata and placeholder artwork
 visible while replacing the page content, with unfinished controls disabled.
+`home-loading` shows Home while its shelves are still loading.
 `--demo-language <TAG>` shows the interface in one of the bundled languages,
 such as `es` or `ja`, in place of the saved setting and the system's language.
 
@@ -401,8 +424,9 @@ restart it. Add this field to hide both:
 ```
 
 Set either `visible` value to `true` to show that shelf again. Omitted
-preferences keep both shelves visible. Other Home sections keep their normal
-order and contents. This changes what is displayed; hidden shelves still
+preferences keep both shelves visible. **Your top mixes** comes from the same
+personalized read as Made for you, so `made_for_you` hides it too. Other Home
+sections keep their normal order and contents. This changes what is displayed; hidden shelves still
 refresh in the background.
 
 ## Custom themes

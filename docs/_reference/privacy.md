@@ -17,9 +17,10 @@ current release.
 - **Spotify sign-ins.** The grants Spotify issues when you sign in, and the
   reusable playback credential, are kept in the system credential store:
   Credential Manager on Windows, Keychain on macOS, and Secret Service on
-  Linux. Your Spotify password never passes through Spotifast; you sign in
-  on Spotify's own pages. A proxy password, if you set one, uses the same
-  store.
+  Linux. On Windows a copy encrypted for your Windows account also stays in
+  the data folder, for when Credential Manager loses it. Your Spotify
+  password never passes through Spotifast; you sign in on Spotify's own
+  pages. A proxy password, if you set one, uses the same store.
 - **Settings and history.** Settings, window positions, recent plays, the
   last session, skins, themes and MilkDrop presets live in the config
   directory.
@@ -40,12 +41,13 @@ Spotifast connects only to the services below.
 - **Spotify.** Sign-in, your library, search, playlists, playback and Spotify
   Connect all go to Spotify, under your account. Spotify's own
   [privacy policy](https://www.spotify.com/legal/privacy-policy/) applies to
-  that data. Home's **Made for you** request sends an already verified Web API
-  access token to Spotify's Home service as well as the playback session's
-  Login5 bearer and client token. The resulting cards are cached in memory
-  for ten minutes and saved in the account-scoped Home cache for the next
-  start. Both caches are cleared on sign-out. If that request fails, the
-  shared Web API receives playlist-name searches for approximate suggestions.
+  that data. Home's **Made for you** and **Your top mixes** requests send an
+  already verified Web API access token to Spotify's Home service as well as
+  the playback session's Login5 bearer and client token. The resulting cards
+  are cached in memory for ten minutes and saved in the account-scoped Home
+  cache for the next start. Both caches are cleared on sign-out. If the Made
+  for you request fails, the shared Web API receives playlist-name searches
+  for approximate suggestions.
 - **LRCLIB.** When the lyrics panel is open and Spotify has no lyrics for the
   song, Spotifast sends its artist, title, album and length to
   [lrclib.net](https://lrclib.net). Nothing identifying you is included.

@@ -26,6 +26,14 @@ click. macOS retains its existing middle-click behavior.
 
 ## Scrolling shelves
 
+The tiles at the top of Home show what you played most recently, as
+Spotify's Home does: the playlists, albums, artists and podcasts you played
+from, Liked Songs, and songs you played on their own, newest first. A tile
+opens its page, and its play button starts it again; a song's tile plays the
+song and opens its album. Until Spotify's play history arrives, or when it
+holds fewer than eight, Liked Songs and the first playlists in your Library
+fill the rest.
+
 **Made for you** shows the personalized playlist cards Spotify returns for
 your account, in Spotify's order, when local playback and a current Web API
 Home grant for that playback account are available. If local playback is
@@ -34,6 +42,12 @@ shows approximate matches found through the shared Web API. Shared access can
 be rate-limited. If a refresh fails, cards already on screen remain available;
 **Retry** is shown when the first load fails. Spotify DJ is left out because
 Spotifast cannot play its special context.
+
+**Your top mixes** follows Made for you with the artist, genre and decade
+mixes Spotify builds from your listening, in Spotify's order. It comes from
+the same personalized read and has no fallback: the shelf appears once
+local playback has read it, and stays hidden for accounts Spotify gives no
+top mixes. If a refresh fails, the mixes already on screen remain.
 
 Point at a horizontal shelf, such as Made for you or Recently played on
 Home, and hold `Shift` while turning the mouse wheel. The shelf moves while
@@ -123,6 +137,12 @@ order when Shuffle is off. Shuffle chooses a random starting song unless you
 choose a specific row. To resume the current song at its paused position,
 use **Play** in the bottom player bar or press `Space`.
 
+To hear a song immediately after the current one, right-click it and choose
+**Play next**. A selection of songs is inserted in displayed order, ahead of
+the songs already queued. This works while playing or paused on this computer;
+the option is disabled when controlling another device. **Add to queue** puts
+songs after those already queued. See [The Queue's Rules](/queue/).
+
 The **Shuffle** button beside **Play** selects the playback order without
 starting the playlist. Select Shuffle first, then press **Play**.
 
@@ -143,6 +163,12 @@ default order, where the rows on screen match the order saved on Spotify.
 Right-clicking the playing song in the player bar offers the same removal
 while it plays from a playlist you can edit.
 
+## Viewing cover artwork
+
+Click the cover at the top of a playlist, album, artist, or podcast page to
+see it enlarged, at the largest size Spotify has. Click anywhere or press
+`Esc` to return to the page.
+
 ## Refreshing a playlist
 
 Since 0.8.0, choose **Refresh** in a playlist's **…** menu to reload
@@ -152,12 +178,23 @@ filtering and sorting stay visible. Spotifast finishes saving your edits before
 loading changes from Spotify. If loading fails, your songs stay visible and
 you can choose **Retry**.
 
+A podcast's **…** menu has the same **Refresh**. It asks Spotify for the
+podcast again instead of reusing the episodes loaded earlier, so new
+episodes appear without restarting Spotifast. The episodes already shown
+stay until the new list arrives.
+
 ## Playing from the sidebar
 
 Double-click a playlist, Liked Songs, album, artist, or podcast row in the
 Library sidebar to start playing it. A single click still opens the row's page.
 Pointing at a row's cover art also shows a play button, but only when the
 sidebar is not in compact mode.
+
+## Playing a song from search
+
+A song picked from the search results plays on its own, and, with Autoplay on,
+Spotify continues with songs it suggests after it, as in the Spotify apps. The other results are
+not queued after it.
 
 ## Search from a launcher
 
@@ -238,7 +275,7 @@ Winamp skins do not yet have equivalent accessibility coverage.
 | `M` | Mute |
 | `B` | Like or unlike the playing song |
 | `S` / `R` | Shuffle / cycle repeat |
-| `Q` | Queue panel |
+| `Q` | Queue panel, or the queue column in full screen |
 | `F` | Enter or leave full screen lyrics |
 | `Ctrl+F` or `/` | Search |
 | `Ctrl+B` | Show or hide the sidebar |
@@ -313,6 +350,8 @@ release, then choose when to restart and install it. Settings can enable
 automatic background downloads; restarting always waits for your click.
 Closing the update window keeps a download running. You can also check for a
 new release from Settings, or on macOS from the application menu.
+**Release notes** in **Settings > About** opens the GitHub release page of
+the version you are running, to read what changed.
 
 Spotifast checks each download before installing it. An interrupted or damaged
 download leaves the running app alone, and a failed startup restores the
@@ -341,6 +380,10 @@ Albums and podcasts also offer **Recently added**, using their actual save
 dates. Spotify does not supply equivalent dates for followed playlists or
 artists, so those sections do not offer that choice. Entries with missing save
 dates come last.
+
+**Name** keeps your Spotify playlist folders, as Spotify does: playlists sort
+by name inside each folder, and folders sort by name among the playlists
+beside them. A search or **By You** still lists matching playlists flat.
 
 **Spotify custom order** follows your playlist order and folders from Spotify.
 Set up playback on this computer to load that order. Your playlists stay
@@ -377,7 +420,10 @@ song, wherever the row sits.
 **Player bar visualizer** in **Settings > Appearance** shows the song moving
 behind the player bar's controls: **Spectrum** draws glowing bars from bass
 to treble with peaks that hang and fall, and **Waveform** draws the sound's
-wave as a glowing line, both in colours drawn from the cover. It follows the equalizer, not the volume, and moves only while the
+wave as a glowing line. With **Colour from album art** on, both sweep from
+bass to treble across up to four colours read from the cover, its hues first
+and its greys after, so a black and white cover moves in grey; with it off,
+they take the accent colour. It follows the equalizer, not the volume, and moves only while the
 song plays on this computer. It is off by default. Clicking the player
 bar's empty space switches it, as Winamp's visualizer did: off, then
 Spectrum, then Waveform, then off again. **Frame rate** in **Settings >
@@ -436,7 +482,16 @@ on no screen is not used. Positions on connected secondary displays still
 restore. Reinstalling preserves settings; it is not needed to recover a
 position left on an unplugged display.
 
-## macOS Dock menu
+## macOS menu bar and Dock menu
+
+Click Spotifast's menu-bar icon to open its menu. From there you can show or
+hide the window, control playback, or quit Spotifast. The menu opens from
+either a primary or secondary click, as other macOS menu-bar items do.
+It stays available with the main window open, with the Winamp mini player,
+and after closing the window to the menu bar.
+
+Spotifast also shows its Dock icon when run directly through Cargo, without
+an installed app bundle.
 
 Right-click or Control-click Spotifast's Dock icon for **Play** (or **Pause**
 while music plays), **Next**, and **Previous**, above the standard Dock items.
@@ -503,6 +558,21 @@ Storage shows its location and has a **Clear history** button.
 On Windows, the main window's minimize, maximize, and close buttons share the
 top bar with Spotifast's controls. Drag an empty part of that bar to move or
 snap the window, and drag a window edge or corner to resize it.
+
+## Choosing the audio output
+
+**Audio output**, at the bottom of the device picker, chooses where music
+played on this computer goes: the system's default output, or a sound card,
+headset, HDMI output, or virtual device such as VoiceMeeter. Click it to list
+this computer's outputs, then pick one; local playback restarts on it at the
+same place in the song. **System default** follows the system again. The
+choice is saved as `audio_device` in `settings.json`. While a saved output is
+unplugged, music plays through the system default, and the output stays
+listed so you can see and change the choice.
+
+On Linux, Spotifast plays through PulseAudio (or PipeWire's PulseAudio
+service) by default, and the desktop's sound settings choose its output, so
+the picker shows **Audio output** only when `audio_backend` is `rodio`.
 
 ## Google Cast playback
 

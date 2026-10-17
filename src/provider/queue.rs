@@ -20,6 +20,14 @@ pub enum QueueStatus {
     Failed(String),
 }
 
+pub enum QueueRemoval {
+    Spotify,
+    Jellyfin {
+        source: crate::jellyfin::browser::Source,
+        expected: Arc<Vec<crate::jellyfin::Item>>,
+    },
+}
+
 pub struct RecentPresentation {
     pub rows: Vec<(QueueEntry, Option<String>)>,
     pub loading: bool,
@@ -31,6 +39,9 @@ pub struct RecentPresentation {
 }
 
 pub struct QueuePresentation {
+    pub removal: Option<QueueRemoval>,
+    pub add: Vec<(String, Action)>,
+    pub playlists: Vec<(String, Action)>,
     pub status: QueueStatus,
     pub current: Option<QueueEntry>,
     pub rows: Vec<QueueEntry>,
@@ -41,6 +52,39 @@ pub struct QueuePresentation {
     pub save: Option<Action>,
     pub spotify_drag: bool,
     pub recent: RecentPresentation,
+}
+
+impl QueuePresentation {
+    /// The same displayed occurrences are used by either queue view. A batch
+    /// removal must be atomic so duplicate songs cannot shift under later edits.
+    pub fn remove_rows(&self, indices: impl IntoIterator<Item = usize>) -> Option<Action> {
+        let indices: Vec<_> = indices
+            .into_iter()
+            .filter(|index| *index < self.manual_len)
+            .collect();
+        if indices.is_empty() {
+            return None;
+        }
+        match self.removal.as_ref()? {
+            QueueRemoval::Spotify => {
+                let rows = indices
+                    .into_iter()
+                    .filter_map(|index| match self.rows.get(index)? {
+                        QueueEntry::Spotify(item) => Some((index, item.uri().to_owned())),
+                        _ => None,
+                    })
+                    .collect();
+                Some(Action::RemoveFromQueue { rows })
+            }
+            QueueRemoval::Jellyfin { source, expected } => Some(Action::Jellyfin(
+                crate::jellyfin::browser::BrowserAction::RemoveManual {
+                    source: source.clone(),
+                    expected: expected.clone(),
+                    indices,
+                },
+            )),
+        }
+    }
 }
 
 impl App {
@@ -63,6 +107,39 @@ impl App {
             None => queue.and_then(|q| q.currently_playing.clone()),
         };
         QueuePresentation {
+            removal: self
+                .queue_locally_reorderable()
+                .then_some(QueueRemoval::Spotify),
+            add: vec![
+                (
+                    crate::i18n::gettext(self.locale, "Search Spotify").into_owned(),
+                    Action::FocusSearch,
+                ),
+                (
+                    crate::i18n::gettext(self.locale, "Liked Songs").into_owned(),
+                    Action::Open(crate::model::Page::LikedSongs),
+                ),
+            ],
+            playlists: self
+                .library
+                .playlists
+                .get()
+                .map(|playlists| {
+                    playlists
+                        .iter()
+                        .map(|playlist| {
+                            (
+                                playlist.name.clone(),
+                                Action::PlayContext {
+                                    uri: playlist.uri.clone(),
+                                    offset_uri: None,
+                                    offset_index: None,
+                                },
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             status: match &self.queue {
                 Loadable::Loaded(_) => QueueStatus::Ready,
                 Loadable::Failed(error) => QueueStatus::Failed(error.clone()),
@@ -111,7 +188,7 @@ impl App {
     }
 
     fn jellyfin_queue_presentation(&self) -> QueuePresentation {
-        use crate::jellyfin::browser::{BrowserAction as A, PlaylistEdit};
+        use crate::jellyfin::browser::{BrowserAction as A, PlaylistEdit, View};
         let state = self.jellyfin_player.snapshot();
         // The transport retains its source even while another catalog is open.
         let context = self.jellyfin_player.context();
@@ -161,6 +238,37 @@ impl App {
                         .map(|art| art.uri()),
                 },
                 ProviderRowActions {
+                    navigation: item
+                        .album_id
+                        .as_ref()
+                        .map(|album| {
+                            (
+                                crate::i18n::gettext(self.locale, "Song info").into_owned(),
+                                Action::Jellyfin(A::OpenQueueContext {
+                                    source: source.clone(),
+                                    view: View::Tracks {
+                                        library_id: self
+                                            .jellyfin
+                                            .catalog
+                                            .library
+                                            .as_ref()
+                                            .map(|library| library.id.clone())
+                                            .unwrap_or_default(),
+                                        library_name: self
+                                            .jellyfin
+                                            .catalog
+                                            .library
+                                            .as_ref()
+                                            .map(|library| library.name.clone())
+                                            .unwrap_or_default(),
+                                        album_id: album.clone(),
+                                        name: item.album.clone().unwrap_or_else(|| "Album".into()),
+                                    },
+                                }),
+                            )
+                        })
+                        .into_iter()
+                        .collect(),
                     provider: Provider::Jellyfin,
                     play,
                     enqueue: Some(Action::Jellyfin(A::EnqueueItem {
@@ -258,6 +366,68 @@ impl App {
             })
             .collect();
         QueuePresentation {
+            removal: source.map(|source| QueueRemoval::Jellyfin {
+                source: source.clone(),
+                expected: state.queued.clone(),
+            }),
+            add: source
+                .filter(|source| self.jellyfin.source.as_ref() == Some(*source))
+                .map(|source| {
+                    let library = self.jellyfin.catalog.library.as_ref();
+                    let id = library
+                        .map(|library| library.id.clone())
+                        .unwrap_or_default();
+                    vec![
+                        (
+                            "Search Jellyfin".into(),
+                            Action::Jellyfin(A::OpenQueueContext {
+                                source: source.clone(),
+                                view: View::Search {
+                                    library: id.clone(),
+                                    term: String::new(),
+                                    kind: None,
+                                },
+                            }),
+                        ),
+                        (
+                            "Music library".into(),
+                            Action::Jellyfin(A::OpenQueueContext {
+                                source: source.clone(),
+                                view: View::Albums {
+                                    library_id: id,
+                                    name: library
+                                        .map(|library| library.name.clone())
+                                        .unwrap_or_else(|| "Music".into()),
+                                },
+                            }),
+                        ),
+                    ]
+                })
+                .unwrap_or_default(),
+            playlists: source
+                .filter(|source| self.jellyfin.source.as_ref() == Some(*source))
+                .map(|source| {
+                    self.jellyfin
+                        .playlists
+                        .iter()
+                        .map(|playlist| {
+                            let name = playlist.name.clone().unwrap_or_else(|| "Playlist".into());
+                            (
+                                name.clone(),
+                                Action::Jellyfin(A::PlayQueueContext {
+                                    source: source.clone(),
+                                    view: View::Catalog {
+                                        query: crate::jellyfin::catalog::Query::PlaylistSongs {
+                                            playlist: playlist.id.clone(),
+                                        },
+                                        name,
+                                    },
+                                }),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             status: QueueStatus::Ready,
             current: state.item.as_ref().and_then(|item| {
                 make(

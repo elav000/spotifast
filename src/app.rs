@@ -6466,10 +6466,22 @@ impl App {
             return;
         }
         let name = self.queue_playlist_name();
-        self.actions.push(Action::CreatePlaylist {
+        // This queue belongs to Spotify even when Jellyfin is being browsed.
+        self.create_spotify_playlist(name, false, uris);
+    }
+
+    fn create_spotify_playlist(&mut self, name: String, public: bool, add_uris: Vec<String>) {
+        self.jellyfin.dialog_source = None;
+        self.playlist_busy = true;
+        self.dialog = Some(Dialog::CreatePlaylist {
+            name: name.clone(),
+            public,
+            add_uris,
+        });
+        self.backend.api(ApiRequest::CreatePlaylist {
             name,
-            public: false,
-            add_uris: uris,
+            public,
+            description: String::new(),
         });
     }
 
@@ -11719,17 +11731,7 @@ impl App {
                 public,
                 add_uris,
             } => {
-                self.playlist_busy = true;
-                self.dialog = Some(Dialog::CreatePlaylist {
-                    name: name.clone(),
-                    public,
-                    add_uris,
-                });
-                self.backend.api(ApiRequest::CreatePlaylist {
-                    name,
-                    public,
-                    description: String::new(),
-                });
+                self.create_spotify_playlist(name, public, add_uris);
             }
             Action::UpdatePlaylist {
                 id,

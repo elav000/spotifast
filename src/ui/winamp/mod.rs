@@ -889,7 +889,15 @@ fn clutter_bar(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
         .clicked()
         && let Some(now) = now
     {
-        if let Some(id) = &now.album_id {
+        let provider_info = match app.playback_queue().current {
+            Some(crate::provider::queue::QueueEntry::Provider(row)) => {
+                row.1.navigation.first().map(|(_, action)| action.clone())
+            }
+            _ => None,
+        };
+        if let Some(action) = provider_info {
+            app.actions.push(action);
+        } else if let Some(id) = &now.album_id {
             app.actions.push(Action::Open(Page::Album(id.clone())));
         } else if let Some(id) = &now.show_id {
             app.actions.push(Action::Open(Page::Show(id.clone())));

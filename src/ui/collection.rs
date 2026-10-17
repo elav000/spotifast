@@ -3076,6 +3076,7 @@ pub fn provider_tracks(
             },
             start as usize + index,
             &widgets::ProviderRowActions {
+                navigation: Vec::new(),
                 provider: Provider::Jellyfin,
                 play,
                 enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),

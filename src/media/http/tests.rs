@@ -17,6 +17,7 @@ enum Reply {
     Dated,
     FreshDated,
     NoStore,
+    Drip,
 }
 
 struct Server {
@@ -119,7 +120,16 @@ impl Server {
                     } else {
                         body
                     };
-                    let _ = socket.write_all(body);
+                    if matches!(reply, Reply::Drip) {
+                        for chunk in body.chunks(4096) {
+                            if socket.write_all(chunk).is_err() {
+                                break;
+                            }
+                            std::thread::sleep(Duration::from_millis(15));
+                        }
+                    } else {
+                        let _ = socket.write_all(body);
+                    }
                 }
             }
         });
@@ -760,4 +770,20 @@ fn date_validator_rejects_clock_ambiguity_and_weak_etags() {
     headers.remove(header::ETAG);
     headers.remove(header::DATE);
     assert!(!cacheable_validator(&headers));
+}
+
+#[test]
+fn a_trickling_response_cannot_extend_the_total_range_deadline() {
+    let server = Server::new(playback_bytes(), vec![Reply::Good, Reply::Drip]);
+    let mut source = server.source().unwrap();
+    source.request_timeout = Duration::from_millis(80);
+    source.seek(SeekFrom::Start(RANGE_BYTES as u64)).unwrap();
+    let start = Instant::now();
+    assert!(source.read(&mut [0; 1]).is_err());
+    assert!(start.elapsed() < Duration::from_millis(700));
+    assert_eq!(
+        source.position, RANGE_BYTES as u64,
+        "no partial range advances the decoder"
+    );
+    assert_eq!(source.buffer_start, 0);
 }

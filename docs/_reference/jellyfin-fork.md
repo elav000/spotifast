@@ -593,3 +593,54 @@ revalidation with Cache-Control: no-cache. The cache identity also includes the
 encoded representation, so a future provider must distinguish original audio
 from each transcoding profile. The user's live server supplies the date headers
 needed for this fallback; it does not supply an ETag on original-audio responses.
+
+
+### WAV underrun after the shared-cache milestone
+
+The installed 6030024 build stalled on a WAV track and later resumed. The log
+records a 28,486 ms gap between output packets. A subsequent uncached 4 MiB
+read of that file completed in about 4.5 seconds, with individual range reads
+between 0.55 and 1.48 seconds. This does not identify the cause of the earlier
+delay or prove it fixed. A sample taken after recovery showed the playback
+worker pacing its output and the read-ahead worker reading an HTTP response.
+
+Redacted timing diagnostics now distinguish slow response headers/body reads
+from slow persistent-cache writes. They record byte offsets, sizes and elapsed
+times only, without URLs, identities or authorization values. The installed
+diagnostic build retains the existing transport behavior. A whole-range wait
+and only one range of read-ahead remain buffering limitations. Further work
+should address incremental delivery and report buffering through shared player
+state while preserving responsive controls. Do not attribute this event solely
+to the server, network, cache, or decoding without timing evidence.
+
+
+### Buffering resilience and whole-response deadlines
+
+The timing build subsequently captured response bodies taking 17,245 ms and
+62,048 ms, despite headers arriving in 69 ms and 65 ms. These correlated with
+11,372 ms and 50,443 ms output underruns. Slow audio-body delivery is established;
+the reason for that server/network delay is not. No similarly slow cache write
+was recorded for these events.
+
+The blocking HTTP client timeout had restarted for each read, allowing a
+trickling body to outlive the intended 20-second range limit. Each audio request
+now carries its own timeout, which reaches reqwest's asynchronous whole-response
+deadline. A regression fixture trickles a response within each individual read
+interval but beyond the whole-request budget, and verifies that partial ranges
+never advance the cursor or enter the cache. Failure remains a visible playback
+error; Play retries from the retained position.
+
+The provider-neutral media pipeline now decodes on its own worker, with at most
+eight seconds of queued stereo 44.1 kHz PCM plus one bounded codec block being
+split into short chunks. Playback starts or resumes from an underrun with a
+one-second cushion (or a shorter final tail). Input waits no longer own the
+transport loop: pause, skip and seek intent remain responsive, and seek revisions
+discard old queued and in-flight PCM. Natural EOF and errors do not cancel the
+enclosing track, so existing queue advancement/error handling remains active.
+
+An exhausted buffer uses the existing shared player spinner. The same control
+remains an accessible Pause button while buffering; pausing restores Play. No
+provider panel, setting or mixed queue is introduced. This pipeline is reusable
+by other HTTP providers; Spotify retains its native decoder/queue. A finite
+buffer cannot hide arbitrarily long server stalls. Incremental delivery of a
+partly received range and automatic retry remain further work.

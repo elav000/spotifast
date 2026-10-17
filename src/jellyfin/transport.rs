@@ -1,7 +1,11 @@
 //! Jellyfin's independent album transport. The UI changes intent; one worker
 //! owns protected credentials, HTTP input, decoding and the audio device.
 use super::{Item, browser::Source};
-use crate::media::{decode::AudioDecoder, http::HttpRangeSource};
+use crate::media::{
+    decode::AudioDecoder,
+    http::HttpRangeSource,
+    pipeline::{BufferedDecoder, Readiness},
+};
 use crate::playback_output::OutputRequest;
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -302,6 +306,9 @@ impl Transport {
             return;
         }
         state.snapshot.playing = !state.snapshot.playing;
+        if !state.snapshot.playing {
+            state.snapshot.loading = false;
+        }
         if state.snapshot.playing {
             if state.active_epoch != Some(state.epoch) && state.job.is_none() {
                 if let Some(mut job) = state.template.clone() {
@@ -951,7 +958,8 @@ fn session(
         cache,
     )
     .map_err(|error| error.to_string())?;
-    let mut decoder = AudioDecoder::open(Box::new(source))?;
+    let decoder = AudioDecoder::open(Box::new(source))?;
+    let mut decoder = BufferedDecoder::new(decoder, cancel.clone())?;
     let control = AudioControl::new(job.config.buffer_ms);
     let inner = RodioSink::new(
         job.config.audio_device.clone(),
@@ -988,7 +996,7 @@ fn play(
     job: &Job,
     epoch: u64,
     cancel: &AtomicBool,
-    decoder: &mut AudioDecoder,
+    decoder: &mut BufferedDecoder,
     control: &AudioControl,
     sink: &mut Tapped,
 ) -> Result<bool, String> {
@@ -1021,7 +1029,7 @@ fn play(
             control.interrupt();
             sink.stop().map_err(|error| error.to_string())?;
             running = false;
-            decoder.seek_ms(position)?;
+            decoder.seek_ms(position);
             control.track_changed();
             pcm.clear();
             offset = 0;
@@ -1061,10 +1069,27 @@ fn play(
             return Ok(false);
         }
         if offset == pcm.len() {
-            let Some(next) = decoder.next_pcm()? else {
-                return Ok(true);
+            pcm = match decoder.poll()? {
+                Readiness::End => return Ok(true),
+                Readiness::Packet(packet) => packet,
+                Readiness::Pending => {
+                    let mut state = shared.state.lock().unwrap_or_else(|p| p.into_inner());
+                    if state.epoch == epoch && state.snapshot.playing {
+                        let changed = !state.snapshot.loading;
+                        state.snapshot.loading = true;
+                        if changed {
+                            shared.waker.wake();
+                        }
+                        drop(
+                            shared
+                                .changed
+                                .wait_timeout(state, Duration::from_millis(20))
+                                .unwrap_or_else(|p| p.into_inner()),
+                        );
+                    }
+                    continue;
+                }
             };
-            pcm = next;
             offset = 0;
             // Fetching a range may have blocked; recheck current intent before
             // writing even the first packet of the newly arrived block.
@@ -1570,10 +1595,11 @@ mod tests {
                 state.cancel.clone(),
             )
         };
-        let mut decoder = AudioDecoder::open(Box::new(std::io::Cursor::new(
+        let decoder = AudioDecoder::open(Box::new(std::io::Cursor::new(
             include_bytes!("../testdata/jellyfin-tone.wav").to_vec(),
         )))
         .unwrap();
+        let mut decoder = BufferedDecoder::new(decoder, cancel.clone()).unwrap();
         let sizes = Arc::new(Mutex::new(Vec::new()));
         let control = AudioControl::new(100);
         let mut sink = Tapped::new(

@@ -1023,6 +1023,8 @@ fn session(
         cache,
     )
     .map_err(|error| error.to_string())?;
+    let transfer = source.metrics.clone();
+    let file_length = source.length();
     let decoder = AudioDecoder::open(Box::new(source))?;
     let mut decoder = BufferedDecoder::new(decoder, cancel.clone())?;
     let control = AudioControl::new(job.config.buffer_ms);
@@ -1052,6 +1054,32 @@ fn session(
         &control,
         &mut sink,
     );
+    if let Err(error) = &result {
+        let audio_stream = job.item.media_streams.as_deref().and_then(|streams| {
+            streams
+                .iter()
+                .find(|stream| stream.kind.as_deref() == Some("Audio"))
+        });
+        let stats = transfer.snapshot();
+        log::warn!(
+            "Jellyfin item playback failed: item_id={} container={} codec={} sample_rate={} channels={} duration_ms={} file_bytes={} range_requests={} range_bytes={} cache_hits={} error={}",
+            job.item.id,
+            job.item.container.as_deref().unwrap_or("unknown"),
+            audio_stream
+                .and_then(|stream| stream.codec.as_deref())
+                .unwrap_or("unknown"),
+            audio_stream
+                .and_then(|stream| stream.sample_rate)
+                .unwrap_or(0),
+            audio_stream.and_then(|stream| stream.channels).unwrap_or(0),
+            job.item.duration_ms().unwrap_or(0),
+            file_length,
+            stats.requests,
+            stats.bytes,
+            stats.cache_hits,
+            error,
+        );
+    }
     let stopped = sink.stop().map_err(|error| error.to_string());
     result.and_then(|ended| stopped.map(|()| ended))
 }

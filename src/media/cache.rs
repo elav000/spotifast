@@ -150,7 +150,9 @@ impl Binding {
         {
             return None;
         }
-        if let Ok(file) = File::open(path) {
+        // Windows needs write access to update file timestamps. Opening the
+        // existing cache file this way does not truncate its contents.
+        if let Ok(file) = File::options().write(true).open(path) {
             let _ = file.set_times(FileTimes::new().set_modified(SystemTime::now()));
         }
         Some(data[HEADER..].to_vec())
@@ -247,7 +249,9 @@ mod tests {
         fs::write(&path, corrupt).unwrap();
         assert!(binding.read(b"etag", 1000, 0, 100).is_none());
         // Mark the old entry unambiguously older than its replacement.
-        File::open(path)
+        File::options()
+            .write(true)
+            .open(path)
             .unwrap()
             .set_times(FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
             .unwrap();
@@ -259,6 +263,22 @@ mod tests {
             .map(|e| e.unwrap().metadata().unwrap().len())
             .sum();
         assert!(size <= binding.cache.limit);
+        let _ = fs::remove_dir_all(binding.cache.root);
+    }
+
+    #[test]
+    fn a_cache_hit_refreshes_its_eviction_timestamp_without_changing_bytes() {
+        let binding = binding("touch", 4096);
+        binding.write(b"etag", 1000, 0, &[7; 100]).unwrap();
+        let path = binding.path(b"etag", 1000, 0, 100);
+        File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_times(FileTimes::new().set_modified(SystemTime::UNIX_EPOCH))
+            .unwrap();
+        assert_eq!(binding.read(b"etag", 1000, 0, 100), Some(vec![7; 100]));
+        assert!(fs::metadata(path).unwrap().modified().unwrap() > SystemTime::UNIX_EPOCH);
         let _ = fs::remove_dir_all(binding.cache.root);
     }
 }

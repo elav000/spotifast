@@ -51,14 +51,20 @@ completed milestones below supersede their old "next step" language.
 
 ## Next session: bugs and live acceptance
 
-1. **Investigate the deferred audio decoding failure.** A user screenshot shows
-   "Audio decoding failed" at 0:00 for a long mix. The browsed album and Now playing
-   are different mixes, so correlate actual item/attempt identity before deciding
-   which file failed. Capture codec/container/media-source metadata, response
-   completeness and the underlying decoder error. Check whether an obsolete
-   attempt can leave an error on another song. Duration alone is not a diagnosis.
-   The private workspace plan preserves track names and the screenshot. This was
-   explicitly deferred during the upstream sync; no fix is claimed.
+1. **Verify the MP3 startup recovery on the live server.** Reproduced on
+   "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
+   rejects its first packet at timestamp zero with `mpa: invalid main_data
+   offset`. The current entity was checked online and its exact-length cached
+   opening range passed its cache checksum. FFmpeg decoded that range but warned
+   `invalid new backstep -1`; the Jellyfin web client also plays the track. The
+   failure is in handling this MP3's opening frame/reservoir, not duration or a
+   reported incomplete HTTP range. The earlier screenshot's open album was not
+   the current song; the recorded failing item was Push It. An offline probe
+   recovered at packet 27. The decoder now skips up to 64 undecodable leading
+   MP3 packets (about 1.5 to 1.7 seconds at common sample rates), with a
+   regression test for a damaged leader. Confirm live playback with this build;
+   if it still fails, report the exact safe decoder error upstream. The private
+   workspace plan preserves the original screenshot and track names.
 2. **Complete live main/mini queue acceptance.** The user says the mini playlist
    looks good; audible continuity and the complete workflow are not yet recorded
    as passed. Add a repeated song twice, compare order in both views, use Next,

@@ -11,6 +11,8 @@ use symphonia::core::{
     probe::Hint,
 };
 
+const MAX_STARTUP_DECODE_ERRORS: u16 = 64;
+
 pub struct AudioDecoder {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
@@ -24,6 +26,8 @@ pub struct AudioDecoder {
     output_frames: u64,
     finished: bool,
     mp3: bool,
+    startup_recovery: bool,
+    startup_decode_errors: u16,
 }
 
 impl AudioDecoder {
@@ -71,6 +75,8 @@ impl AudioDecoder {
             output_frames: 0,
             finished: false,
             mp3: parameters.codec == CODEC_TYPE_MP3,
+            startup_recovery: true,
+            startup_decode_errors: 0,
         })
     }
 
@@ -113,6 +119,7 @@ impl AudioDecoder {
         self.output_frames = 0;
         self.finished = false;
         self.resampler = Resampler::new(self.sample_rate, 44100, 2);
+        self.startup_recovery = false;
         Ok(())
     }
 
@@ -150,10 +157,46 @@ impl AudioDecoder {
             if packet.track_id() != self.track {
                 continue;
             }
-            let decoded = self
-                .decoder
-                .decode(&packet)
-                .map_err(|_| "Audio decoding failed.".to_owned())?;
+            let decoded = match self.decoder.decode(&packet) {
+                Ok(decoded) => {
+                    if self.startup_decode_errors > 0 {
+                        log::warn!(
+                            "MP3 startup recovered after skipping {} undecodable leading packets",
+                            self.startup_decode_errors
+                        );
+                        self.startup_decode_errors = 0;
+                    }
+                    self.startup_recovery = false;
+                    decoded
+                }
+                Err(error)
+                    if self.mp3
+                        && self.startup_recovery
+                        && self.startup_decode_errors < MAX_STARTUP_DECODE_ERRORS =>
+                {
+                    if self.startup_decode_errors == 0 {
+                        log::warn!(
+                            "skipping undecodable leading MP3 packet: track={} timestamp={} duration={} error={error:?}",
+                            self.track,
+                            packet.ts(),
+                            packet.dur(),
+                        );
+                    }
+                    self.startup_decode_errors += 1;
+                    continue;
+                }
+                Err(error) => {
+                    // Keep the UI message stable, but retain the decoder's
+                    // safe local error for playback reports.
+                    log::warn!(
+                        "audio packet decode failed: track={} timestamp={} duration={} error={error:?}",
+                        self.track,
+                        packet.ts(),
+                        packet.dur(),
+                    );
+                    return Err("Audio decoding failed.".to_owned());
+                }
+            };
             if decoded.spec().rate != self.sample_rate
                 || decoded.spec().channels.count() != self.channels
             {
@@ -202,5 +245,47 @@ impl AudioDecoder {
             }
             return Ok(Some(pcm));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AudioDecoder;
+    use std::io::Cursor;
+
+    #[test]
+    fn skips_bounded_undecodable_mp3_leader_and_recovers() {
+        let source = include_bytes!("../testdata/jellyfin-tone.mp3");
+        let tag_size = source[6..10]
+            .iter()
+            .fold(0usize, |size, byte| (size << 7) | usize::from(byte & 0x7f));
+        let frame_start = 10 + tag_size;
+        // The fixture is MPEG-1 Layer III, 128 kbps at 44.1 kHz, without
+        // padding: 144 * 128,000 / 44,100 gives a 417-byte frame.
+        let frame_end = frame_start + 417;
+        let mut invalid_frame = source[frame_start..frame_end].to_vec();
+        let side_info = &mut invalid_frame[4..36];
+        side_info.fill(0);
+        // Make each of the four granule/channel payload lengths exceed the
+        // frame's available main data, as in a damaged leading MP3 packet.
+        for channel in 0..4 {
+            for bit in 0..12 {
+                let offset = 20 + channel * 59 + bit;
+                side_info[offset / 8] |= 1 << (7 - offset % 8);
+            }
+        }
+
+        let mut bytes = source[..frame_start].to_vec();
+        for _ in 0..4 {
+            bytes.extend_from_slice(&invalid_frame);
+        }
+        bytes.extend_from_slice(&source[frame_end..]);
+
+        let mut decoder = AudioDecoder::open(Box::new(Cursor::new(bytes))).unwrap();
+        let pcm = decoder
+            .next_pcm()
+            .expect("decoder should recover after the bad leading packets")
+            .expect("valid audio follows the leading packets");
+        assert!(!pcm.is_empty());
     }
 }

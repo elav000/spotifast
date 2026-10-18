@@ -87,6 +87,9 @@ playback errors and full/mini window transitions as the regression contract.
 
 ## Later work
 
+- Revamp login, account/sign-in and server management: choose a provider during
+  sign-in, then manage connected accounts and server(s) from Settings. This is
+  future design work; no implementation is requested yet.
 - Broader Jellyfin Recent history. The shared Recent tab currently shows bounded
   current-context playback history, not full server history.
 - Shared Home layout with suitable Jellyfin sections; content remains undecided.

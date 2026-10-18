@@ -167,3 +167,6 @@ Licensed under the [MIT License](LICENSE).
     <img alt="Spotifast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
   </picture>
 </a>
+
+The Jellyfin fork's current status, remaining work and CLI entry points are in
+[ROADMAP.md](ROADMAP.md).

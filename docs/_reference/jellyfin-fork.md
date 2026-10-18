@@ -4,6 +4,10 @@ description: Implementation status, Quick Connect probe and provider boundaries 
 nav_exclude: true
 ---
 
+Current priorities and completion status are in [the working roadmap](https://github.com/elav000/spotifast/blob/main/ROADMAP.md).
+The milestone notes below are chronological history; older "next step" sections
+may already be completed.
+
 # Jellyfin in the elav000 fork
 
 This fork is adding Jellyfin alongside Spotify. Upstream Spotifast remains a

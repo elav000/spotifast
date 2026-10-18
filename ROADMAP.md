@@ -51,7 +51,18 @@ completed milestones below supersede their old "next step" language.
 
 ## Next session: bugs and live acceptance
 
-1. **Verify the MP3 startup recovery on the live server.** Reproduced on
+1. **Complete live main/mini queue acceptance.** The user says the mini playlist
+   looks good; audible continuity and the complete workflow are not yet recorded
+   as passed. Add a repeated song twice, compare order in both views, use Next,
+   play a particular queued copy, remove selected/all manual entries, and switch
+   back. Confirm current song, remaining duplicates/context, Pause/resume and seek.
+2. **Verify playlist load/save against the live Jellyfin server.** Automated checks
+   verify provider-bound actions; a real server mutation is still outstanding.
+   Queue save currently uses the main view's private-playlist/deduplication policy.
+3. **Show real mini-player media metadata.** The existing bitrate/sample-rate
+   readout assumes Spotify's configured bitrate and 44 kHz. Feed actual Jellyfin
+   media metadata through shared presentation rather than hard-coding a format.
+4. **MP3 startup recovery is verified.** Reproduced on
    "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
    rejects its first packet at timestamp zero with `mpa: invalid main_data
    offset`. The current entity was checked online and its exact-length cached
@@ -62,20 +73,9 @@ completed milestones below supersede their old "next step" language.
    the current song; the recorded failing item was Push It. An offline probe
    recovered at packet 27. The decoder now skips up to 64 undecodable leading
    MP3 packets (about 1.5 to 1.7 seconds at common sample rates), with a
-   regression test for a damaged leader. Confirm live playback with this build;
-   if it still fails, report the exact safe decoder error upstream. The private
-   workspace plan preserves the original screenshot and track names.
-2. **Complete live main/mini queue acceptance.** The user says the mini playlist
-   looks good; audible continuity and the complete workflow are not yet recorded
-   as passed. Add a repeated song twice, compare order in both views, use Next,
-   play a particular queued copy, remove selected/all manual entries, and switch
-   back. Confirm current song, remaining duplicates/context, Pause/resume and seek.
-3. **Verify playlist load/save against the live Jellyfin server.** Automated checks
-   verify provider-bound actions; a real server mutation is still outstanding.
-   Queue save currently uses the main view's private-playlist/deduplication policy.
-4. **Show real mini-player media metadata.** The existing bitrate/sample-rate
-   readout assumes Spotify's configured bitrate and 44 kHz. Feed actual Jellyfin
-   media metadata through shared presentation rather than hard-coding a format.
+   regression test for a damaged leader. The user confirmed live playback works
+   with commit `08aa3f3`. Keep the private workspace plan preserving the original
+   screenshot and track names.
 
 ## Next architecture milestone
 

@@ -3,6 +3,10 @@
 Follow `CONTRIBUTING.md`; it is the canonical product and contribution policy.
 These instructions add implementation constraints for coding agents.
 
+For this Jellyfin fork, read `ROADMAP.md` for the current priorities, accepted
+provider architecture and completed milestones before planning new work. Older
+"next step" sections in the fork reference are chronological history.
+
 ## Product boundaries
 
 - Keep Spotifast a small native Spotify client. Do not add a browser engine,

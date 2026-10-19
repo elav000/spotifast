@@ -80,7 +80,7 @@ pub(super) fn show(app: &mut App, view: &mut View, now: Option<&NowPlaying>, foc
     }
 
     let (rows, queue) = rows(app, now);
-    list(app, view, &rows, height);
+    list(app, view, &rows, &queue, height);
     scrollbar(app, view, rows.len(), height);
     grip(app, view, height);
     times(app, view, now, &rows, height);
@@ -381,7 +381,7 @@ fn label(number: usize, subtitle: &str, title: &str) -> String {
 }
 
 /// The rows, in the skin's colours and a font the size Winamp's was.
-fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
+fn list(app: &mut App, view: &mut View, rows: &[Row], queue: &QueuePresentation, height: u32) {
     let style = view.skin.playlist.clone();
     let rgb = |color: [u8; 3]| Color32::from_rgb(color[0], color[1], color[2]);
     let area = list_area(height);
@@ -529,6 +529,92 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], height: u32) {
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(uv_right, 1.0)),
             color,
         );
+    }
+
+    // Jellyfin's manual rows use the same drop slots as the main queue. The
+    // current song and context rows are deliberately outside this target.
+    if !queue.spotify_drag
+        && app.jellyfin_player.controls_output()
+        && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(view.ui.ctx())
+    {
+        let current_rows = usize::from(queue.current.is_some());
+        let manual_len = queue
+            .manual_len
+            .min(rows.len().saturating_sub(current_rows));
+        let start = current_rows;
+        let end = start + manual_len;
+        let pointer = view.ui.ctx().pointer_latest_pos();
+        let area_rect = view.rect(area).intersect(view.ui.clip_rect());
+        let row_height = layout::PLAYLIST_TRACK_HEIGHT as f32 * view.unit;
+        let start_y = area_rect.top() + (start as f32 - scroll as f32) * row_height;
+        let end_y = area_rect.top() + (end as f32 - scroll as f32) * row_height;
+        let empty_slot_pad = if manual_len == 0 {
+            3.0 * view.unit
+        } else {
+            0.0
+        };
+        let target_top = (start_y - empty_slot_pad).max(area_rect.top());
+        let target_bottom = (end_y + empty_slot_pad).min(area_rect.bottom());
+        let slot = pointer
+            .filter(|pos| {
+                area_rect.contains(*pos)
+                    && pos.y >= target_top
+                    && pos.y <= target_bottom
+                    && target_top <= target_bottom
+            })
+            .map(|pos| {
+                ((pos.y - start_y) / row_height)
+                    .round()
+                    .clamp(0.0, manual_len as f32) as usize
+            });
+        if let Some(slot) = slot {
+            let y = (start_y + slot as f32 * row_height).clamp(area_rect.top(), area_rect.bottom());
+            painter.hline(
+                area_rect.x_range().shrink(2.0),
+                y,
+                egui::Stroke::new(view.unit.max(1.0), rgb(style.current)),
+            );
+            if let Some((source, _)) = app.jellyfin_player.context()
+                && view
+                    .ui
+                    .input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+                && let Some(drag) = egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(
+                    view.ui.ctx(),
+                )
+                && drag.source == source
+            {
+                let expected = app.jellyfin_player.snapshot().queued.snapshot();
+                if let Some(action) = mini_provider_drop_action(&drag, slot, expected) {
+                    app.actions.push(Action::Jellyfin(action));
+                }
+            }
+        }
+    }
+}
+
+fn mini_provider_drop_action(
+    drag: &crate::model::ProviderQueueDrag,
+    slot: usize,
+    expected: std::sync::Arc<Vec<crate::jellyfin::Item>>,
+) -> Option<crate::jellyfin::browser::BrowserAction> {
+    use crate::jellyfin::browser::BrowserAction;
+
+    match drag.origin.as_ref() {
+        Some((snapshot, from)) if slot != *from && slot != *from + 1 => {
+            Some(BrowserAction::EditManual {
+                source: drag.source.clone(),
+                expected: snapshot.clone(),
+                index: *from,
+                to: Some(if slot > *from { slot - 1 } else { slot }),
+            })
+        }
+        Some(_) => None,
+        None => Some(BrowserAction::InsertManual {
+            source: drag.source.clone(),
+            expected,
+            item: Box::new(drag.item.clone()),
+            to: slot,
+        }),
     }
 }
 
@@ -826,6 +912,73 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, queue: &QueuePresentation) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mini_playlist_provider_drop_uses_snapshot_safe_insert_and_move_actions() {
+        use crate::jellyfin::browser::{BrowserAction as A, Source};
+        use std::sync::Arc;
+
+        let source = Source {
+            id: "source".into(),
+            server_url: "http://server".into(),
+            server_id: "server".into(),
+            user_id: "user".into(),
+            device_id: "device".into(),
+        };
+        let item: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
+            "Id": "track",
+            "Name": "Track"
+        }))
+        .unwrap();
+        let other: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
+            "Id": "other",
+            "Name": "Other"
+        }))
+        .unwrap();
+        let another: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
+            "Id": "another",
+            "Name": "Another"
+        }))
+        .unwrap();
+        let expected = Arc::new(vec![other, another]);
+        let insert = crate::model::ProviderQueueDrag {
+            source: source.clone(),
+            item: item.clone(),
+            origin: None,
+        };
+        assert!(matches!(
+            mini_provider_drop_action(&insert, 0, expected.clone()),
+            Some(A::InsertManual { source: owner, expected: snapshot, item: dropped, to: 0 })
+                if owner == source && snapshot == expected && dropped.id == "track"
+        ));
+
+        let move_drag = crate::model::ProviderQueueDrag {
+            source: source.clone(),
+            item,
+            origin: Some((expected.clone(), 1)),
+        };
+        assert!(matches!(
+            mini_provider_drop_action(&move_drag, 0, Arc::new(Vec::new())),
+            Some(A::EditManual { source: owner, expected: snapshot, index: 1, to: Some(0) })
+                if owner == source && snapshot == expected
+        ));
+        assert!(mini_provider_drop_action(&move_drag, 1, expected.clone()).is_none());
+
+        let move_down = crate::model::ProviderQueueDrag {
+            source: source.clone(),
+            item: serde_json::from_value(serde_json::json!({
+                "Id": "first",
+                "Name": "First"
+            }))
+            .unwrap(),
+            origin: Some((expected, 0)),
+        };
+        assert!(matches!(
+            mini_provider_drop_action(&move_down, 2, Arc::new(Vec::new())),
+            Some(A::EditManual { source: owner, index: 0, to: Some(1), .. })
+                if owner == source
+        ));
+    }
 
     #[test]
     fn jellyfin_main_and_mini_views_share_queue_occurrences_and_actions() {

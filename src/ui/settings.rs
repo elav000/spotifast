@@ -570,6 +570,121 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         });
     }
 
+    if app.jellyfin.enabled {
+        let provider = "Music provider";
+        let provider_rows = [
+            RowText::new("Spotify", "Use your Spotify account and library."),
+            RowText::new("Jellyfin", "Connect to a Jellyfin music server."),
+        ];
+        if section_matches(&needle, provider, &provider_rows) {
+            any_visible = true;
+            section(ui, &palette, provider, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for (choice, label) in [
+                        (crate::provider::Provider::Spotify, "Spotify"),
+                        (crate::provider::Provider::Jellyfin, "Jellyfin"),
+                    ] {
+                        if theme::pill_button(ui, &palette, label, app.jellyfin.provider == choice)
+                            .clicked()
+                        {
+                            app.actions.push(Action::Jellyfin(
+                                crate::jellyfin::browser::BrowserAction::Select(choice),
+                            ));
+                        }
+                    }
+                });
+                if app.jellyfin.provider == crate::provider::Provider::Jellyfin {
+                    ui.add_space(12.0);
+                    if let Some(source) = app.jellyfin.source.as_ref() {
+                        theme::text(ui, &source.server_url, theme::regular(14.0), palette.text);
+                        theme::text(
+                            ui,
+                            "Connected to Jellyfin",
+                            theme::regular(12.0),
+                            palette.secondary,
+                        );
+                        ui.add_space(8.0);
+                        ui.horizontal_wrapped(|ui| {
+                            if theme::pill_button(ui, &palette, "Change server", false).clicked()
+                                || theme::pill_button(ui, &palette, "Sign out of Jellyfin", false)
+                                    .clicked()
+                            {
+                                app.actions.push(Action::Jellyfin(
+                                    crate::jellyfin::browser::BrowserAction::SignOut,
+                                ));
+                            }
+                        });
+                    } else {
+                        let mut server = app.jellyfin.server_input.clone();
+                        let field = Frame::new()
+                            .fill(palette.surface)
+                            .corner_radius(CornerRadius::same(6))
+                            .inner_margin(Margin::symmetric(10, 6))
+                            .show(ui, |ui| {
+                                widgets::text_edit(
+                                    ui,
+                                    locale,
+                                    egui::TextEdit::singleline(&mut server)
+                                        .hint_text("Jellyfin server address")
+                                        .font(theme::regular(14.0))
+                                        .frame(egui::Frame::NONE)
+                                        .desired_width(360.0),
+                                )
+                            })
+                            .inner;
+                        if field.changed() {
+                            app.actions.push(Action::Jellyfin(
+                                crate::jellyfin::browser::BrowserAction::ServerInput(server),
+                            ));
+                        }
+                        if let Some(code) = app.jellyfin.code.as_ref() {
+                            ui.add_space(8.0);
+                            theme::text(
+                                ui,
+                                format!("Enter this code in your Jellyfin client: {code}"),
+                                theme::medium(14.0),
+                                palette.text,
+                            );
+                        }
+                        if let Some(error) = app.jellyfin.error.as_ref() {
+                            ui.add_space(6.0);
+                            theme::text(ui, error, theme::regular(13.0), palette.danger);
+                        }
+                        ui.add_space(8.0);
+                        ui.horizontal(|ui| {
+                            if app.jellyfin.busy {
+                                theme::spinner(ui, 16.0, palette.accent);
+                                if theme::pill_button(
+                                    ui,
+                                    &palette,
+                                    &gettext(locale, "Cancel"),
+                                    false,
+                                )
+                                .clicked()
+                                {
+                                    app.actions.push(Action::Jellyfin(
+                                        crate::jellyfin::browser::BrowserAction::Cancel,
+                                    ));
+                                }
+                            } else if theme::pill_button(
+                                ui,
+                                &palette,
+                                "Connect with Quick Connect",
+                                true,
+                            )
+                            .clicked()
+                            {
+                                app.actions.push(Action::Jellyfin(
+                                    crate::jellyfin::browser::BrowserAction::Connect,
+                                ));
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    }
+
     let (status, detail, action) = match &app.local_playback {
         crate::backend::LocalPlayback::Ready { .. } => (
             pgettext(locale, "playback status", "Ready"),

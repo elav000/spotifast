@@ -193,59 +193,6 @@ fn nav_button(
     }
 }
 
-/// Source and service configuration stay in menus; the Library rail keeps its
-/// existing navigation, shelf, search and sort controls.
-pub(crate) fn provider_menu(app: &mut App, ui: &mut egui::Ui) {
-    use crate::{jellyfin::browser::BrowserAction, provider::Provider};
-    if !app.jellyfin.enabled {
-        return;
-    }
-    ui.menu_button(gettext(app.locale, "Music source"), |ui| {
-        for (provider, name) in [
-            (Provider::Jellyfin, "Jellyfin"),
-            (Provider::Spotify, "Spotify"),
-        ] {
-            let selected = app.jellyfin.provider == provider;
-            let choice = ui.selectable_label(selected, name);
-            choice.widget_info(|| {
-                egui::WidgetInfo::selected(
-                    egui::WidgetType::Button,
-                    ui.is_enabled(),
-                    selected,
-                    format!("Use {name}"),
-                )
-            });
-            if choice.clicked() {
-                app.actions
-                    .push(Action::Jellyfin(BrowserAction::Select(provider)));
-                ui.close();
-            }
-        }
-    });
-    if let Some(source) = app.jellyfin.source.clone() {
-        ui.menu_button("Jellyfin", |ui| {
-            ui.menu_button("Music library", |ui| {
-                for library in &app.jellyfin.libraries {
-                    let selected = app
-                        .jellyfin
-                        .catalog
-                        .library
-                        .as_ref()
-                        .is_some_and(|current| current.id == library.id);
-                    if ui.selectable_label(selected, &library.name).clicked() {
-                        app.actions
-                            .push(Action::Jellyfin(BrowserAction::SelectCollection {
-                                source: source.clone(),
-                                id: library.id.clone(),
-                            }));
-                        ui.close();
-                    }
-                }
-            });
-        });
-    }
-}
-
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
@@ -559,7 +506,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             Some(Icon::Settings),
                             &gettext(locale, "Settings"),
                         ) {
-                            app.actions.push(Action::Open(Page::Settings));
+                            app.actions.push(if provider {
+                                Action::Jellyfin(
+                                    crate::jellyfin::browser::BrowserAction::OpenSettings,
+                                )
+                            } else {
+                                Action::Open(Page::Settings)
+                            });
                         }
                         if super::widgets::menu_item(
                             ui,
@@ -570,20 +523,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             app.actions
                                 .push(Action::ShowDialog(crate::model::Dialog::Shortcuts));
                         }
-                        super::widgets::menu_separator(ui, &palette);
-                        provider_menu(app, ui);
-                        super::widgets::menu_separator(ui, &palette);
-                        if super::widgets::menu_item(
-                            ui,
-                            &palette,
-                            Some(Icon::LogOut),
-                            &gettext(locale, "Sign out"),
-                        ) {
-                            app.actions.push(if provider {
-                                Action::Jellyfin(crate::jellyfin::browser::BrowserAction::SignOut)
-                            } else {
-                                Action::SignOut
-                            });
+                        if !provider {
+                            super::widgets::menu_separator(ui, &palette);
+                            if super::widgets::menu_item(
+                                ui,
+                                &palette,
+                                Some(Icon::LogOut),
+                                &gettext(locale, "Sign out"),
+                            ) {
+                                app.actions.push(Action::SignOut);
+                            }
                         }
                     });
                 if !app.network_reachable {
@@ -627,7 +576,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.actions.push(Action::Open(Page::Settings));
+                    app.actions.push(if provider {
+                        Action::Jellyfin(crate::jellyfin::browser::BrowserAction::OpenSettings)
+                    } else {
+                        Action::Open(Page::Settings)
+                    });
                 }
                 if theme::icon_button(
                     ui,

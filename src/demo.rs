@@ -12241,12 +12241,34 @@ mod tests {
         app.jellyfin.demo("jellyfin-tracks");
         app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
         app.jellyfin_player.demo_ready(0, true);
+        app.apply(Action::ToggleShuffle, &ctx);
+        let playback = app.jellyfin_player.snapshot();
+        let upcoming: Vec<_> = playback
+            .context_order
+            .iter()
+            .skip_while(|index| **index != playback.index)
+            .skip(1)
+            .copied()
+            .collect();
         app.show_queue_panel = true;
         app.apply(Action::Jellyfin(A::Queue("track1".into())), &ctx);
         let view = app.playback_queue();
         assert!(!view.spotify_drag);
         assert_eq!(view.manual_len, 1);
-        assert_eq!(view.rows.len(), 6);
+        assert_eq!(view.rows.len(), 1 + upcoming.len());
+        let displayed: Vec<_> = view.rows[1..]
+            .iter()
+            .map(|entry| match entry {
+                QueueEntry::Provider(row) => row.0.title.as_str(),
+                QueueEntry::Spotify(_) => panic!("unexpected Spotify row"),
+            })
+            .collect();
+        let expected: Vec<_> = upcoming
+            .iter()
+            .filter_map(|index| playback.tracks.get(*index))
+            .map(|item| item.name.as_deref().unwrap_or("Untitled"))
+            .collect();
+        assert_eq!(displayed, expected);
         assert!(
             matches!(view.current, Some(QueueEntry::Provider(ref row)) if row.0.artwork.is_some())
         );

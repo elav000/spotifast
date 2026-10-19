@@ -15,15 +15,16 @@ Spotify client; its releases do not include this experimental work.
 
 ## Current implementation
 
-The app opens to Jellyfin by default. The account menu offers **Music source** and **Jellyfin > Music library**.
-Source selection is also available on sign-in screens. Enter your server address, choose **Connect with Quick Connect**,
-and approve the displayed code in a signed-in Jellyfin client. Browse music
-libraries, albums, artists, playlists and songs. The existing central page frame,
-Back/Forward controls, search bar, Settings access and account menu now serve
-Jellyfin too. Spotify keeps its own sign-in, navigation history and search state.
-The shared Library rail offers Albums, Artists and Playlists for Jellyfin.
-The Jellyfin menu’s library selection scopes albums, artists and search; playlists belong to the
-signed-in account rather than a music collection.
+The sign-in screen lets you choose Spotify or Jellyfin. For Jellyfin, enter your
+server address, choose **Connect with Quick Connect**, and approve the displayed
+code in a signed-in Jellyfin client. After sign-in, use **Settings** to switch
+providers, change the Jellyfin server, or sign out. The provider dropdown has
+been removed from the main interface. The existing central page frame,
+Back/Forward controls, search bar and Library rail serve Jellyfin too. Spotify
+keeps its own sign-in, navigation history and search state. The Library rail
+offers Albums, Artists and Playlists for Jellyfin; the selected music library
+scopes albums, artists and search, while playlists belong to the signed-in
+account.
 
 Search supports All, Songs, Artists, Albums and Playlists, with server paging.
 Artist pages offer albums and songs. Album, artist, playlist and search-song
@@ -51,10 +52,11 @@ caches, not offline downloads; cache files can remain after sign-out, while
 fresh authorization and account identity are required before reuse.
 
 Your selected provider is remembered. Jellyfin sign-in uses the system credential
-store, so the app can restore it after restart. Sign out removes the account's
-cached pages and revokes local restoration even if protected-store deletion fails.
-The first version supports one saved Jellyfin account. New Jellyfin UI text is
-currently English.
+store, so the app can restore it after restart. Settings manages the current
+Jellyfin connection. The first version supports one saved Jellyfin account;
+changing servers signs out of that account before connecting to another. Sign
+out removes the account's cached pages and revokes local restoration even if
+protected-store deletion fails. New Jellyfin UI text is currently English.
 
 Jellyfin pages show saved results while refreshing. A server failure leaves the
 last results visible with a warning; Refresh retries. These caches are disposable

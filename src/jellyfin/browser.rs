@@ -899,6 +899,7 @@ pub enum BrowserAction {
     ClearQueue,
     Resume,
     SelectLibrary(String),
+    OpenSettings,
     SelectCollection {
         source: Source,
         id: String,
@@ -948,6 +949,12 @@ impl crate::app::App {
             BrowserAction::Select(provider) => self
                 .jellyfin
                 .select(provider, &self.applied_jellyfin_proxy()),
+            BrowserAction::OpenSettings => {
+                self.jellyfin
+                    .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                self.jellyfin
+                    .browse(View::Settings, 0, &self.applied_jellyfin_proxy());
+            }
             BrowserAction::ServerInput(value) => self.jellyfin.server_input = value,
             BrowserAction::Filter(value) => self.jellyfin.filter = value,
             BrowserAction::Connect => {

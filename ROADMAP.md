@@ -83,12 +83,14 @@ move, front-consumption and batch-removal rules. Their controllers remain
 separate. Bounded backward-playback cursor history and deterministic
 Next/Previous decisions are now provider-neutral queue primitives. Jellyfin
 uses them for local advancement, Shuffle and Repeat, and persists its mode and
-shuffle order without changing the existing saved-state format. Spotify's
-Connect service continues to own its remote queue and shuffle order. Next,
-adapt more local-controller state and persistence to these primitives while
-reusing the existing Spotify and Jellyfin rules. Provider execution adapters
-resolve and play entries; exclusive output ownership coordinates handoffs.
-Do not rewrite Spotify Connect's remote service queue as part of this
+shuffle order without changing the existing saved-state format. Context play
+order now also has a shared primitive for creation, validation and explicit
+current-track re-anchoring; its transparent serialization keeps the saved JSON
+array shape unchanged. Spotify's Connect service continues to own its remote
+queue and shuffle order. Next, identify another local-controller state seam to
+adapt while reusing the existing Spotify and Jellyfin rules. Provider execution
+adapters resolve and play entries; exclusive output ownership coordinates
+handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
 extraction.
 
 Then finish provider-neutral drag/drop payloads and Jellyfin queue insertion /

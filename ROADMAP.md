@@ -80,13 +80,15 @@ Continue extracting one common local playback/queue controller, not just a share
 renderer. The first shared foundation is `ManualQueue<T>`: Spotify and Jellyfin
 now use the same ordered manual-occurrence storage, immutable row snapshots,
 move, front-consumption and batch-removal rules. Their controllers remain
-separate. Bounded backward-playback cursor history is now a provider-neutral
-primitive used by Jellyfin, with its existing saved-state format preserved.
-Next, extract provider-neutral advancement decisions and adapt the local
-controllers incrementally, reusing the existing rules and tests for history,
-shuffle, repeat and persistence. Provider execution adapters resolve and play
-entries; exclusive output ownership coordinates handoffs. Do not rewrite
-Spotify Connect's remote service queue as part of this extraction.
+separate. Bounded backward-playback cursor history and deterministic
+Next/Previous decisions are now provider-neutral queue primitives. Jellyfin
+uses them with its current normal-order, repeat-off behavior, preserving its
+saved-state format. Shuffle permutations and repeat modes are covered by the
+shared policy tests. Next, adapt more local-controller state and persistence
+to these primitives while reusing the existing Spotify and Jellyfin rules.
+Provider execution adapters resolve and play entries; exclusive output
+ownership coordinates handoffs. Do not rewrite Spotify Connect's remote
+service queue as part of this extraction.
 
 Then finish provider-neutral drag/drop payloads and Jellyfin queue insertion /
 reordering. Move up/down menus already work; Jellyfin drag/drop is not complete.

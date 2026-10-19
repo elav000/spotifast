@@ -4,6 +4,7 @@
 //! it drew while playback state changes. Mutations use copy-on-write, keeping
 //! stale row actions from targeting a later occurrence by accident.
 
+use super::RepeatMode;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -69,6 +70,103 @@ impl<T> From<Vec<PlaybackCursor<T>>> for PlaybackHistory<T> {
         Self {
             cursors: cursors.into_iter().skip(start).collect(),
         }
+    }
+}
+
+/// The result of asking the local queue policy to move in either direction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QueueTransition<T> {
+    Play(PlaybackCursor<T>),
+    Restart,
+    Finished,
+}
+
+/// Apply provider-neutral Next/Previous ordering rules to a local queue.
+///
+/// `context_order` is a permutation of the context's stable row indices when
+/// shuffle is enabled, or an empty slice for normal order. The provider still
+/// resolves and plays the returned item through its own execution adapter.
+pub fn transition<T: Clone>(
+    tracks: &[T],
+    current: PlaybackCursor<T>,
+    manual: &mut ManualQueue<T>,
+    history: &mut PlaybackHistory<T>,
+    forward: bool,
+    context_order: &[usize],
+    repeat: RepeatMode,
+) -> QueueTransition<T> {
+    if repeat == RepeatMode::Track {
+        return if forward {
+            QueueTransition::Play(current)
+        } else {
+            QueueTransition::Restart
+        };
+    }
+
+    let order = if context_order.is_empty() {
+        None
+    } else {
+        Some(context_order)
+    };
+    let context_index = |position: usize| -> Option<usize> {
+        order
+            .and_then(|order| order.get(position).copied())
+            .or_else(|| order.is_none().then_some(position))
+            .filter(|index| *index < tracks.len())
+    };
+    let current_position = order
+        .and_then(|order| order.iter().position(|index| *index == current.index))
+        .or_else(|| order.is_none().then_some(current.index));
+
+    let target = if forward {
+        if let Some(item) = manual.pop_front() {
+            Some(PlaybackCursor {
+                item,
+                index: current.index,
+                manual: true,
+            })
+        } else {
+            current_position
+                .and_then(|position| context_index(position.saturating_add(1)))
+                .or_else(|| {
+                    (repeat == RepeatMode::Context)
+                        .then(|| context_index(0))
+                        .flatten()
+                })
+                .and_then(|index| {
+                    tracks.get(index).cloned().map(|item| PlaybackCursor {
+                        item,
+                        index,
+                        manual: false,
+                    })
+                })
+        }
+    } else {
+        history.pop().or_else(|| {
+            current_position
+                .and_then(|position| position.checked_sub(1))
+                .and_then(context_index)
+                .and_then(|index| {
+                    tracks.get(index).cloned().map(|item| PlaybackCursor {
+                        item,
+                        index,
+                        manual: false,
+                    })
+                })
+        })
+    };
+
+    if let Some(target) = target {
+        if forward {
+            history.push(current);
+        } else if current.manual {
+            manual.insert(0, current.item);
+        }
+        QueueTransition::Play(target)
+    } else if forward {
+        QueueTransition::Finished
+    } else {
+        QueueTransition::Restart
     }
 }
 
@@ -240,6 +338,14 @@ impl<T: PartialEq<U>, U, const N: usize> PartialEq<[U; N]> for ManualQueue<T> {
 mod tests {
     use super::*;
 
+    fn cursor(item: &'static str, index: usize, manual: bool) -> PlaybackCursor<&'static str> {
+        PlaybackCursor {
+            item,
+            index,
+            manual,
+        }
+    }
+
     #[test]
     fn duplicate_rows_keep_occurrence_order_and_old_snapshots() {
         let mut queue = ManualQueue::from(vec!["a", "b", "a"]);
@@ -290,5 +396,98 @@ mod tests {
         assert_eq!(bounded.as_slice().len(), PlaybackHistory::<usize>::LIMIT);
         assert_eq!(bounded.as_slice()[0].item, 1);
         assert_eq!(bounded.pop().unwrap().item, PlaybackHistory::<usize>::LIMIT);
+    }
+
+    #[test]
+    fn next_prioritizes_manual_rows_then_continues_the_context() {
+        let tracks = ["a", "b", "c"];
+        let mut manual = ManualQueue::from(vec!["queued"]);
+        let mut history = PlaybackHistory::default();
+        let first = transition(
+            &tracks,
+            cursor("a", 0, false),
+            &mut manual,
+            &mut history,
+            true,
+            &[],
+            RepeatMode::Off,
+        );
+        assert_eq!(first, QueueTransition::Play(cursor("queued", 0, true)));
+        assert!(manual.is_empty());
+        let second = transition(
+            &tracks,
+            cursor("queued", 0, true),
+            &mut manual,
+            &mut history,
+            true,
+            &[],
+            RepeatMode::Off,
+        );
+        assert_eq!(second, QueueTransition::Play(cursor("b", 1, false)));
+        assert_eq!(
+            history.as_slice(),
+            &[cursor("a", 0, false), cursor("queued", 0, true)]
+        );
+    }
+
+    #[test]
+    fn previous_restores_manual_current_and_shuffle_uses_context_positions() {
+        let tracks = ["a", "b", "c"];
+        let mut manual = ManualQueue::default();
+        let mut history = PlaybackHistory::default();
+        let shuffled = transition(
+            &tracks,
+            cursor("c", 2, false),
+            &mut manual,
+            &mut history,
+            true,
+            &[2, 0, 1],
+            RepeatMode::Off,
+        );
+        assert_eq!(shuffled, QueueTransition::Play(cursor("a", 0, false)));
+
+        let mut history = PlaybackHistory::from(vec![cursor("queued", 2, true)]);
+        let previous = transition(
+            &tracks,
+            cursor("b", 1, true),
+            &mut manual,
+            &mut history,
+            false,
+            &[],
+            RepeatMode::Off,
+        );
+        assert_eq!(previous, QueueTransition::Play(cursor("queued", 2, true)));
+        assert_eq!(manual.as_ref(), &["b"]);
+    }
+
+    #[test]
+    fn repeat_modes_wrap_context_or_replay_current_without_consuming_manual() {
+        let tracks = ["a", "b"];
+        let mut history = PlaybackHistory::default();
+        let mut manual = ManualQueue::from(vec!["queued"]);
+        let repeat_track = transition(
+            &tracks,
+            cursor("b", 1, false),
+            &mut manual,
+            &mut history,
+            true,
+            &[],
+            RepeatMode::Track,
+        );
+        assert_eq!(repeat_track, QueueTransition::Play(cursor("b", 1, false)));
+        assert_eq!(manual.as_ref(), &["queued"]);
+        assert!(history.as_slice().is_empty());
+
+        manual.clear();
+        let repeat_context = transition(
+            &tracks,
+            cursor("b", 1, false),
+            &mut manual,
+            &mut history,
+            true,
+            &[],
+            RepeatMode::Context,
+        );
+        assert_eq!(repeat_context, QueueTransition::Play(cursor("a", 0, false)));
     }
 }

@@ -57,15 +57,13 @@ handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
 extraction.
 
 The sign-in screen now offers Spotify or Jellyfin. The main source/account
-dropdown is removed; Settings switches providers and manages the current
-Jellyfin connection. Jellyfin still stores one server/account, so changing
-servers signs out of the current account before connecting to the next. See
-the [completed milestone notes](docs/_reference/completed-milestones.md).
+dropdown is removed; Settings switches providers and manages saved Jellyfin
+servers and accounts, including nicknames, activation, removal and adding a
+connection without signing out of the current one. See the
+[completed milestone notes](docs/_reference/completed-milestones.md).
 
 ## Later work
 
-- Support multiple saved Jellyfin servers and accounts in Settings. The current
-  connection flow stores one account; changing servers requires signing it out.
 - Shared Home layout with suitable Jellyfin sections; content remains undecided.
 - Better recovery from transient range/network stalls, including bounded retries
   and incremental delivery within a not-yet-complete range where appropriate.

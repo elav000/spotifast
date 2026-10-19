@@ -18,8 +18,10 @@ Spotify client; its releases do not include this experimental work.
 The sign-in screen lets you choose Spotify or Jellyfin. For Jellyfin, enter your
 server address, choose **Connect with Quick Connect**, and approve the displayed
 code in a signed-in Jellyfin client. After sign-in, use **Settings** to switch
-providers, change the Jellyfin server, or sign out. The provider dropdown has
-been removed from the main interface. The existing central page frame,
+providers and manage saved Jellyfin servers. Each server/account can have its
+own nickname, can be activated or removed, and adding another server keeps the
+current connection available until the new approval completes. The provider
+dropdown has been removed from the main interface. The existing central page frame,
 Back/Forward controls, search bar and Library rail serve Jellyfin too. Spotify
 keeps its own sign-in, navigation history and search state. The Library rail
 offers Albums, Artists and Playlists for Jellyfin; the selected music library
@@ -53,9 +55,9 @@ fresh authorization and account identity are required before reuse.
 
 Your selected provider is remembered. Jellyfin sign-in uses the system credential
 store, so the app can restore it after restart. Settings manages the current
-Jellyfin connection. The first version supports one saved Jellyfin account;
-changing servers signs out of that account before connecting to another. Sign
-out removes the account's cached pages and revokes local restoration even if
+Jellyfin connections. Each account nickname and the active account are saved
+atomically; older single-account files are migrated when read. Removing an
+account removes its cached pages and revokes local restoration even if
 protected-store deletion fails. New Jellyfin UI text is currently English.
 
 Jellyfin pages show saved results while refreshing. A server failure leaves the

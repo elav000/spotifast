@@ -169,6 +169,7 @@ pub(crate) fn fullscreen_column_drag_width(saved: f32, delta_x: f32) -> f32 {
 /// the side panel, without the resizable panel chrome. The caller provides
 /// the rect; everything here draws inside it.
 pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
+    let view = app.playback_queue();
     let palette = app.palette;
     // Drag strip on the column's left edge: same persisted width the side
     // panel uses, so both follow each resize. Explicit id, stable across
@@ -218,7 +219,7 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
         }
     }
     let tab = app.queue_tab;
-    let offer_save = tab == QueueTab::Queue && !app.queue_playlist_uris().is_empty();
+    let offer_save = tab == QueueTab::Queue && view.save.is_some();
     let mut picked = None;
     let mut close = false;
     let mut save = false;
@@ -255,8 +256,8 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     if close {
         app.actions.push(Action::ToggleQueuePanel);
     }
-    if save {
-        app.actions.push(Action::SaveQueueAsPlaylist);
+    if save && let Some(action) = &view.save {
+        app.actions.push(action.clone());
     }
     ui.add_space(8.0);
     // Lazy load recents when tab becomes visible.
@@ -282,8 +283,8 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
             }),
         egui::Vec2b::new(false, true),
         |ui| match app.queue_tab {
-            QueueTab::Queue => contents(app, ui, true),
-            QueueTab::Recents => recents_contents(app, ui),
+            QueueTab::Queue => contents(app, ui, true, &view),
+            QueueTab::Recents => recents_contents(app, ui, &view),
         },
     );
 }
@@ -766,11 +767,14 @@ fn show_entry(
                     added_at,
                     added_by: None,
                     show_added_by: false,
+                    show_plays: false,
                     compact: layout.compact,
                     thin: false,
                     shift: layout.shift,
                     picked: false,
                     picked_songs: &[],
+                    picked_positions: &[],
+                    position: None,
                 },
             );
         }

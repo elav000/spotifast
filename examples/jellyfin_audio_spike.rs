@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
         println!("Silent decode and EQ/visualizer test. Add --audible to use the audio device.");
     }
     let report = spotifast::backend::jellyfin::probe_saved_playback(
-        &spotifast::paths::AppDirs::discover(),
+        &spotifast::paths::AppDirs::discover().dirs,
         &spotifast::settings::ProxyConfig::System,
         library.map(String::as_str),
         audible,

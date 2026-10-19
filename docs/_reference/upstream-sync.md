@@ -14,8 +14,10 @@ For each future update, fetch upstream and rebase the fork-only commits onto its
 new `main`. Do not merge upstream or push to it. This rewrites published commits
 on `elav000/spotifast`; do it only with explicit maintainer approval, create a
 recovery ref first, and push to the fork using an exact `--force-with-lease`
-guard. Update this page to the new upstream baseline after the rebase. Keep the
-fork's commits linear and verify the ahead/behind count against upstream.
+guard. Aim to do this integration about once a week while fork work is active,
+then let CI finish as the final sync check. Update this page to the new upstream
+baseline after the rebase. Keep the fork's commits linear and verify the
+ahead/behind count against upstream.
 
 Resolve overlaps by preserving shared provider presentations and source-bound
 actions. In particular, upstream queue surfaces must consume `playback_queue()`;

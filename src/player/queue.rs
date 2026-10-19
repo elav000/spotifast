@@ -70,6 +70,69 @@ impl From<Vec<usize>> for PlaybackOrder {
     }
 }
 
+/// The ordered tracks and active position for a local playback context.
+/// Serde field names preserve the existing flattened Jellyfin session shape.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(bound(deserialize = "T: serde::Deserialize<'de>"))]
+pub struct LocalPlaybackContext<T> {
+    #[serde(default)]
+    pub tracks: Vec<T>,
+    #[serde(default)]
+    pub index: usize,
+    #[serde(default)]
+    #[serde(rename = "manual")]
+    pub current_is_manual: bool,
+    #[serde(default)]
+    #[serde(rename = "shuffle_order")]
+    pub order: PlaybackOrder,
+}
+
+impl<T> Default for LocalPlaybackContext<T> {
+    fn default() -> Self {
+        Self {
+            tracks: Vec::new(),
+            index: 0,
+            current_is_manual: false,
+            order: PlaybackOrder::default(),
+        }
+    }
+}
+
+impl<T> LocalPlaybackContext<T> {
+    pub fn new(
+        tracks: Vec<T>,
+        index: usize,
+        current_is_manual: bool,
+        order: PlaybackOrder,
+    ) -> Self {
+        Self {
+            tracks,
+            index,
+            current_is_manual,
+            order,
+        }
+    }
+
+    pub fn set_cursor(&mut self, index: usize, manual: bool) {
+        self.index = index;
+        self.current_is_manual = manual;
+    }
+
+    pub fn set_tracks(&mut self, tracks: Vec<T>) {
+        self.tracks = tracks;
+    }
+}
+
+impl<T: Clone> LocalPlaybackContext<T> {
+    pub fn cursor(&self, item: T) -> PlaybackCursor<T> {
+        PlaybackCursor {
+            item,
+            index: self.index,
+            manual: self.current_is_manual,
+        }
+    }
+}
+
 /// A playback location that can be revisited by the Previous command.
 ///
 /// Context rows use their stable position in the context. Manually queued

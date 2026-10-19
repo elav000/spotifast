@@ -9,6 +9,39 @@ use crate::{
 };
 use std::sync::Arc;
 
+fn jellyfin_context_upcoming(state: &crate::jellyfin::transport::Snapshot) -> Vec<usize> {
+    let len = state.tracks.len();
+    let natural: Vec<_> = (0..len).collect();
+    let order = if state.context_order.len() == len
+        && state
+            .context_order
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+            == len
+        && state.context_order.iter().all(|index| *index < len)
+    {
+        state.context_order.as_slice()
+    } else {
+        natural.as_slice()
+    };
+    if state.repeat == crate::player::RepeatMode::Track {
+        return (state.index < len)
+            .then_some(state.index)
+            .into_iter()
+            .collect();
+    }
+    let Some(position) = order.iter().position(|index| *index == state.index) else {
+        return Vec::new();
+    };
+    let mut upcoming = order[position + 1..].to_vec();
+    if state.repeat == crate::player::RepeatMode::Context {
+        upcoming.extend_from_slice(&order[..=position]);
+    }
+    upcoming
+}
+
 pub enum QueueEntry {
     Spotify(Box<PlayableItem>),
     Provider(Box<(TrackPresentation, ProviderRowActions)>),
@@ -289,6 +322,7 @@ impl App {
                 },
             ))))
         };
+        let upcoming = jellyfin_context_upcoming(&state);
         let mut rows: Vec<_> = state
             .queued
             .iter()
@@ -318,22 +352,18 @@ impl App {
             }
         }
         let manual_len = rows.len();
-        rows.extend(
+        rows.extend(upcoming.iter().filter_map(|index| {
             state
                 .tracks
-                .iter()
-                .enumerate()
-                .skip(state.index + 1)
-                .filter_map(|(index, item)| {
-                    make(item, Action::Jellyfin(A::PlayQueue(index)), false)
-                }),
-        );
+                .get(*index)
+                .and_then(|item| make(item, Action::Jellyfin(A::PlayQueue(*index)), false))
+        }));
         let mut seen = std::collections::HashSet::new();
         let items: Vec<_> = state
             .item
             .iter()
             .chain(state.queued.iter())
-            .chain(state.tracks.iter().skip(state.index + 1))
+            .chain(upcoming.iter().filter_map(|index| state.tracks.get(*index)))
             .filter(|item| seen.insert(item.id.clone()))
             .map(|item| item.id.clone())
             .collect();

@@ -27,9 +27,9 @@ playback changes cannot make later removals target a different row.
 Spotify and Jellyfin share the ordered manual-occurrence queue storage and its
 snapshot-safe row edits. The provider-neutral queue module also provides
 bounded backward-playback cursor history and Next/Previous decisions for local
-controllers. Jellyfin uses those transitions with its current normal-order,
-repeat-off behavior; Spotify's service queue and transition reconciliation
-remain in the Spotify controller.
+controllers. Jellyfin uses those transitions and saves its shuffle order and
+repeat mode with playback. Spotify's service queue and transition
+reconciliation remain in the Spotify controller.
 
 Starting and resuming are separate actions. With Shuffle off, a playlist's
 **Play** button starts at its first available song in the selected order.

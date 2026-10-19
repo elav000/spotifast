@@ -8,7 +8,7 @@ use crate::media::{
 };
 use crate::playback_output::OutputRequest;
 use crate::player::queue::{
-    ManualQueue, PlaybackCursor, PlaybackHistory, QueueTransition, transition,
+    ManualQueue, PlaybackCursor, PlaybackHistory, QueueTransition, TransitionPolicy, transition,
 };
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -16,6 +16,7 @@ use crate::{backend::Waker, paths::AppDirs, player::EngineConfig, provider::Prov
 use librespot_playback::{
     audio_backend::Sink, convert::Converter, decoder::AudioPacket, mixer::VolumeGetter,
 };
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
@@ -30,6 +31,7 @@ pub struct Snapshot {
     pub source_id: Option<String>,
     pub item: Option<Item>,
     pub tracks: Arc<Vec<Item>>,
+    pub context_order: Arc<Vec<usize>>,
     pub queued: ManualQueue<Item>,
     pub manual_current: bool,
     pub queue_complete: bool,
@@ -42,6 +44,8 @@ pub struct Snapshot {
     pub approximate_seek: bool,
     pub error: Option<String>,
     pub volume: u8,
+    pub shuffle: bool,
+    pub repeat: crate::player::RepeatMode,
 }
 
 #[derive(Clone)]
@@ -72,6 +76,12 @@ struct SavedPlayback {
     finished: bool,
     queue_complete: bool,
     history: PlaybackHistory<Item>,
+    #[serde(default)]
+    shuffle: bool,
+    #[serde(default)]
+    repeat: crate::player::RepeatMode,
+    #[serde(default)]
+    shuffle_order: Vec<usize>,
 }
 
 const SAVED_LIMIT: u64 = 16 * 1024 * 1024;
@@ -88,6 +98,7 @@ struct State {
     shutdown: bool,
     active_epoch: Option<u64>,
     history: PlaybackHistory<Item>,
+    context_order: Vec<usize>,
     restored: bool,
 }
 
@@ -122,6 +133,7 @@ impl Transport {
                 shutdown: false,
                 active_epoch: None,
                 history: PlaybackHistory::default(),
+                context_order: Vec::new(),
                 restored: !enabled,
             }),
             changed: Condvar::new(),
@@ -148,12 +160,10 @@ impl Transport {
     }
 
     pub fn snapshot(&self) -> Snapshot {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .snapshot
-            .clone()
+        let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        let mut snapshot = state.snapshot.clone();
+        snapshot.context_order = Arc::new(state.context_order.clone());
+        snapshot
     }
 
     /// A fresh catalog result can enrich an older saved song's artwork without
@@ -210,6 +220,9 @@ impl Transport {
                 finished: state.snapshot.finished,
                 queue_complete: state.snapshot.queue_complete,
                 history: state.history.clone(),
+                shuffle: state.snapshot.shuffle,
+                repeat: state.snapshot.repeat,
+                shuffle_order: state.context_order.clone(),
             });
         drop(state);
         let bytes =
@@ -305,6 +318,16 @@ impl Transport {
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.history.clear();
+        if let Some(index) = index
+            && state.snapshot.shuffle
+            && state
+                .template
+                .as_ref()
+                .is_some_and(|current| current.source == job.source && current.album == job.album)
+            && let Some(position) = state.context_order.iter().position(|row| *row == index)
+        {
+            state.context_order.rotate_left(position);
+        }
         select(&mut state, job);
         self.shared.changed.notify_one();
     }
@@ -353,6 +376,28 @@ impl Transport {
         self.shared.changed.notify_one();
     }
 
+    pub fn set_shuffle(&self, enabled: bool) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.snapshot.shuffle == enabled {
+            return;
+        }
+        state.snapshot.shuffle = enabled;
+        let len = state.snapshot.tracks.len();
+        state.context_order = context_order(len, state.snapshot.index, enabled);
+        drop(state);
+        self.shared.waker.wake();
+    }
+
+    pub fn set_repeat(&self, repeat: crate::player::RepeatMode) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if state.snapshot.repeat == repeat {
+            return;
+        }
+        state.snapshot.repeat = repeat;
+        drop(state);
+        self.shared.waker.wake();
+    }
+
     pub fn step(&self, forward: bool) {
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         if !state.snapshot.queue_complete {
@@ -363,7 +408,7 @@ impl Transport {
             self.seek(0);
             return;
         }
-        advance(&mut state, forward);
+        advance(&mut state, forward, false);
         self.shared.changed.notify_one();
     }
 
@@ -377,6 +422,11 @@ impl Transport {
         {
             remember_current(&mut state);
             state.snapshot.queued.clear();
+            if state.snapshot.shuffle
+                && let Some(position) = state.context_order.iter().position(|row| *row == index)
+            {
+                state.context_order.rotate_left(position);
+            }
             job.item = item;
             job.manual = false;
             job.context_index = Some(index);
@@ -621,8 +671,8 @@ impl crate::app::App {
             position_ms: u32::try_from(state.position_ms).unwrap_or(u32::MAX),
             playing: state.playing,
             loading: state.loading,
-            shuffle: false,
-            repeat: crate::player::RepeatMode::Off,
+            shuffle: state.shuffle,
+            repeat: state.repeat,
             volume_percent: state.volume,
             can_control: true,
             can_set_volume: true,
@@ -644,6 +694,34 @@ impl Drop for Transport {
 fn level(volume: u8) -> f64 {
     (f64::from(volume) / 100.0).powi(3)
 }
+
+fn context_order(len: usize, current: usize, shuffle: bool) -> Vec<usize> {
+    let mut order: Vec<_> = (0..len).collect();
+    if shuffle {
+        order.retain(|index| *index != current);
+        order.shuffle(&mut rand::rng());
+        if current < len {
+            order.insert(0, current);
+        }
+    }
+    order
+}
+
+fn valid_context_order(order: &[usize], len: usize) -> bool {
+    if order.len() != len {
+        return false;
+    }
+    let mut seen = vec![false; len];
+    order.iter().all(|index| {
+        if *index >= len || seen[*index] {
+            false
+        } else {
+            seen[*index] = true;
+            true
+        }
+    })
+}
+
 struct Volume(Arc<AtomicU64>);
 impl VolumeGetter for Volume {
     fn attenuation_factor(&self) -> f64 {
@@ -662,6 +740,19 @@ fn select(state: &mut State, job: Job) {
         .known_tracks
         .clone()
         .unwrap_or_else(|| vec![job.item.clone()]);
+    let shuffle = state.snapshot.shuffle;
+    let repeat = state.snapshot.repeat;
+    let same_context = state.template.as_ref().is_some_and(|previous| {
+        previous.source == job.source
+            && tracks.as_slice() == state.snapshot.tracks.as_slice()
+            && (job.manual
+                || if job.query.is_some() {
+                    previous.query == job.query
+                } else {
+                    previous.query == job.query && previous.album == job.album
+                })
+    });
+    let context_changed = !same_context;
     let same_source = state
         .template
         .as_ref()
@@ -694,6 +785,9 @@ fn select(state: &mut State, job: Job) {
                 .flatten()
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
+    if context_changed || state.context_order.len() != tracks.len() {
+        state.context_order = context_order(tracks.len(), index, shuffle);
+    }
     state.snapshot = Snapshot {
         source_id: Some(job.source.id.clone()),
         queue_complete: job.known_tracks.is_some(),
@@ -706,6 +800,8 @@ fn select(state: &mut State, job: Job) {
         playing: true,
         loading: true,
         volume: state.snapshot.volume,
+        shuffle,
+        repeat,
         ..Snapshot::default()
     };
     state.template = Some(job.clone());
@@ -733,7 +829,7 @@ fn select_cursor(state: &mut State, cursor: PlaybackCursor<Item>) {
     }
 }
 
-fn advance(state: &mut State, forward: bool) {
+fn advance(state: &mut State, forward: bool, natural_end: bool) {
     let Some(item) = state.snapshot.item.clone() else {
         return;
     };
@@ -747,9 +843,12 @@ fn advance(state: &mut State, forward: bool) {
         current,
         &mut state.snapshot.queued,
         &mut state.history,
-        forward,
-        &[],
-        crate::player::RepeatMode::Off,
+        TransitionPolicy {
+            forward,
+            natural_end,
+            context_order: &state.context_order,
+            repeat: state.snapshot.repeat,
+        },
     );
     match transition {
         QueueTransition::Play(target) => select_cursor(state, target),
@@ -788,6 +887,8 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
             || saved.tracks.len() > 10000
             || saved.queued.len() > 1000
             || saved.history.len() > PlaybackHistory::<Item>::LIMIT
+            || (!saved.shuffle_order.is_empty()
+                && !valid_context_order(&saved.shuffle_order, saved.tracks.len()))
             || saved.index >= saved.tracks.len()
             || (!saved.manual && saved.tracks[saved.index].id != saved.item.id)
             || !saved
@@ -811,6 +912,13 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     if state.epoch != 0 || state.template.is_some() {
         return;
     }
+    let shuffle = saved.shuffle;
+    let repeat = saved.repeat;
+    state.context_order = if saved.shuffle_order.is_empty() {
+        context_order(saved.tracks.len(), saved.index, shuffle)
+    } else {
+        saved.shuffle_order.clone()
+    };
     state.template = Some(Job {
         source: saved.source.clone(),
         album: saved.album,
@@ -839,6 +947,8 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         finished: saved.finished,
         queue_complete: saved.queue_complete,
         volume,
+        shuffle,
+        repeat,
         ..Snapshot::default()
     };
     shared.waker.wake();
@@ -874,7 +984,7 @@ fn run(dirs: AppDirs, shared: Arc<Shared>, initial_config: EngineConfig) {
         }
         state.active_epoch = None;
         match result {
-            Ok(true) if state.snapshot.playing => advance(&mut state, true),
+            Ok(true) if state.snapshot.playing => advance(&mut state, true, true),
             Ok(_) => {
                 state.snapshot.playing = false;
                 state.snapshot.loading = false;
@@ -964,6 +1074,13 @@ fn session(
         }
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
+        if state.context_order.len() != state.snapshot.tracks.len() {
+            state.context_order = context_order(
+                state.snapshot.tracks.len(),
+                state.snapshot.index,
+                state.snapshot.shuffle,
+            );
+        }
     }
     let cache = crate::media::cache::Policy::new(
         job.config.audio_cache_dir.as_deref(),
@@ -1324,6 +1441,47 @@ mod tests {
     }
 
     #[test]
+    fn shared_shuffle_repeat_policy_drives_local_transitions() {
+        let shuffled = transport();
+        shuffled.play(
+            source(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b"), item("c")]),
+        );
+        shuffled.set_shuffle(true);
+        let order = shuffled.shared.state.lock().unwrap().context_order.clone();
+        assert!(valid_context_order(&order, 3));
+        assert_eq!(order.first(), Some(&0));
+        shuffled.step(true);
+        assert_eq!(shuffled.snapshot().index, order[1]);
+
+        let context_repeat = transport();
+        context_repeat.play(
+            source(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        context_repeat.set_repeat(crate::player::RepeatMode::Context);
+        context_repeat.step(true);
+        assert_eq!(context_repeat.snapshot().item.unwrap().id, "b");
+        context_repeat.step(true);
+        assert_eq!(context_repeat.snapshot().item.unwrap().id, "a");
+
+        let track_repeat = transport();
+        track_repeat.play(
+            source(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        track_repeat.set_repeat(crate::player::RepeatMode::Track);
+        track_repeat.step(true);
+        assert_eq!(track_repeat.snapshot().item.unwrap().id, "b");
+    }
+
+    #[test]
     fn stop_cancels_loading_and_discards_account_scoped_queue_state() {
         let transport = transport();
         transport.play(source(), "album".into(), item("a"), Some(vec![item("a")]));
@@ -1511,6 +1669,8 @@ mod tests {
         );
         original.enqueue(&source(), item("manual"));
         original.enqueue(&source(), item("manual"));
+        original.set_shuffle(true);
+        original.set_repeat(crate::player::RepeatMode::Context);
         original.step(true);
         original.seek(400);
         original.toggle();
@@ -1529,11 +1689,16 @@ mod tests {
             serde_json::to_vec(&source()).unwrap(),
         )
         .unwrap();
-        std::fs::write(
-            root.join("jellyfin-playback.json"),
-            original.encode_session().unwrap().unwrap(),
-        )
-        .unwrap();
+        let encoded = original.encode_session().unwrap().unwrap();
+        let mut legacy: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        for field in ["shuffle", "repeat", "shuffle_order"] {
+            legacy.as_object_mut().unwrap().remove(field);
+        }
+        let legacy: SavedPlayback = serde_json::from_value(legacy).unwrap();
+        assert!(!legacy.shuffle);
+        assert_eq!(legacy.repeat, crate::player::RepeatMode::Off);
+        assert!(legacy.shuffle_order.is_empty());
+        std::fs::write(root.join("jellyfin-playback.json"), encoded).unwrap();
         let resumed = transport();
         restore(&dirs, &resumed.shared, &resumed.config);
         let snapshot = resumed.snapshot();
@@ -1544,6 +1709,8 @@ mod tests {
         assert!(snapshot.manual_current);
         assert_eq!(snapshot.index, 0);
         assert_eq!(snapshot.queued.len(), 1);
+        assert!(snapshot.shuffle);
+        assert_eq!(snapshot.repeat, crate::player::RepeatMode::Context);
         resumed.resume();
         resumed.step(true);
         assert_eq!(resumed.snapshot().item.unwrap().id, "manual");

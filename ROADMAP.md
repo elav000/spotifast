@@ -59,10 +59,7 @@ completed milestones below supersede their old "next step" language.
 
 ## Next session: bugs and live acceptance
 
-1. **Show real mini-player media metadata.** The existing bitrate/sample-rate
-   readout assumes Spotify's configured bitrate and 44 kHz. Feed actual Jellyfin
-   media metadata through shared presentation rather than hard-coding a format.
-2. **MP3 startup recovery is verified.** Reproduced on
+1. **MP3 startup recovery is verified.** Reproduced on
    "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
    rejects its first packet at timestamp zero with `mpa: invalid main_data
    offset`. The current entity was checked online and its exact-length cached

@@ -3623,6 +3623,31 @@ msgstr ""
 "controlador gráfico ou ative a aceleração por GPU da máquina virtual. Abrir "
 "{url} para saber mais?"
 
+#: src/ui/sidebar.rs:2110
+msgid "Open"
+msgstr ""
+
+#: src/ui/queue.rs:678
+msgid "Drop here to add to Playing next"
+msgstr ""
+
+#: src/ui/dialogs.rs:81
+#, rust-format
+msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
+msgstr ""
+
+#: src/ui/dialogs.rs:639
+msgid "Rename playlist"
+msgstr ""
+
+#: src/ui/topbar.rs:203
+msgid "Music source"
+msgstr ""
+
+#: src/ui/winamp/mod.rs:914
+msgid "Size: 2x, 3x, 4x"
+msgstr "Tamanho: 2x, 3x, 4x"
+
 #~ msgid ""
 #~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
 #~ msgstr ""

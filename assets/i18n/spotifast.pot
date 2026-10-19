@@ -3476,3 +3476,75 @@ msgid ""
 "virtual machine does not provide one. Install the graphics driver, or turn "
 "on GPU acceleration for the virtual machine. Open {url} to read more?"
 msgstr ""
+
+#: src/ui/sidebar.rs:2110
+msgid "Open"
+msgstr ""
+
+#: src/ui/queue.rs:678
+msgid "Drop here to add to Playing next"
+msgstr ""
+
+#: src/ui/settings.rs:340
+msgid ""
+"Play the local files your playlists list from a folder on this computer. "
+"Only 44.1 kHz files play."
+msgstr ""
+
+#: src/ui/settings.rs:668
+msgid ""
+"Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+msgstr ""
+
+#: src/ui/settings.rs:681
+msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
+msgstr ""
+
+#: src/ui/collection.rs:1595
+msgid "Your most-played tracks from the last four weeks."
+msgstr ""
+
+#: src/ui/dialogs.rs:45
+msgid "Spend less time waiting for Spotify"
+msgstr ""
+
+#: src/ui/dialogs.rs:48
+msgid ""
+"Spotifast's default connection shares Spotify's request limit with other "
+"listeners. When it gets busy, loading music and using playback controls can "
+"take longer."
+msgstr ""
+
+#: src/ui/dialogs.rs:49
+msgid ""
+"Your Premium account lets you create a free personal Spotify app. Connect it "
+"here to give supported requests your own allowance. Some pages still use the "
+"shared connection."
+msgstr ""
+
+#: src/ui/dialogs.rs:50
+msgid ""
+"Setup takes a few minutes. You can also find it later in Settings under "
+"Personal Spotify app."
+msgstr ""
+
+#: src/ui/dialogs.rs:60
+msgid "Keep shared app"
+msgstr ""
+
+#: src/ui/dialogs.rs:81
+#, rust-format
+msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
+msgstr ""
+
+#: src/ui/dialogs.rs:639
+msgid "Rename playlist"
+msgstr ""
+
+#: src/ui/topbar.rs:203
+msgid "Music source"
+msgstr ""
+
+#: src/ui/winamp/mod.rs:914
+msgid "Size: 2x, 3x, 4x"
+msgstr ""

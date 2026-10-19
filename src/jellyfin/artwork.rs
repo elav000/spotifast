@@ -115,6 +115,7 @@ mod tests {
         std::fs::create_dir_all(&dirs.state).unwrap();
         let source = Source {
             id: "a".repeat(32),
+            nickname: "Test server".into(),
             server_url: "http://127.0.0.1:1/".into(),
             server_id: "server1".into(),
             user_id: "user1".into(),

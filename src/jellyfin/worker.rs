@@ -1,5 +1,6 @@
 //! Jellyfin backend worker. Owns network, protected credentials and disk work.
 use keyring_core::api::CredentialStoreApi;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::{
     Arc,
@@ -40,8 +41,11 @@ pub fn spawn(
                 catalog_request: None,
                 waker,
                 source: None,
+                servers: Vec::new(),
                 token: None,
                 challenge: None,
+                pending_source: None,
+                pending_client: None,
                 client: None,
             };
             while let Ok(job) = rx.recv() {
@@ -50,6 +54,9 @@ pub fn spawn(
                     && !matches!(
                         &job.command,
                         Command::Select(_)
+                            | Command::RenameServer(_)
+                            | Command::ActivateServer(_)
+                            | Command::RemoveServer(_)
                             | Command::Edit { .. }
                             | Command::Playlists(_)
                             | Command::Report(_)
@@ -74,9 +81,18 @@ struct Worker {
     catalog_request: Option<u64>,
     waker: Waker,
     source: Option<Source>,
+    servers: Vec<Source>,
     token: Option<Token>,
     challenge: Option<Challenge>,
+    pending_source: Option<Source>,
+    pending_client: Option<Client>,
     client: Option<Client>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SavedAccounts {
+    servers: Vec<Source>,
+    active_id: Option<String>,
 }
 
 impl Worker {
@@ -112,6 +128,17 @@ impl Worker {
     }
     fn revoked_file(&self) -> PathBuf {
         self.dirs.state.join("jellyfin-revoked")
+    }
+    fn persist_accounts(&self) -> Result<(), String> {
+        let accounts = SavedAccounts {
+            servers: self.servers.clone(),
+            active_id: self.source.as_ref().map(|source| source.id.clone()),
+        };
+        fastframe_file::write(
+            &self.account_file(),
+            serde_json::to_vec(&accounts).map_err(|_| "Could not save Jellyfin accounts.")?,
+        )
+        .map_err(|_| "Could not save Jellyfin accounts.".to_owned())
     }
 
     async fn load_playlists(
@@ -193,31 +220,45 @@ impl Worker {
         result.map(|()| None).map_err(|error| error.to_string())
     }
 
+    async fn send_report(
+        &self,
+        source: &Source,
+        token: &Token,
+        report: &crate::jellyfin::reporting::Report,
+        proxy: &crate::settings::ProxyConfig,
+    ) -> Result<(), crate::jellyfin::Error> {
+        let client = Client::new(&source.server_url, &source.device_id, proxy)?;
+        client
+            .report_playback(
+                &report.playback.item,
+                report.playback.position_ms,
+                !report.playback.playing,
+                report.event,
+                token,
+            )
+            .await
+    }
+
     async fn run(&mut self, job: &Job) -> Result<(), String> {
         let generation = job.generation;
         match &job.command {
             Command::Report(report) => {
                 let source = &report.playback.source;
-                if self.source.as_ref() != Some(source) {
+                if !self.servers.iter().any(|saved| saved.id == source.id) {
                     return Ok(());
                 }
-                let result = if let Some(token) = &self.token {
-                    match Client::new(&source.server_url, &source.device_id, &job.proxy) {
-                        Ok(client) => {
-                            client
-                                .report_playback(
-                                    &report.playback.item,
-                                    report.playback.position_ms,
-                                    !report.playback.playing,
-                                    report.event,
-                                    token,
-                                )
-                                .await
-                        }
-                        Err(error) => Err(error),
+                let result = if self.source.as_ref() == Some(source) {
+                    if let Some(token) = &self.token {
+                        self.send_report(source, token, report, &job.proxy).await
+                    } else {
+                        return Ok(());
                     }
                 } else {
-                    return Ok(());
+                    if let Some(token) = credentials(source.clone(), CredentialOp::Read)? {
+                        self.send_report(source, &token, report, &job.proxy).await
+                    } else {
+                        return Ok(());
+                    }
                 };
                 let error = result.err().map(|error| {
                     format!("Jellyfin listening history could not be updated: {error}")
@@ -269,23 +310,61 @@ impl Worker {
                 )
                 .map_err(|_| "Could not save provider selection.")?;
             }
+            Command::RenameServer(source) => {
+                if let Some(saved) = self.servers.iter_mut().find(|saved| saved.id == source.id) {
+                    *saved = source.clone();
+                    if self
+                        .source
+                        .as_ref()
+                        .is_some_and(|active| active.id == source.id)
+                    {
+                        self.source = Some(source.clone());
+                    }
+                    self.persist_accounts()?;
+                    self.emit(generation, Reply::Renamed(source.clone()));
+                }
+            }
             Command::Restore => {
                 let provider = std::fs::read(self.dirs.state.join("browsing-provider.json"))
                     .ok()
                     .and_then(|bytes| serde_json::from_slice(&bytes).ok())
                     .unwrap_or_default();
-                let source: Option<Source> = std::fs::read(self.account_file())
-                    .ok()
-                    .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-                self.source = source.filter(|source| {
-                    valid_source(source)
-                        && std::fs::read_to_string(self.revoked_file()).ok().as_deref()
-                            != Some(&source.id)
-                });
+                let bytes = std::fs::read(self.account_file()).ok();
+                let legacy: Option<Source> = bytes
+                    .as_deref()
+                    .and_then(|b| serde_json::from_slice(b).ok());
+                let registry: Option<SavedAccounts> = bytes
+                    .as_deref()
+                    .and_then(|b| serde_json::from_slice(b).ok());
+                let (mut servers, active_id) = registry
+                    .map(|r| (r.servers, r.active_id))
+                    .unwrap_or_else(|| (legacy.into_iter().collect(), None));
+                servers.retain(valid_source);
+                for source in &mut servers {
+                    if source.nickname.trim().is_empty() {
+                        source.nickname = source
+                            .server_url
+                            .trim_end_matches('/')
+                            .rsplit('/')
+                            .next()
+                            .unwrap_or("Jellyfin")
+                            .to_owned();
+                        if source.nickname.is_empty() {
+                            source.nickname = "Jellyfin".into();
+                        }
+                    }
+                }
+                let legacy_revoked = std::fs::read_to_string(self.revoked_file()).ok();
+                servers.retain(|source| legacy_revoked.as_deref() != Some(&source.id));
+                self.servers = servers;
+                self.source = active_id
+                    .and_then(|id| self.servers.iter().find(|source| source.id == id).cloned())
+                    .or_else(|| self.servers.first().cloned());
                 self.emit(
                     generation,
                     Reply::Restored {
                         source: self.source.clone(),
+                        servers: self.servers.clone(),
                         provider,
                     },
                 );
@@ -302,6 +381,48 @@ impl Worker {
                     }
                 }
             }
+            Command::ActivateServer(id) => {
+                let source = self
+                    .servers
+                    .iter()
+                    .find(|source| source.id == *id)
+                    .cloned()
+                    .ok_or("Saved Jellyfin server was not found.")?;
+                let token = credentials(source.clone(), CredentialOp::Read)?
+                    .ok_or("Saved sign-in is unavailable. Remove this server and connect again.")?;
+                let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
+                    .map_err(|e| e.to_string())?;
+                self.source = Some(source.clone());
+                self.token = Some(token);
+                self.client = Some(client);
+                self.persist_accounts()?;
+                self.emit(generation, Reply::Activated(source));
+            }
+            Command::RemoveServer(id) => {
+                if let Some(index) = self.servers.iter().position(|source| source.id == *id) {
+                    let source = self.servers.remove(index);
+                    if self
+                        .source
+                        .as_ref()
+                        .is_some_and(|active| active.id == source.id)
+                    {
+                        self.source = None;
+                        self.token = None;
+                        self.client = None;
+                    }
+                    self.persist_accounts()?;
+                    let _ =
+                        std::fs::remove_dir_all(self.dirs.cache.join("jellyfin").join(&source.id));
+                    credentials(source, CredentialOp::Delete)?;
+                    self.emit(
+                        generation,
+                        Reply::ServersChanged {
+                            servers: self.servers.clone(),
+                            active: self.source.clone(),
+                        },
+                    );
+                }
+            }
             Command::Begin(server) => {
                 let id = format!("{:032x}", rand::random::<u128>());
                 let client = Client::new(server, &id, &job.proxy).map_err(|e| e.to_string())?;
@@ -310,8 +431,9 @@ impl Worker {
                 if !self.current(generation) {
                     return Ok(());
                 }
-                self.source = Some(Source {
+                self.pending_source = Some(Source {
                     id: id.clone(),
+                    nickname: String::new(),
                     server_url: client.server_url().into(),
                     server_id: info.id,
                     user_id: String::new(),
@@ -319,11 +441,13 @@ impl Worker {
                 });
                 self.emit(generation, Reply::Challenge(challenge.code.clone()));
                 self.challenge = Some(challenge);
-                self.client = Some(client);
-                self.token = None;
+                self.pending_client = Some(client);
             }
             Command::Poll => {
-                let client = self.client.as_ref().ok_or("Connect to a server first.")?;
+                let client = self
+                    .pending_client
+                    .as_ref()
+                    .ok_or("Connect to a server first.")?;
                 let challenge = self
                     .challenge
                     .as_ref()
@@ -344,29 +468,56 @@ impl Worker {
                     server_id,
                     token,
                 } = account;
-                let mut source = self.source.clone().ok_or("Connect to a server first.")?;
+                let mut source = self
+                    .pending_source
+                    .clone()
+                    .ok_or("Connect to a server first.")?;
                 if source.server_id != server_id {
                     return Err("Server identity changed during sign-in. Connect again.".into());
                 }
                 source.user_id = user_id;
+                if source.nickname.trim().is_empty() {
+                    source.nickname = source
+                        .server_url
+                        .trim_end_matches('/')
+                        .rsplit('/')
+                        .next()
+                        .unwrap_or("Jellyfin")
+                        .to_owned();
+                    if source.nickname.is_empty() {
+                        source.nickname = "Jellyfin".into();
+                    }
+                }
                 credentials(source.clone(), CredentialOp::Write(token.0.clone()))?;
                 if !self.current(generation) {
                     let _ = credentials(source, CredentialOp::Delete);
                     return Ok(());
                 }
-                fastframe_file::write(
-                    &self.account_file(),
-                    serde_json::to_vec(&source).map_err(|_| "Could not save Jellyfin account.")?,
-                )
-                .map_err(|_| "Could not save Jellyfin account.")?;
+                self.servers.retain(|saved| saved.id != source.id);
+                self.servers.push(source.clone());
+                let previous = self.source.clone();
+                self.source = Some(source.clone());
+                if let Err(error) = self.persist_accounts() {
+                    self.source = previous;
+                    self.servers.retain(|saved| saved.id != source.id);
+                    let _ = credentials(source, CredentialOp::Delete);
+                    return Err(error);
+                }
                 if !self.current(generation) {
-                    let _ = fastframe_file::write(&self.revoked_file(), source.id.as_bytes());
+                    self.servers.retain(|saved| saved.id != source.id);
+                    let _ = self.persist_accounts();
                     let _ = credentials(source, CredentialOp::Delete);
                     return Ok(());
                 }
                 self.source = Some(source.clone());
                 self.token = Some(token);
                 self.challenge = None;
+                self.pending_source = None;
+                self.pending_client = None;
+                self.client = Some(
+                    Client::new(&source.server_url, &source.device_id, &job.proxy)
+                        .map_err(|e| e.to_string())?,
+                );
                 self.emit(generation, Reply::Connected(source));
             }
             Command::Browse { view, start } => {
@@ -480,23 +631,39 @@ impl Worker {
             }
             Command::Cancel => {
                 self.challenge = None;
+                self.pending_source = None;
+                self.pending_client = None;
             }
             Command::SignOut => {
                 if let Some(source) = self.source.clone() {
-                    // Durable revocation precedes any possibly failing native
-                    // deletion, so the next launch cannot resurrect the grant.
-                    fastframe_file::write(&self.revoked_file(), source.id.as_bytes())
-                        .map_err(|_| "Could not revoke saved sign-in. Please retry sign-out.")?;
                     self.source = None;
                     self.token = None;
                     self.client = None;
-                    self.challenge = None;
-                    let _ = std::fs::remove_file(self.account_file());
+                    self.servers.retain(|saved| saved.id != source.id);
+                    self.persist_accounts()?;
                     let _ =
                         std::fs::remove_dir_all(self.dirs.cache.join("jellyfin").join(&source.id));
                     credentials(source, CredentialOp::Delete)?;
+                    if let Some(next) = self.servers.first().cloned() {
+                        let token = credentials(next.clone(), CredentialOp::Read)?
+                            .ok_or("Saved sign-in is unavailable.")?;
+                        self.client = Some(
+                            Client::new(&next.server_url, &next.device_id, &job.proxy)
+                                .map_err(|e| e.to_string())?,
+                        );
+                        self.token = Some(token);
+                        self.source = Some(next);
+                        self.persist_accounts()?;
+                    }
                 }
-                self.emit(generation, Reply::SignedOut);
+                self.emit(
+                    generation,
+                    Reply::Restored {
+                        source: self.source.clone(),
+                        servers: self.servers.clone(),
+                        provider: Provider::Jellyfin,
+                    },
+                );
             }
         }
         Ok(())
@@ -573,9 +740,23 @@ fn valid_source(source: &Source) -> bool {
 
 /// Non-secret saved identity, checked before restoring provider state.
 pub(crate) fn saved_playback_source(dirs: &AppDirs) -> Result<Source, String> {
-    let source: Source = std::fs::read(dirs.state.join("jellyfin-account.json"))
+    let bytes = std::fs::read(dirs.state.join("jellyfin-account.json"))
+        .map_err(|_| "Sign into Jellyfin in the app first.")?;
+    let source: Source = serde_json::from_slice::<SavedAccounts>(&bytes)
         .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .and_then(|accounts| {
+            accounts
+                .active_id
+                .and_then(|id| {
+                    accounts
+                        .servers
+                        .iter()
+                        .find(|source| source.id == id)
+                        .cloned()
+                })
+                .or_else(|| accounts.servers.into_iter().next())
+        })
+        .or_else(|| serde_json::from_slice(&bytes).ok())
         .filter(valid_source)
         .ok_or("Sign into Jellyfin in the app first.")?;
     if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
@@ -595,9 +776,28 @@ pub(crate) fn saved_playback_session(
     expected: &Source,
     proxy: &crate::settings::ProxyConfig,
 ) -> Result<(Client, Token), String> {
-    let source = saved_playback_source(dirs)?;
-    if &source != expected {
-        return Err("The Jellyfin account changed. Choose the track again.".into());
+    let bytes = std::fs::read(dirs.state.join("jellyfin-account.json"))
+        .map_err(|_| "Sign into Jellyfin in the app first.")?;
+    let saved = serde_json::from_slice::<SavedAccounts>(&bytes)
+        .ok()
+        .map(|accounts| accounts.servers)
+        .unwrap_or_else(|| {
+            serde_json::from_slice::<Source>(&bytes)
+                .ok()
+                .into_iter()
+                .collect()
+        });
+    let source = saved
+        .into_iter()
+        .find(|source| source.id == expected.id && source == expected)
+        .filter(valid_source)
+        .ok_or("The Jellyfin account changed or was removed. Choose the track again.")?;
+    if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
+        .ok()
+        .as_deref()
+        == Some(&source.id)
+    {
+        return Err("Saved Jellyfin sign-in was revoked.".into());
     }
     let token = credentials(source.clone(), CredentialOp::Read)?
         .ok_or("Saved Jellyfin sign-in is unavailable.")?;
@@ -614,11 +814,7 @@ pub fn probe_saved_playback(
     audible: bool,
     container: Option<&str>,
 ) -> Result<crate::jellyfin::spike::Report, String> {
-    let source: Source = std::fs::read(dirs.state.join("jellyfin-account.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .filter(valid_source)
-        .ok_or("Sign into Jellyfin in the app first.")?;
+    let source = saved_playback_source(dirs)?;
     if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
         .ok()
         .as_deref()
@@ -648,11 +844,38 @@ mod tests {
     fn source() -> Source {
         Source {
             id: format!("{:032x}", rand::random::<u128>()),
+            nickname: "Test server".into(),
             server_url: "https://music.example/jellyfin/".into(),
             server_id: "server1".into(),
             user_id: "user1".into(),
             device_id: "device1".into(),
         }
+    }
+
+    #[test]
+    fn saved_account_registry_restores_the_selected_account_and_legacy_files() {
+        let first = source();
+        let mut second = source();
+        second.id = "b".repeat(32);
+        second.nickname = "Upstairs".into();
+        let registry = SavedAccounts {
+            servers: vec![first.clone(), second.clone()],
+            active_id: Some(second.id.clone()),
+        };
+        let bytes = serde_json::to_vec(&registry).unwrap();
+        let loaded: SavedAccounts = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(loaded.servers.len(), 2);
+        assert_eq!(
+            loaded
+                .active_id
+                .and_then(|id| loaded.servers.into_iter().find(|server| server.id == id)),
+            Some(second)
+        );
+        let old_format = serde_json::to_vec(&first).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Source>(&old_format).unwrap(),
+            first
+        );
     }
 
     #[test]

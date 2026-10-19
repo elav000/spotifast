@@ -7,6 +7,8 @@
 //! cluster state in sync so phones and other clients see what this device
 //! is doing.
 
+pub mod queue;
+
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

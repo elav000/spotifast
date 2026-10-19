@@ -29,10 +29,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             fastframe_titlebar::drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
-            if app.jellyfin.enabled {
-                let origin = rect.min + Vec2::new(16.0, super::provider_titlebar_inset(ui.ctx()) + 12.0);
-                ui.scope_builder(egui::UiBuilder::new().max_rect(Rect::from_min_size(origin, Vec2::new(200.0, 32.0))), |ui| { super::topbar::provider_menu(app, ui); });
-            }
             let card_width = 440.0;
             let proxy_id = egui::Id::new("login-proxy-open");
             let proxy_open = ui
@@ -79,6 +75,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     theme::text(ui, "Spotifast", theme::bold(30.0), palette.text);
                     theme::text(ui, gettext(locale, "A native Spotify client."), theme::regular(14.5), palette.secondary);
                     ui.add_space(22.0);
+                    if app.jellyfin.enabled && !connecting && !matches!(app.auth, AuthStatus::WaitingForBrowser { .. }) {
+                        ui.horizontal(|ui| {
+                            if theme::pill_button(ui, &palette, "Spotify", app.jellyfin.provider == crate::provider::Provider::Spotify).clicked() {
+                                app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Spotify)));
+                            }
+                            if theme::pill_button(ui, &palette, "Jellyfin", false).clicked() {
+                                app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin)));
+                            }
+                        });
+                        ui.add_space(12.0);
+                    }
                     match &app.auth {
                         AuthStatus::WaitingForBrowser { url } => {
                             let url = url.clone();
@@ -348,6 +355,7 @@ mod tests {
             },
         );
         app.auth = AuthStatus::SignedOut;
+        app.jellyfin.enabled = true;
         ctx.data_mut(|data| data.insert_temp(egui::Id::new("login-proxy-open"), true));
         let screen = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(760.0, 520.0));
         let mut frame = |events| {
@@ -377,6 +385,8 @@ mod tests {
         };
         let first = frame(vec![]);
         assert!(visible_button(&first, "Sign in with Spotify"));
+        assert!(visible_button(&first, "Spotify"));
+        assert!(visible_button(&first, "Jellyfin"));
         let center = |label: &str| {
             let bounds = first
                 .nodes

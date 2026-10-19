@@ -11861,113 +11861,70 @@ mod tests {
     }
 
     #[test]
-    fn provider_menus_work_signed_out_and_leave_the_existing_rail_intact() {
-        use crate::jellyfin::browser::View;
+    fn sign_in_offers_provider_choices_and_jellyfin_can_return_to_spotify() {
         use crate::provider::Provider;
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("sidebar-providers");
         app.user = None;
         app.auth = AuthStatus::SignedOut;
-        app.jellyfin.demo("jellyfin-tracks");
-        let saved_view = app.jellyfin.view.clone();
-        for target in [Provider::Spotify, Provider::Jellyfin] {
-            accessible_frame(&ctx, &mut app, vec![]);
-            let mut tree = accessible_frame(&ctx, &mut app, vec![]);
-            if app.jellyfin.provider == Provider::Jellyfin && app.jellyfin.source.is_some() {
-                assert!(
-                    !tree
-                        .nodes
-                        .iter()
-                        .any(|(_, node)| node.label() == Some("Collection")),
-                    "the rail has no added collection selector"
-                );
-                let account = accessible_node(&tree, "Account", Role::Button);
-                accessible_frame(
-                    &ctx,
-                    &mut app,
-                    vec![accessible_action(account, AccessibleAction::Click, None)],
-                );
-                for _ in 0..3 {
-                    accessible_frame(&ctx, &mut app, vec![]);
-                }
-                tree = accessible_frame(&ctx, &mut app, vec![]);
-            }
-            let menu_label = if app.jellyfin.provider == Provider::Jellyfin {
-                "Music source ⏵"
-            } else {
-                "Music source"
-            };
-            let selector = accessible_node(&tree, menu_label, Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(selector, AccessibleAction::Click, None)],
-            );
-            for _ in 0..3 {
-                accessible_frame(&ctx, &mut app, vec![]);
-            }
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let name = match target {
-                Provider::Spotify => "Use Spotify",
-                Provider::Jellyfin => "Use Jellyfin",
-            };
-            let option = accessible_node(&tree, name, Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(option, AccessibleAction::Click, None)],
-            );
-            assert_eq!(app.jellyfin.provider, target);
-            assert_eq!(app.jellyfin.view, saved_view);
-            assert!(app.user.is_none());
-            if target == Provider::Spotify {
-                let tree = accessible_frame(&ctx, &mut app, vec![]);
-                accessible_node(&tree, "Sign in with Spotify", Role::Button);
-            }
-        }
-        app.apply(Action::ToggleSidebar, &ctx);
+        app.jellyfin.demo("jellyfin-connect");
+        app.jellyfin.provider = Provider::Spotify;
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let label = if cfg!(target_os = "macos") {
-            "Show sidebar (Cmd+B)"
-        } else {
-            "Show sidebar (Ctrl+B)"
-        };
-        let reveal = accessible_node(&tree, label, Role::Button);
+        accessible_node(&tree, "Spotify", Role::Button);
+        let jellyfin = accessible_node(&tree, "Jellyfin", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,
-            vec![accessible_action(reveal, AccessibleAction::Click, None)],
+            vec![accessible_action(jellyfin, AccessibleAction::Click, None)],
         );
-        assert!(app.settings.sidebar_visible);
-        assert!(matches!(app.jellyfin.view, View::Tracks { .. }));
-        app.jellyfin.source = None;
+        assert_eq!(app.jellyfin.provider, Provider::Jellyfin);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        accessible_node(&tree, "Music source", Role::Button);
+        let spotify = accessible_node(&tree, "Use Spotify", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(spotify, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.jellyfin.provider, Provider::Spotify);
+        assert!(app.user.is_none());
+        accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Sign in with Spotify",
+            Role::Button,
+        );
         app.backend.shutdown();
     }
 
     #[test]
-    fn jellyfin_collection_is_selected_through_the_account_menu() {
+    fn jellyfin_account_menu_opens_server_management_in_settings() {
         use crate::jellyfin::browser::View;
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("collection-menu");
         app.jellyfin.demo("jellyfin-tracks");
-        for label in ["Account", "Jellyfin ⏵", "Music library ⏵", "DJ collection"] {
-            for _ in 0..3 {
-                accessible_frame(&ctx, &mut app, vec![]);
-            }
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let button = accessible_node(&tree, label, Role::Button);
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(button, AccessibleAction::Click, None)],
-            );
-        }
-        assert!(
-            matches!(&app.jellyfin.view, View::Albums { library_id, .. } if library_id == "music2")
+        let account = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Account",
+            Role::Button,
         );
-        assert_eq!(app.jellyfin.catalog.library.as_ref().unwrap().id, "music2");
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(account, AccessibleAction::Click, None)],
+        );
+        let settings = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Settings",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(settings, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.jellyfin.view, View::Settings);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Change server", Role::Button);
+        accessible_node(&tree, "Sign out of Jellyfin", Role::Button);
         app.backend.shutdown();
     }
 

@@ -7,6 +7,7 @@ use crate::media::{
     pipeline::{BufferedDecoder, Readiness},
 };
 use crate::playback_output::OutputRequest;
+use crate::player::queue::ManualQueue;
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
 use crate::{backend::Waker, paths::AppDirs, player::EngineConfig, provider::Provider};
@@ -27,7 +28,7 @@ pub struct Snapshot {
     pub source_id: Option<String>,
     pub item: Option<Item>,
     pub tracks: Arc<Vec<Item>>,
-    pub queued: Arc<Vec<Item>>,
+    pub queued: ManualQueue<Item>,
     pub manual_current: bool,
     pub queue_complete: bool,
     pub index: usize,
@@ -207,7 +208,7 @@ impl Transport {
                 query: job.query.clone(),
                 item: item.clone(),
                 tracks: state.snapshot.tracks.as_ref().clone(),
-                queued: state.snapshot.queued.as_ref().clone(),
+                queued: state.snapshot.queued.to_vec(),
                 index: state.snapshot.index,
                 manual: state.snapshot.manual_current,
                 position_ms: state.snapshot.position_ms,
@@ -379,7 +380,7 @@ impl Transport {
             && let Some(mut job) = state.template.clone()
         {
             remember_current(&mut state);
-            state.snapshot.queued = Arc::default();
+            state.snapshot.queued.clear();
             job.item = item;
             job.manual = false;
             job.context_index = Some(index);
@@ -404,7 +405,7 @@ impl Transport {
             state.snapshot.error = Some("The Jellyfin queue is full (1,000 tracks).".into());
             return;
         }
-        Arc::make_mut(&mut state.snapshot.queued).push(item);
+        state.snapshot.queued.push(item);
         state.snapshot.error = None;
     }
 
@@ -422,16 +423,16 @@ impl Transport {
             .template
             .as_ref()
             .is_some_and(|job| &job.source == source)
-            || !Arc::ptr_eq(expected, &state.snapshot.queued)
+            || !state.snapshot.queued.is_snapshot(expected)
             || index >= state.snapshot.queued.len()
         {
             return;
         }
-        let queue = Arc::make_mut(&mut state.snapshot.queued);
-        let item = queue.remove(index);
         if let Some(to) = to {
-            let to = to.min(queue.len());
-            queue.insert(to, item);
+            let to = to.min(state.snapshot.queued.len().saturating_sub(1));
+            state.snapshot.queued.move_to(index, to);
+        } else {
+            state.snapshot.queued.remove(index);
         }
     }
 
@@ -447,18 +448,12 @@ impl Transport {
             .template
             .as_ref()
             .is_some_and(|job| &job.source == source)
-            || !Arc::ptr_eq(expected, &state.snapshot.queued)
+            || !state.snapshot.queued.is_snapshot(expected)
             || indices.iter().any(|index| *index >= expected.len())
         {
             return;
         }
-        let mut indices = indices.to_vec();
-        indices.sort_unstable();
-        indices.dedup();
-        let queue = Arc::make_mut(&mut state.snapshot.queued);
-        for index in indices.into_iter().rev() {
-            queue.remove(index);
-        }
+        state.snapshot.queued.remove_indices(indices);
     }
 
     pub fn clear_queue(&self) {
@@ -467,7 +462,7 @@ impl Transport {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .snapshot
-            .queued = Arc::default();
+            .queued = ManualQueue::default();
     }
 
     pub fn play_queued(&self, index: usize) {
@@ -479,7 +474,7 @@ impl Transport {
             && let Some(mut job) = state.template.clone()
         {
             remember_current(&mut state);
-            Arc::make_mut(&mut state.snapshot.queued).drain(..=index);
+            state.snapshot.queued.remove_through(index);
             job.album = item.album_id.clone().unwrap_or(job.album);
             job.item = item;
             job.manual = true;
@@ -678,7 +673,7 @@ fn select(state: &mut State, job: Job) {
     let queued = if same_source {
         state.snapshot.queued.clone()
     } else {
-        Arc::default()
+        ManualQueue::default()
     };
     if !same_source {
         state.history.clear();
@@ -749,7 +744,11 @@ fn advance(state: &mut State, forward: bool) {
     let target = if forward {
         if !state.snapshot.queued.is_empty() {
             Some(Cursor {
-                item: Arc::make_mut(&mut state.snapshot.queued).remove(0),
+                item: state
+                    .snapshot
+                    .queued
+                    .pop_front()
+                    .expect("queue was not empty"),
                 index: state.snapshot.index,
                 manual: true,
             })
@@ -789,7 +788,7 @@ fn advance(state: &mut State, forward: bool) {
         } else if state.snapshot.manual_current
             && let Some(item) = state.snapshot.item.clone()
         {
-            Arc::make_mut(&mut state.snapshot.queued).insert(0, item);
+            state.snapshot.queued.insert(0, item);
         }
         select_cursor(state, target);
     } else if forward {
@@ -864,7 +863,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         source_id: Some(saved.source.id),
         item: Some(saved.item),
         tracks: Arc::new(saved.tracks),
-        queued: Arc::new(saved.queued),
+        queued: ManualQueue::from(saved.queued),
         index: saved.index,
         manual_current: saved.manual,
         position_ms: saved.position_ms,
@@ -1691,7 +1690,7 @@ mod tests {
         for id in ["x", "x", "y"] {
             transport.enqueue(&source, item(id));
         }
-        let expected = transport.snapshot().queued;
+        let expected = transport.snapshot().queued.snapshot();
         let mut other = source.clone();
         other.user_id.push('x');
         transport.edit_manual(&other, &expected, 0, None);
@@ -1712,7 +1711,7 @@ mod tests {
             3,
             "stale menu cannot remove a different occurrence"
         );
-        let expected = transport.snapshot().queued;
+        let expected = transport.snapshot().queued.snapshot();
         transport.edit_manual(&source, &expected, 0, None);
         assert_eq!(
             transport
@@ -1740,7 +1739,7 @@ mod tests {
         for id in ["x", "x", "y"] {
             transport.enqueue(&source, item(id));
         }
-        let expected = transport.snapshot().queued;
+        let expected = transport.snapshot().queued.snapshot();
         let mut other = source.clone();
         other.user_id.push('x');
         transport.remove_manual(&other, &expected, &[0, 2]);

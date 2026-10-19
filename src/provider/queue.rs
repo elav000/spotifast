@@ -300,7 +300,7 @@ impl App {
                 let edit = |to| {
                     Action::Jellyfin(A::EditManual {
                         source: source.clone(),
-                        expected: state.queued.clone(),
+                        expected: state.queued.snapshot(),
                         index,
                         to,
                     })
@@ -368,7 +368,7 @@ impl App {
         QueuePresentation {
             removal: source.map(|source| QueueRemoval::Jellyfin {
                 source: source.clone(),
-                expected: state.queued.clone(),
+                expected: state.queued.snapshot(),
             }),
             add: source
                 .filter(|source| self.jellyfin.source.as_ref() == Some(*source))

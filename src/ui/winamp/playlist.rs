@@ -1054,7 +1054,7 @@ mod tests {
             .iter()
             .map(|item| item.uri().to_string())
             .collect();
-        app.manual_queue = queued.clone();
+        app.manual_queue = queued.clone().into();
         let (rows, queue) = rows(&app, now.as_ref());
         assert!(rows[0].current);
         // The second queued song, and the first song of Next up after it.

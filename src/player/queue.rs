@@ -8,6 +8,68 @@ use super::RepeatMode;
 use std::ops::Deref;
 use std::sync::Arc;
 
+/// Stable context row order used by local playback shuffle and queue display.
+/// The serialized form remains a plain array of context indices.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct PlaybackOrder(Vec<usize>);
+
+impl PlaybackOrder {
+    pub fn for_context(len: usize, current: usize, shuffle: bool) -> Self {
+        let mut order: Vec<_> = (0..len).collect();
+        if shuffle {
+            order.retain(|index| *index != current);
+            use rand::seq::SliceRandom;
+            order.shuffle(&mut rand::rng());
+            if current < len {
+                order.insert(0, current);
+            }
+        }
+        Self(order)
+    }
+
+    pub fn is_valid_for(&self, len: usize) -> bool {
+        if self.0.len() != len {
+            return false;
+        }
+        let mut seen = vec![false; len];
+        self.0.iter().all(|index| {
+            if *index >= len || seen[*index] {
+                false
+            } else {
+                seen[*index] = true;
+                true
+            }
+        })
+    }
+
+    pub fn rotate_to(&mut self, index: usize) -> bool {
+        let Some(position) = self.0.iter().position(|row| *row == index) else {
+            return false;
+        };
+        self.0.rotate_left(position);
+        true
+    }
+
+    pub fn into_vec(self) -> Vec<usize> {
+        self.0
+    }
+}
+
+impl Deref for PlaybackOrder {
+    type Target = [usize];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Vec<usize>> for PlaybackOrder {
+    fn from(order: Vec<usize>) -> Self {
+        Self(order)
+    }
+}
+
 /// A playback location that can be revisited by the Previous command.
 ///
 /// Context rows use their stable position in the context. Manually queued
@@ -388,6 +450,22 @@ impl<T: PartialEq<U>, U, const N: usize> PartialEq<[U; N]> for ManualQueue<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playback_order_keeps_a_permutation_and_serializes_as_the_existing_array() {
+        let mut order = PlaybackOrder::for_context(5, 2, true);
+        assert!(order.is_valid_for(5));
+        assert_eq!(order.first(), Some(&2));
+        assert!(order.rotate_to(4));
+        assert_eq!(order.first(), Some(&4));
+        assert!(order.is_valid_for(5));
+        assert!(!order.rotate_to(9));
+
+        let json = serde_json::to_string(&order).unwrap();
+        assert!(json.starts_with('['));
+        assert_eq!(serde_json::from_str::<PlaybackOrder>(&json).unwrap(), order);
+        assert!(!PlaybackOrder::from(vec![0, 0]).is_valid_for(2));
+    }
 
     fn cursor(item: &'static str, index: usize, manual: bool) -> PlaybackCursor<&'static str> {
         PlaybackCursor {

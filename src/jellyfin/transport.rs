@@ -8,7 +8,8 @@ use crate::media::{
 };
 use crate::playback_output::OutputRequest;
 use crate::player::queue::{
-    ManualQueue, PlaybackCursor, PlaybackHistory, QueueTransition, TransitionPolicy, transition,
+    ManualQueue, PlaybackCursor, PlaybackHistory, PlaybackOrder, QueueTransition, TransitionPolicy,
+    transition,
 };
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -16,7 +17,6 @@ use crate::{backend::Waker, paths::AppDirs, player::EngineConfig, provider::Prov
 use librespot_playback::{
     audio_backend::Sink, convert::Converter, decoder::AudioPacket, mixer::VolumeGetter,
 };
-use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::{
     sync::{
@@ -81,7 +81,7 @@ struct SavedPlayback {
     #[serde(default)]
     repeat: crate::player::RepeatMode,
     #[serde(default)]
-    shuffle_order: Vec<usize>,
+    shuffle_order: PlaybackOrder,
 }
 
 const SAVED_LIMIT: u64 = 16 * 1024 * 1024;
@@ -98,7 +98,7 @@ struct State {
     shutdown: bool,
     active_epoch: Option<u64>,
     history: PlaybackHistory<Item>,
-    context_order: Vec<usize>,
+    context_order: PlaybackOrder,
     restored: bool,
 }
 
@@ -133,7 +133,7 @@ impl Transport {
                 shutdown: false,
                 active_epoch: None,
                 history: PlaybackHistory::default(),
-                context_order: Vec::new(),
+                context_order: PlaybackOrder::default(),
                 restored: !enabled,
             }),
             changed: Condvar::new(),
@@ -162,7 +162,7 @@ impl Transport {
     pub fn snapshot(&self) -> Snapshot {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         let mut snapshot = state.snapshot.clone();
-        snapshot.context_order = Arc::new(state.context_order.clone());
+        snapshot.context_order = Arc::new(state.context_order.clone().into_vec());
         snapshot
     }
 
@@ -324,9 +324,8 @@ impl Transport {
                 .template
                 .as_ref()
                 .is_some_and(|current| current.source == job.source && current.album == job.album)
-            && let Some(position) = state.context_order.iter().position(|row| *row == index)
         {
-            state.context_order.rotate_left(position);
+            state.context_order.rotate_to(index);
         }
         select(&mut state, job);
         self.shared.changed.notify_one();
@@ -383,7 +382,7 @@ impl Transport {
         }
         state.snapshot.shuffle = enabled;
         let len = state.snapshot.tracks.len();
-        state.context_order = context_order(len, state.snapshot.index, enabled);
+        state.context_order = PlaybackOrder::for_context(len, state.snapshot.index, enabled);
         drop(state);
         self.shared.waker.wake();
     }
@@ -422,10 +421,8 @@ impl Transport {
         {
             remember_current(&mut state);
             state.snapshot.queued.clear();
-            if state.snapshot.shuffle
-                && let Some(position) = state.context_order.iter().position(|row| *row == index)
-            {
-                state.context_order.rotate_left(position);
+            if state.snapshot.shuffle {
+                state.context_order.rotate_to(index);
             }
             job.item = item;
             job.manual = false;
@@ -695,33 +692,6 @@ fn level(volume: u8) -> f64 {
     (f64::from(volume) / 100.0).powi(3)
 }
 
-fn context_order(len: usize, current: usize, shuffle: bool) -> Vec<usize> {
-    let mut order: Vec<_> = (0..len).collect();
-    if shuffle {
-        order.retain(|index| *index != current);
-        order.shuffle(&mut rand::rng());
-        if current < len {
-            order.insert(0, current);
-        }
-    }
-    order
-}
-
-fn valid_context_order(order: &[usize], len: usize) -> bool {
-    if order.len() != len {
-        return false;
-    }
-    let mut seen = vec![false; len];
-    order.iter().all(|index| {
-        if *index >= len || seen[*index] {
-            false
-        } else {
-            seen[*index] = true;
-            true
-        }
-    })
-}
-
 struct Volume(Arc<AtomicU64>);
 impl VolumeGetter for Volume {
     fn attenuation_factor(&self) -> f64 {
@@ -786,7 +756,7 @@ fn select(state: &mut State, job: Job) {
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
     if context_changed || state.context_order.len() != tracks.len() {
-        state.context_order = context_order(tracks.len(), index, shuffle);
+        state.context_order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
     }
     state.snapshot = Snapshot {
         source_id: Some(job.source.id.clone()),
@@ -888,7 +858,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
             || saved.queued.len() > 1000
             || saved.history.len() > PlaybackHistory::<Item>::LIMIT
             || (!saved.shuffle_order.is_empty()
-                && !valid_context_order(&saved.shuffle_order, saved.tracks.len()))
+                && !saved.shuffle_order.is_valid_for(saved.tracks.len()))
             || saved.index >= saved.tracks.len()
             || (!saved.manual && saved.tracks[saved.index].id != saved.item.id)
             || !saved
@@ -915,7 +885,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     let shuffle = saved.shuffle;
     let repeat = saved.repeat;
     state.context_order = if saved.shuffle_order.is_empty() {
-        context_order(saved.tracks.len(), saved.index, shuffle)
+        PlaybackOrder::for_context(saved.tracks.len(), saved.index, shuffle)
     } else {
         saved.shuffle_order.clone()
     };
@@ -1075,7 +1045,7 @@ fn session(
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
         if state.context_order.len() != state.snapshot.tracks.len() {
-            state.context_order = context_order(
+            state.context_order = PlaybackOrder::for_context(
                 state.snapshot.tracks.len(),
                 state.snapshot.index,
                 state.snapshot.shuffle,
@@ -1451,7 +1421,7 @@ mod tests {
         );
         shuffled.set_shuffle(true);
         let order = shuffled.shared.state.lock().unwrap().context_order.clone();
-        assert!(valid_context_order(&order, 3));
+        assert!(order.is_valid_for(3));
         assert_eq!(order.first(), Some(&0));
         shuffled.step(true);
         assert_eq!(shuffled.snapshot().index, order[1]);

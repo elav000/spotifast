@@ -10662,6 +10662,20 @@ impl App {
             }
             Action::ProviderLibrary(action) => self.apply_provider_library(action),
             Action::Jellyfin(action) => self.apply_jellyfin_action(action),
+            Action::ToggleShuffle if self.jellyfin_player.controls_output() => {
+                let snapshot = self.jellyfin_player.snapshot();
+                self.jellyfin_player.set_shuffle(!snapshot.shuffle);
+            }
+            Action::SetShuffle(shuffle) if self.jellyfin_player.controls_output() => {
+                self.jellyfin_player.set_shuffle(shuffle);
+            }
+            Action::CycleRepeat if self.jellyfin_player.controls_output() => {
+                let repeat = self.jellyfin_player.snapshot().repeat.next();
+                self.jellyfin_player.set_repeat(repeat);
+            }
+            Action::SetRepeat(repeat) if self.jellyfin_player.controls_output() => {
+                self.jellyfin_player.set_repeat(repeat);
+            }
             Action::ToggleShuffle
             | Action::SetShuffle(_)
             | Action::SetRepeat(_)

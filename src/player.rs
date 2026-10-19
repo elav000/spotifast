@@ -118,7 +118,7 @@ pub enum Playback {
     Paused,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RepeatMode {
     #[default]
     Off,

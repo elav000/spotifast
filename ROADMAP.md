@@ -45,24 +45,24 @@ completed milestones below supersede their old "next step" language.
   Automated full-to-mini-to-full tests cover order, duplicates, selection, source
   ownership and retained playback state. Spotify queue save stays Spotify-owned
   even while browsing Jellyfin.
+- Live Jellyfin queue acceptance passed: repeated manual entries matched in main
+  and mini views; Next, playing a selected entry, selected removal, clear, pause,
+  resume and seek behaved as expected. With a multi-track album playing, the
+  manual entry appeared ahead of album context; the maintainer confirmed Next
+  and clear preserve the expected context.
 - Integrated 42 upstream commits through `ee8900d54693a807d657154e6b16ea572e963791`,
   including upstream 0.13.3. Preserved provider adapters and adapted the new
   fullscreen queue column. The combined lockfile's Nix vendor hash is refreshed.
 
 ## Next session: bugs and live acceptance
 
-1. **Complete live main/mini queue acceptance.** The user says the mini playlist
-   looks good; audible continuity and the complete workflow are not yet recorded
-   as passed. Add a repeated song twice, compare order in both views, use Next,
-   play a particular queued copy, remove selected/all manual entries, and switch
-   back. Confirm current song, remaining duplicates/context, Pause/resume and seek.
-2. **Verify playlist load/save against the live Jellyfin server.** Automated checks
+1. **Verify playlist load/save against the live Jellyfin server.** Automated checks
    verify provider-bound actions; a real server mutation is still outstanding.
    Queue save currently uses the main view's private-playlist/deduplication policy.
-3. **Show real mini-player media metadata.** The existing bitrate/sample-rate
+2. **Show real mini-player media metadata.** The existing bitrate/sample-rate
    readout assumes Spotify's configured bitrate and 44 kHz. Feed actual Jellyfin
    media metadata through shared presentation rather than hard-coding a format.
-4. **MP3 startup recovery is verified.** Reproduced on
+3. **MP3 startup recovery is verified.** Reproduced on
    "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
    rejects its first packet at timestamp zero with `mpa: invalid main_data
    offset`. The current entity was checked online and its exact-length cached

@@ -18,6 +18,8 @@ pub use crate::provider::Provider;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Source {
     pub id: String,
+    #[serde(default)]
+    pub nickname: String,
     pub server_url: String,
     pub server_id: String,
     pub user_id: String,
@@ -141,6 +143,9 @@ pub enum Command {
         start: u32,
     },
     Cancel,
+    RenameServer(Source),
+    ActivateServer(String),
+    RemoveServer(String),
     SignOut,
     Select(Provider),
 }
@@ -178,6 +183,7 @@ pub enum Reply {
     },
     Restored {
         source: Option<Source>,
+        servers: Vec<Source>,
         provider: Provider,
     },
     Challenge(String),
@@ -188,6 +194,12 @@ pub enum Reply {
         cached: bool,
     },
     SignedOut,
+    Renamed(Source),
+    ServersChanged {
+        servers: Vec<Source>,
+        active: Option<Source>,
+    },
+    Activated(Source),
     Error(String),
 }
 
@@ -212,6 +224,7 @@ pub struct Browser {
     pub provider: Provider,
     pub server_input: String,
     pub source: Option<Source>,
+    pub servers: Vec<Source>,
     pub code: Option<String>,
     pub view: View,
     pub rows: Option<Rows>,
@@ -277,6 +290,7 @@ impl Browser {
             },
             server_input: String::new(),
             source: None,
+            servers: Vec::new(),
             code: None,
             view: View::Libraries,
             rows: None,
@@ -481,17 +495,66 @@ impl Browser {
                 self.catalog.busy = false;
             }
             Reply::Catalog { .. } | Reply::CatalogError { .. } => {}
-            Reply::Restored { source, provider } => {
+            Reply::Restored {
+                source,
+                servers,
+                provider,
+            } => {
+                self.servers = servers;
                 if !self.selection_changed {
                     self.provider = provider;
                 }
                 self.busy = false;
+                let changed = self.source.as_ref().map(|source| &source.id)
+                    != source.as_ref().map(|source| &source.id);
+                if changed {
+                    self.rows = None;
+                    self.catalog = Catalog::default();
+                    self.libraries.clear();
+                    self.playlists.clear();
+                }
+                self.source = source.clone();
                 if let Some(source) = source {
                     self.server_input = source.server_url.clone();
-                    self.source = Some(source);
                     self.browse(View::Libraries, 0, proxy);
                     self.load_playlists(proxy);
                 }
+            }
+            Reply::Renamed(source) => {
+                if self
+                    .source
+                    .as_ref()
+                    .is_some_and(|active| active.id == source.id)
+                {
+                    self.source = Some(source.clone());
+                }
+                if let Some(saved) = self.servers.iter_mut().find(|saved| saved.id == source.id) {
+                    *saved = source;
+                }
+            }
+            Reply::ServersChanged { servers, active } => {
+                self.servers = servers;
+                let changed = self.source.as_ref().map(|source| &source.id)
+                    != active.as_ref().map(|source| &source.id);
+                if changed {
+                    self.source = active.clone();
+                    if let Some(source) = active {
+                        self.server_input = source.server_url;
+                        self.reset_for_server_switch();
+                        self.browse(View::Libraries, 0, proxy);
+                        self.load_playlists(proxy);
+                    } else {
+                        self.reset_for_server_switch();
+                        self.busy = false;
+                    }
+                }
+            }
+            Reply::Activated(source) => {
+                self.source = Some(source.clone());
+                self.server_input = source.server_url.clone();
+                self.reset_for_server_switch();
+                self.browse(View::Libraries, 0, proxy);
+                self.load_playlists(proxy);
             }
             Reply::Challenge(code) => {
                 self.code = Some(code);
@@ -501,6 +564,10 @@ impl Browser {
             Reply::Pending => self.poll_at = Some(Instant::now() + Duration::from_secs(5)),
             Reply::Connected(source) => {
                 self.source = Some(source);
+                if let Some(source) = self.source.clone() {
+                    self.servers.retain(|saved| saved.id != source.id);
+                    self.servers.push(source);
+                }
                 self.clear_challenge();
                 self.browse(View::Libraries, 0, proxy);
                 self.load_playlists(proxy);
@@ -639,23 +706,6 @@ impl Browser {
 
     pub fn connect(&mut self, proxy: &ProxyConfig) {
         self.advance();
-        self.rows = None;
-        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
-        self.catalog = Catalog::default();
-        self.libraries.clear();
-        self.playlists.clear();
-        self.report_error = None;
-        self.playlists_loading = false;
-        self.playlists_error = None;
-        self.edit_busy = false;
-        self.edit_error = None;
-        self.album = None;
-        self.source = None;
-        self.view = View::Libraries;
-        self.history = vec![(View::Libraries, 0)];
-        self.history_index = 0;
-        self.search_input.clear();
-        self.search_typed_at = None;
         self.busy = true;
         self.send(proxy, Command::Begin(self.server_input.clone()));
     }
@@ -686,6 +736,52 @@ impl Browser {
         self.search_typed_at = None;
         self.busy = true;
         self.send(proxy, Command::SignOut);
+    }
+
+    pub fn rename_server(&mut self, id: String, nickname: String, proxy: &ProxyConfig) {
+        let nickname = nickname.trim();
+        if !nickname.is_empty()
+            && let Some(mut source) = self.servers.iter().find(|source| source.id == id).cloned()
+        {
+            source.nickname = nickname.to_owned();
+            if self.source.as_ref().is_some_and(|active| active.id == id) {
+                self.source = Some(source.clone());
+            }
+            if let Some(saved) = self.servers.iter_mut().find(|saved| saved.id == id) {
+                *saved = source.clone();
+            }
+            self.send(proxy, Command::RenameServer(source));
+        }
+    }
+
+    fn reset_for_server_switch(&mut self) {
+        self.rows = None;
+        self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+        self.catalog = Catalog::default();
+        self.libraries.clear();
+        self.playlists.clear();
+        self.playlists_loading = false;
+        self.album = None;
+        self.view = View::Libraries;
+        self.history = vec![(View::Libraries, 0)];
+        self.history_index = 0;
+        self.busy = true;
+    }
+
+    pub fn activate_server(&mut self, id: String, proxy: &ProxyConfig) {
+        if self.servers.iter().any(|server| server.id == id) {
+            self.advance();
+            self.reset_for_server_switch();
+            self.send(proxy, Command::ActivateServer(id));
+        }
+    }
+
+    pub fn remove_server(&mut self, id: String, proxy: &ProxyConfig) {
+        if self.source.as_ref().is_some_and(|source| source.id == id) {
+            self.advance();
+            self.reset_for_server_switch();
+        }
+        self.send(proxy, Command::RemoveServer(id));
     }
 
     pub fn select_catalog(&mut self, library: MusicLibrary, proxy: &ProxyConfig) {
@@ -849,6 +945,12 @@ pub enum BrowserAction {
     ServerInput(String),
     Filter(String),
     Connect,
+    RenameServer {
+        id: String,
+        nickname: String,
+    },
+    ActivateServer(String),
+    RemoveServer(String),
     Cancel,
     SignOut,
     Browse {
@@ -956,14 +1058,32 @@ impl crate::app::App {
                     .browse(View::Settings, 0, &self.applied_jellyfin_proxy());
             }
             BrowserAction::ServerInput(value) => self.jellyfin.server_input = value,
+            BrowserAction::RenameServer { id, nickname } => {
+                self.jellyfin
+                    .rename_server(id, nickname, &self.applied_jellyfin_proxy())
+            }
+            BrowserAction::ActivateServer(id) => self
+                .jellyfin
+                .activate_server(id, &self.applied_jellyfin_proxy()),
+            BrowserAction::RemoveServer(id) => {
+                if self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.id == id)
+                {
+                    self.jellyfin.report_playback(
+                        &self.jellyfin_player.snapshot(),
+                        false,
+                        &self.applied_jellyfin_proxy(),
+                    );
+                    self.jellyfin_player.stop();
+                }
+                self.jellyfin
+                    .remove_server(id, &self.applied_jellyfin_proxy());
+            }
             BrowserAction::Filter(value) => self.jellyfin.filter = value,
             BrowserAction::Connect => {
-                self.jellyfin.report_playback(
-                    &self.jellyfin_player.snapshot(),
-                    false,
-                    &self.applied_jellyfin_proxy(),
-                );
-                self.jellyfin_player.stop();
                 self.jellyfin.connect(&self.applied_jellyfin_proxy());
             }
             BrowserAction::Cancel => self.jellyfin.cancel(&self.applied_jellyfin_proxy()),
@@ -1123,11 +1243,13 @@ impl Browser {
         self.server_input = "https://music.example/jellyfin/".into();
         self.source = Some(Source {
             id: "0123456789abcdef0123456789abcdef".into(),
+            nickname: "Music server".into(),
             server_url: self.server_input.clone(),
             server_id: "server1".into(),
             user_id: "user1".into(),
             device_id: "device1".into(),
         });
+        self.servers = self.source.clone().into_iter().collect();
         self.view = View::Libraries;
         self.album = None;
         self.rows = Some(Rows::Libraries(vec![
@@ -1386,6 +1508,62 @@ mod tests {
         model
     }
     use std::path::PathBuf;
+
+    #[test]
+    fn old_saved_account_without_nickname_remains_readable() {
+        let source: Source = serde_json::from_value(serde_json::json!({
+            "id": "id",
+            "server_url": "https://music.example/jellyfin/",
+            "server_id": "server",
+            "user_id": "user",
+            "device_id": "device"
+        }))
+        .unwrap();
+        assert!(source.nickname.is_empty());
+    }
+
+    #[test]
+    fn server_management_keeps_names_per_saved_account_and_activates_by_identity() {
+        let mut model = model();
+        let mut other = model.source.clone().unwrap();
+        other.id = "fedcba9876543210fedcba9876543210".into();
+        other.nickname = "Bedroom".into();
+        model.servers.push(other.clone());
+        let (tx, jobs) = mpsc::channel();
+        model.tx = Some(tx);
+        model.rename_server(other.id.clone(), "Upstairs".into(), &ProxyConfig::Off);
+        assert_eq!(model.servers[1].nickname, "Upstairs");
+        assert!(matches!(
+            jobs.try_recv().unwrap().command,
+            Command::RenameServer(_)
+        ));
+        model.activate_server(other.id.clone(), &ProxyConfig::Off);
+        assert!(
+            matches!(jobs.try_recv().unwrap().command, Command::ActivateServer(id) if id == other.id)
+        );
+    }
+
+    #[test]
+    fn adding_a_server_keeps_the_current_account_and_settings_page_while_approving() {
+        let mut model = model();
+        model.view = View::Settings;
+        let source = model.source.clone();
+        let rows = model.rows.clone();
+        let (tx, jobs) = mpsc::channel();
+        model.tx = Some(tx);
+        model.server_input = "https://another.example/jellyfin".into();
+        model.connect(&ProxyConfig::Off);
+        assert_eq!(model.source, source);
+        assert_eq!(
+            model.rows.as_ref().map(|_| &model.view),
+            Some(&View::Settings)
+        );
+        assert!(matches!(
+            jobs.try_recv().unwrap().command,
+            Command::Begin(_)
+        ));
+        assert!(rows.is_some());
+    }
 
     #[test]
     fn provider_navigation_keeps_history_and_shelf_queries_independent() {
@@ -1697,6 +1875,7 @@ mod tests {
         model.apply(
             Reply::Restored {
                 source: None,
+                servers: Vec::new(),
                 provider: Provider::Jellyfin,
             },
             &ProxyConfig::Off,

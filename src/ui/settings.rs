@@ -605,26 +605,57 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 });
                 if app.jellyfin.provider == crate::provider::Provider::Jellyfin {
                     ui.add_space(12.0);
-                    if let Some(source) = app.jellyfin.source.as_ref() {
-                        theme::text(ui, &source.server_url, theme::regular(14.0), palette.text);
-                        theme::text(
-                            ui,
-                            "Connected to Jellyfin",
-                            theme::regular(12.0),
-                            palette.secondary,
-                        );
-                        ui.add_space(8.0);
+                    for source in app.jellyfin.servers.clone() {
                         ui.horizontal_wrapped(|ui| {
-                            if theme::pill_button(ui, &palette, "Change server", false).clicked()
-                                || theme::pill_button(ui, &palette, "Sign out of Jellyfin", false)
-                                    .clicked()
-                            {
+                            let mut nickname = source.nickname.clone();
+                            let edit = widgets::text_edit(
+                                ui,
+                                locale,
+                                egui::TextEdit::singleline(&mut nickname)
+                                    .id(egui::Id::new(("jellyfin-server-nickname", &source.id)))
+                                    .hint_text("Server nickname")
+                                    .font(theme::regular(14.0))
+                                    .desired_width(190.0),
+                            );
+                            if edit.lost_focus() && nickname.trim() != source.nickname {
                                 app.actions.push(Action::Jellyfin(
-                                    crate::jellyfin::browser::BrowserAction::SignOut,
+                                    crate::jellyfin::browser::BrowserAction::RenameServer {
+                                        id: source.id.clone(),
+                                        nickname,
+                                    },
+                                ));
+                            }
+                            theme::text(
+                                ui,
+                                &source.server_url,
+                                theme::regular(12.0),
+                                palette.secondary,
+                            );
+                            let active = app
+                                .jellyfin
+                                .source
+                                .as_ref()
+                                .is_some_and(|active| active.id == source.id);
+                            if active {
+                                theme::text(ui, "Active", theme::regular(12.0), palette.accent);
+                            } else if theme::pill_button(ui, &palette, "Use", false).clicked() {
+                                app.actions.push(Action::Jellyfin(
+                                    crate::jellyfin::browser::BrowserAction::ActivateServer(
+                                        source.id.clone(),
+                                    ),
+                                ));
+                            }
+                            if theme::pill_button(ui, &palette, "Remove", false).clicked() {
+                                app.actions.push(Action::Jellyfin(
+                                    crate::jellyfin::browser::BrowserAction::RemoveServer(
+                                        source.id,
+                                    ),
                                 ));
                             }
                         });
-                    } else {
+                    }
+                    ui.add_space(8.0);
+                    {
                         let mut server = app.jellyfin.server_input.clone();
                         let field = Frame::new()
                             .fill(palette.surface)

@@ -1315,6 +1315,7 @@ mod tests {
     fn source() -> Source {
         Source {
             id: "0123456789abcdef0123456789abcdef".into(),
+            nickname: "Test server".into(),
             server_url: "http://127.0.0.1:1/".into(),
             server_id: "server1".into(),
             user_id: "user1".into(),

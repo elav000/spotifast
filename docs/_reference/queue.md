@@ -25,8 +25,10 @@ removed together against the displayed snapshot, so duplicates and intervening
 playback changes cannot make later removals target a different row.
 
 Spotify and Jellyfin share the ordered manual-occurrence queue storage and its
-snapshot-safe row edits. Spotify's service queue reconciliation and Jellyfin's
-source-bound playback and media execution remain in their provider controllers.
+snapshot-safe row edits. The provider-neutral queue module also provides
+bounded backward-playback cursor history for local Previous handling; Jellyfin
+uses it while Spotify's service queue and transition reconciliation remain in
+the Spotify controller.
 
 Starting and resuming are separate actions. With Shuffle off, a playlist's
 **Play** button starts at its first available song in the selected order.

@@ -20,7 +20,9 @@ use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::QueueTab;
 use crate::model::*;
 use crate::paths::AppDirs;
-use crate::player::{EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode};
+use crate::player::{
+    EngineConfig, LoadSpec, LocalState, Playback, PlayerCommand, RepeatMode, queue::ManualQueue,
+};
 use crate::settings::{CachedRootlist, SessionState, Settings, ThemeChoice};
 use crate::single_instance::ControlCommand;
 use crate::theme::{self, Palette};
@@ -872,7 +874,7 @@ pub struct App {
     /// Manually queued songs restored with the remembered track.
     pub resume_queue: Vec<String>,
     /// Manually queued songs from this session, oldest first.
-    pub manual_queue: Vec<String>,
+    pub manual_queue: ManualQueue<String>,
     /// Queue additions shown before Spotify confirms them, with request time.
     pending_queue_adds: Vec<PendingQueueAdd>,
     pending_album_queues: HashMap<u64, PendingAlbumQueue>,
@@ -1531,7 +1533,7 @@ impl App {
             resume_position_ms: session.last_position_ms,
             resume_load: None,
             resume_queue: session.last_added_queue.clone(),
-            manual_queue: Vec::new(),
+            manual_queue: ManualQueue::default(),
             pending_queue_adds: Vec::new(),
             pending_album_queues: HashMap::new(),
             pending_queue_batches: HashMap::new(),
@@ -13192,9 +13194,11 @@ impl App {
                     return;
                 }
                 if from < self.manual_queue.len() {
-                    let uri = self.manual_queue.remove(from);
-                    let at = (if to > from { to - 1 } else { to }).min(self.manual_queue.len());
-                    self.manual_queue.insert(at, uri);
+                    let at = (if to > from { to - 1 } else { to })
+                        .min(self.manual_queue.len().saturating_sub(1));
+                    if !self.manual_queue.move_to(from, at) {
+                        return;
+                    }
                     // Pending additions are tracked by manual_queue index;
                     // shift them the same way the move just shifted the row
                     // they point at, or they end up naming a different song.
@@ -15379,7 +15383,7 @@ impl App {
                 collapsed_folders: self.collapsed_folders.clone(),
                 rootlist: self.rootlist_cache.clone(),
                 last_added_queue: if self.resume_queue.is_empty() {
-                    self.manual_queue.clone()
+                    self.manual_queue.to_vec()
                 } else {
                     // Never resumed this session; the owed queue carries over.
                     self.resume_queue.clone()
@@ -21053,7 +21057,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()].into();
         app.queue = loaded_queue(
             "spotify:track:a",
             &["spotify:track:b", "spotify:track:c", "spotify:track:d"],
@@ -21198,7 +21202,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()].into();
         app.queue = loaded_queue(
             "spotify:track:a",
             &[
@@ -21460,7 +21464,7 @@ mod tests {
                 ..Default::default()
             };
             app.on_now_playing_changed();
-            app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:b".into()];
+            app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:b".into()].into();
             app.queue = loaded_queue(
                 "spotify:track:a",
                 &[
@@ -22013,7 +22017,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()].into();
         app.pending_queue_adds = vec![PendingQueueAdd {
             item: queued_song("spotify:track:c"),
             at: Instant::now(),
@@ -22039,7 +22043,7 @@ mod tests {
     #[test]
     fn the_queued_section_covers_only_the_users_own_rows() {
         let mut app = headless_app();
-        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()];
+        app.manual_queue = vec!["spotify:track:b".into(), "spotify:track:c".into()].into();
         app.queue = loaded_queue(
             "spotify:track:a",
             &[
@@ -22085,7 +22089,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:manual1".into()];
+        app.manual_queue = vec!["spotify:track:manual1".into()].into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &[
@@ -22200,7 +22204,7 @@ mod tests {
             },
             received_at: Instant::now(),
         });
-        app.manual_queue = vec!["spotify:track:manual1".into()];
+        app.manual_queue = vec!["spotify:track:manual1".into()].into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &[
@@ -22298,7 +22302,8 @@ mod tests {
         app.manual_queue = vec![
             "spotify:track:manual1".into(),
             "spotify:track:manual2".into(),
-        ];
+        ]
+        .into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &[
@@ -22400,7 +22405,8 @@ mod tests {
             "spotify:track:m0".into(),
             "spotify:track:m1".into(),
             "spotify:track:m2".into(),
-        ];
+        ]
+        .into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &["spotify:track:m0", "spotify:track:m1", "spotify:track:m2"],
@@ -22461,7 +22467,8 @@ mod tests {
             "spotify:track:a".into(),
             "spotify:track:b".into(),
             "spotify:track:c".into(),
-        ];
+        ]
+        .into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &[
@@ -22756,7 +22763,8 @@ mod tests {
             "spotify:track:a".into(),
             "spotify:track:b".into(),
             "spotify:track:a".into(),
-        ];
+        ]
+        .into();
         // Spotify's accepted answer lists the queued rows in another order.
         app.queue = loaded_queue(
             "spotify:track:playing",
@@ -22883,7 +22891,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:m0".into(), "spotify:track:m1".into()];
+        app.manual_queue = vec!["spotify:track:m0".into(), "spotify:track:m1".into()].into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &["spotify:track:m0", "spotify:track:m1"],
@@ -22984,7 +22992,7 @@ mod tests {
             ..Default::default()
         });
         app.local.playback = Playback::Playing;
-        app.manual_queue = vec!["spotify:track:manual1".into()];
+        app.manual_queue = vec!["spotify:track:manual1".into()].into();
         app.queue = loaded_queue(
             "spotify:track:playing",
             &[
@@ -26569,7 +26577,7 @@ mod tests {
         );
         app.local_ready = true;
         app.resume_track = Some("spotify:track:a".into());
-        app.manual_queue = vec!["spotify:track:b".into()];
+        app.manual_queue = vec!["spotify:track:b".into()].into();
         app.queue = loaded_queue(
             "spotify:track:a",
             &["spotify:track:b", "spotify:track:ctx1"],
@@ -34607,7 +34615,7 @@ mod tests {
             ..Default::default()
         };
         app.last_now_playing_uri = Some(rows[7].clone());
-        app.manual_queue = vec![rows[0].clone()];
+        app.manual_queue = vec![rows[0].clone()].into();
         app.play_request(PlayRequest::context("spotify:playlist:pl1"), false);
         assert!(
             app.queued_play.is_none(),

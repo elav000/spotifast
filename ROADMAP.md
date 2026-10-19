@@ -76,12 +76,14 @@ completed milestones below supersede their old "next step" language.
 
 ## Next architecture milestone
 
-Extract one common local playback/queue controller, not just a shared renderer.
-The Spotify and Jellyfin controllers are still separate today. Reuse the existing
-rules and tests for ordering, manual priority, duplicate occurrence identity,
-advancement, history, shuffle, repeat and persistence. Provider execution adapters
-resolve and play entries; exclusive output ownership coordinates handoffs.
-Do not rewrite Spotify Connect's remote service queue as part of this extraction.
+Continue extracting one common local playback/queue controller, not just a shared
+renderer. The first shared foundation is `ManualQueue<T>`: Spotify and Jellyfin
+now use the same ordered manual-occurrence storage, immutable row snapshots,
+move, front-consumption and batch-removal rules. Their controllers remain
+separate. Next, reuse the existing rules and tests for advancement, history,
+shuffle, repeat and persistence. Provider execution adapters resolve and play
+entries; exclusive output ownership coordinates handoffs. Do not rewrite
+Spotify Connect's remote service queue as part of this extraction.
 
 Then finish provider-neutral drag/drop payloads and Jellyfin queue insertion /
 reordering. Move up/down menus already work; Jellyfin drag/drop is not complete.

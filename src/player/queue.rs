@@ -90,6 +90,43 @@ pub enum QueueTransition<T> {
     Finished,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TransitionPolicy<'a> {
+    pub forward: bool,
+    pub natural_end: bool,
+    pub context_order: &'a [usize],
+    pub repeat: RepeatMode,
+}
+
+impl<'a> TransitionPolicy<'a> {
+    pub fn next(context_order: &'a [usize], repeat: RepeatMode) -> Self {
+        Self {
+            forward: true,
+            natural_end: false,
+            context_order,
+            repeat,
+        }
+    }
+
+    pub fn ended(context_order: &'a [usize], repeat: RepeatMode) -> Self {
+        Self {
+            forward: true,
+            natural_end: true,
+            context_order,
+            repeat,
+        }
+    }
+
+    pub fn previous(context_order: &'a [usize], repeat: RepeatMode) -> Self {
+        Self {
+            forward: false,
+            natural_end: false,
+            context_order,
+            repeat,
+        }
+    }
+}
+
 /// Apply provider-neutral Next/Previous ordering rules to a local queue.
 ///
 /// `context_order` is a permutation of the context's stable row indices when
@@ -100,16 +137,21 @@ pub fn transition<T: Clone>(
     current: PlaybackCursor<T>,
     manual: &mut ManualQueue<T>,
     history: &mut PlaybackHistory<T>,
-    forward: bool,
-    context_order: &[usize],
-    repeat: RepeatMode,
+    policy: TransitionPolicy<'_>,
 ) -> QueueTransition<T> {
+    let TransitionPolicy {
+        forward,
+        natural_end,
+        context_order,
+        repeat,
+    } = policy;
     if repeat == RepeatMode::Track {
-        return if forward {
-            QueueTransition::Play(current)
-        } else {
-            QueueTransition::Restart
-        };
+        if forward && natural_end {
+            return QueueTransition::Play(current);
+        }
+        if !forward {
+            return QueueTransition::Restart;
+        }
     }
 
     let order = if context_order.is_empty() {
@@ -429,9 +471,7 @@ mod tests {
             cursor("a", 0, false),
             &mut manual,
             &mut history,
-            true,
-            &[],
-            RepeatMode::Off,
+            TransitionPolicy::next(&[], RepeatMode::Off),
         );
         assert_eq!(first, QueueTransition::Play(cursor("queued", 0, true)));
         assert!(manual.is_empty());
@@ -440,9 +480,7 @@ mod tests {
             cursor("queued", 0, true),
             &mut manual,
             &mut history,
-            true,
-            &[],
-            RepeatMode::Off,
+            TransitionPolicy::next(&[], RepeatMode::Off),
         );
         assert_eq!(second, QueueTransition::Play(cursor("b", 1, false)));
         assert_eq!(
@@ -461,9 +499,7 @@ mod tests {
             cursor("c", 2, false),
             &mut manual,
             &mut history,
-            true,
-            &[2, 0, 1],
-            RepeatMode::Off,
+            TransitionPolicy::next(&[2, 0, 1], RepeatMode::Off),
         );
         assert_eq!(shuffled, QueueTransition::Play(cursor("a", 0, false)));
 
@@ -473,9 +509,7 @@ mod tests {
             cursor("b", 1, true),
             &mut manual,
             &mut history,
-            false,
-            &[],
-            RepeatMode::Off,
+            TransitionPolicy::previous(&[], RepeatMode::Off),
         );
         assert_eq!(previous, QueueTransition::Play(cursor("queued", 2, true)));
         assert_eq!(manual.as_ref(), &["b"]);
@@ -491,9 +525,7 @@ mod tests {
             cursor("b", 1, false),
             &mut manual,
             &mut history,
-            true,
-            &[],
-            RepeatMode::Track,
+            TransitionPolicy::ended(&[], RepeatMode::Track),
         );
         assert_eq!(repeat_track, QueueTransition::Play(cursor("b", 1, false)));
         assert_eq!(manual.as_ref(), &["queued"]);
@@ -505,10 +537,34 @@ mod tests {
             cursor("b", 1, false),
             &mut manual,
             &mut history,
-            true,
-            &[],
-            RepeatMode::Context,
+            TransitionPolicy::ended(&[], RepeatMode::Context),
         );
         assert_eq!(repeat_context, QueueTransition::Play(cursor("a", 0, false)));
+    }
+
+    #[test]
+    fn next_skips_repeat_track_while_end_of_track_repeats_it() {
+        let tracks = ["a", "b"];
+        let mut history = PlaybackHistory::default();
+        let mut manual = ManualQueue::from(vec!["queued"]);
+        let skipped = transition(
+            &tracks,
+            cursor("a", 0, false),
+            &mut manual,
+            &mut history,
+            TransitionPolicy::next(&[], RepeatMode::Track),
+        );
+        assert_eq!(skipped, QueueTransition::Play(cursor("queued", 0, true)));
+        let history_len = history.len();
+
+        let repeated = transition(
+            &tracks,
+            cursor("a", 0, false),
+            &mut manual,
+            &mut history,
+            TransitionPolicy::ended(&[], RepeatMode::Track),
+        );
+        assert_eq!(repeated, QueueTransition::Play(cursor("a", 0, false)));
+        assert_eq!(history.len(), history_len);
     }
 }

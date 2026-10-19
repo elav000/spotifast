@@ -25,6 +25,7 @@ pub struct PlaybackCursor<T> {
 /// This is distinct from Recent history, which is a user-facing record of
 /// played items rather than a stack used to implement Previous.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
 pub struct PlaybackHistory<T> {
     cursors: Vec<PlaybackCursor<T>>,
 }
@@ -42,6 +43,14 @@ impl<T> PlaybackHistory<T> {
 
     pub fn as_slice(&self) -> &[PlaybackCursor<T>] {
         &self.cursors
+    }
+
+    pub fn len(&self) -> usize {
+        self.cursors.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cursors.is_empty()
     }
 
     pub fn push(&mut self, cursor: PlaybackCursor<T>) {
@@ -396,6 +405,18 @@ mod tests {
         assert_eq!(bounded.as_slice().len(), PlaybackHistory::<usize>::LIMIT);
         assert_eq!(bounded.as_slice()[0].item, 1);
         assert_eq!(bounded.pop().unwrap().item, PlaybackHistory::<usize>::LIMIT);
+
+        let persisted = PlaybackHistory::from(vec![PlaybackCursor {
+            item: "same".to_owned(),
+            index: 3,
+            manual: true,
+        }]);
+        let json = serde_json::to_string(&persisted).unwrap();
+        assert_eq!(json, r#"[{"item":"same","index":3,"manual":true}]"#);
+        assert_eq!(
+            serde_json::from_str::<PlaybackHistory<String>>(&json).unwrap(),
+            persisted
+        );
     }
 
     #[test]

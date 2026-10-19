@@ -244,7 +244,10 @@ impl App {
                 Vec::new()
             },
         );
-        let make = |item: &crate::jellyfin::Item, play: Action, current: bool| {
+        let make = |item: &crate::jellyfin::Item,
+                    play: Action,
+                    current: bool,
+                    origin: Option<usize>| {
             let source = source?;
             let reference = ItemReference::Jellyfin {
                 source: source.id.clone(),
@@ -302,7 +305,15 @@ impl App {
                         item: Box::new(item.clone()),
                     })),
                     queue_label: format!("Add {title} to Jellyfin queue"),
-                    can_enqueue: state.item.is_some(),
+                    can_enqueue: state.item.is_some()
+                        && state.source_id.as_deref() == Some(&source.id),
+                    queue_drag: (state.source_id.as_deref() == Some(&source.id)).then(|| {
+                        crate::model::ProviderQueueDrag {
+                            source: source.clone(),
+                            item: item.clone(),
+                            origin: origin.map(|index| (state.queued.snapshot(), index)),
+                        }
+                    }),
                     current,
                     playing: state.playing,
                     loading: state.loading,
@@ -320,7 +331,14 @@ impl App {
             .queued
             .iter()
             .enumerate()
-            .filter_map(|(index, item)| make(item, Action::Jellyfin(A::PlayManual(index)), false))
+            .filter_map(|(index, item)| {
+                make(
+                    item,
+                    Action::Jellyfin(A::PlayManual(index)),
+                    false,
+                    Some(index),
+                )
+            })
             .collect();
         for (index, row) in rows.iter_mut().enumerate() {
             if let (Some(source), QueueEntry::Provider(row)) = (source, row) {
@@ -349,7 +367,7 @@ impl App {
             state
                 .tracks
                 .get(*index)
-                .and_then(|item| make(item, Action::Jellyfin(A::PlayQueue(*index)), false))
+                .and_then(|item| make(item, Action::Jellyfin(A::PlayQueue(*index)), false, None))
         }));
         let mut seen = std::collections::HashSet::new();
         let items: Vec<_> = state
@@ -385,7 +403,7 @@ impl App {
                     query: None,
                     index: None,
                 });
-                make(item, action, false).map(|entry| (entry, None))
+                make(item, action, false, None).map(|entry| (entry, None))
             })
             .collect();
         QueuePresentation {
@@ -461,6 +479,7 @@ impl App {
                         Action::Jellyfin(A::Resume)
                     },
                     true,
+                    None,
                 )
             }),
             rows,

@@ -4062,6 +4062,7 @@ msgstr ""
 "器沒有提供。請安裝顯示卡驅動程式，或為虛擬機器開啟 GPU 加速。要開啟 {url} 了"
 "解更多嗎？"
 
+<<<<<<< HEAD
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. 在 Spotify 中配對一次"
 
@@ -4405,6 +4406,32 @@ msgstr ""
 
 #~ msgid "Soloist setup, privacy and limitations"
 #~ msgstr "Soloist 設定、隱私權與限制"
+=======
+#: src/ui/sidebar.rs:2110
+msgid "Open"
+msgstr ""
+
+#: src/ui/queue.rs:678
+msgid "Drop here to add to Playing next"
+msgstr ""
+
+#: src/ui/dialogs.rs:81
+#, rust-format
+msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
+msgstr ""
+
+#: src/ui/dialogs.rs:639
+msgid "Rename playlist"
+msgstr ""
+
+#: src/ui/topbar.rs:203
+msgid "Music source"
+msgstr ""
+
+#: src/ui/winamp/mod.rs:914
+msgid "Size: 2x, 3x, 4x"
+msgstr "大小：2x、3x、4x"
+>>>>>>> c4c90c7a (Share Jellyfin local playback controller and drag queue)
 
 #~ msgid ""
 #~ "Use a personal Development Mode app for a separate API quota. The shared "

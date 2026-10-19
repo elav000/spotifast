@@ -4139,6 +4139,7 @@ msgstr ""
 "나 가상 머신의 GPU 가속을 켜세요. 자세한 내용을 보려면 {url}을(를) 여시겠습니"
 "까?"
 
+<<<<<<< HEAD
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. Spotify에서 한 번 페어링"
 
@@ -4507,6 +4508,32 @@ msgstr ""
 
 #~ msgid "Soloist setup, privacy and limitations"
 #~ msgstr "Soloist 설정, 개인정보 보호 및 제한 사항"
+=======
+#: src/ui/sidebar.rs:2110
+msgid "Open"
+msgstr ""
+
+#: src/ui/queue.rs:678
+msgid "Drop here to add to Playing next"
+msgstr ""
+
+#: src/ui/dialogs.rs:81
+#, rust-format
+msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
+msgstr ""
+
+#: src/ui/dialogs.rs:639
+msgid "Rename playlist"
+msgstr ""
+
+#: src/ui/topbar.rs:203
+msgid "Music source"
+msgstr ""
+
+#: src/ui/winamp/mod.rs:914
+msgid "Size: 2x, 3x, 4x"
+msgstr "크기: 2x, 3x, 4x"
+>>>>>>> c4c90c7a (Share Jellyfin local playback controller and drag queue)
 
 #~ msgid ""
 #~ "Use a personal Development Mode app for a separate API quota. The shared "

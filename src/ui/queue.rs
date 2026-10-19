@@ -340,6 +340,19 @@ fn queue_drop(ui: &egui::Ui, rect: egui::Rect) -> Option<Arc<DragTrack>> {
     }
 }
 
+fn provider_queue_drop(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+) -> Option<Arc<crate::model::ProviderQueueDrag>> {
+    if ui.rect_contains_pointer(rect)
+        && ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+    {
+        egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(ui.ctx())
+    } else {
+        None
+    }
+}
+
 /// Space below the now-playing row and below Playing next, before the next
 /// section's heading.
 const SECTION_GAP: f32 = 14.0;
@@ -350,6 +363,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
     // remote queue, so without local playback active every drop just
     // appends, same as the "Add to queue" menu item.
     let reorderable = view.spotify_drag && app.queue_locally_reorderable();
+    let jellyfin_reorderable = !view.spotify_drag && app.jellyfin_player.controls_output();
     if view.spotify_drag
         && !reorderable
         && let Some(track) = queue_drop(ui, ui.clip_rect())
@@ -439,6 +453,24 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
                 position: 0,
             });
         }
+        if jellyfin_reorderable && let Some(drag) = provider_queue_drop(ui, ui.clip_rect()) {
+            let expected = app.jellyfin_player.snapshot().queued.snapshot();
+            if expected.is_empty()
+                && app
+                    .jellyfin_player
+                    .context()
+                    .is_some_and(|(source, _)| source == drag.source)
+            {
+                app.actions.push(Action::Jellyfin(
+                    crate::jellyfin::browser::BrowserAction::InsertManual {
+                        source: drag.source.clone(),
+                        expected,
+                        item: Box::new(drag.item.clone()),
+                        to: 0,
+                    },
+                ));
+            }
+        }
         widgets::empty_state(
             ui,
             &palette,
@@ -477,7 +509,12 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
             });
         });
         ui.add_space(4.0);
-        if reorderable && egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx()) {
+        if reorderable && egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx())
+            || jellyfin_reorderable
+                && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(
+                    ui.ctx(),
+                )
+        {
             widgets::scroll_during_drag(ui);
         }
         let gap = ui.spacing().item_spacing.y;
@@ -497,6 +534,20 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
         let move_slot = reorderable
             .then(|| {
                 egui::DragAndDrop::payload::<DragTrack>(ui.ctx())?;
+                if !ui.rect_contains_pointer(section_rect) {
+                    return None;
+                }
+                let pos = ui
+                    .ctx()
+                    .pointer_latest_pos()
+                    .filter(|pos| section_rect.contains(*pos))?;
+                let row = (pos.y - list_top) / (row_height + gap);
+                (row >= 0.0).then(|| (row.round() as usize).min(queued_len))
+            })
+            .flatten();
+        let provider_slot = jellyfin_reorderable
+            .then(|| {
+                egui::DragAndDrop::payload::<crate::model::ProviderQueueDrag>(ui.ctx())?;
                 if !ui.rect_contains_pointer(section_rect) {
                     return None;
                 }
@@ -563,11 +614,88 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
                 }
             }
         }
+        if let Some(slot) = provider_slot {
+            let y = list_top + slot as f32 * (row_height + gap);
+            ui.painter().hline(
+                ui.max_rect().x_range().shrink(8.0),
+                y,
+                egui::Stroke::new(2.0, palette.accent),
+            );
+            if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+                && let Some(drag) =
+                    egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(ui.ctx())
+                && app
+                    .jellyfin_player
+                    .context()
+                    .is_some_and(|(source, _)| source == drag.source)
+            {
+                let action = match drag.origin.as_ref() {
+                    Some((expected, from)) if slot != *from && slot != *from + 1 => {
+                        let from = *from;
+                        let to = if slot > from { slot - 1 } else { slot };
+                        Some(crate::jellyfin::browser::BrowserAction::EditManual {
+                            source: drag.source.clone(),
+                            expected: expected.clone(),
+                            index: from,
+                            to: Some(to),
+                        })
+                    }
+                    Some(_) => None,
+                    None => Some(crate::jellyfin::browser::BrowserAction::InsertManual {
+                        source: drag.source.clone(),
+                        expected: app.jellyfin_player.snapshot().queued.snapshot(),
+                        item: Box::new(drag.item.clone()),
+                        to: slot,
+                    }),
+                };
+                if let Some(action) = action {
+                    app.actions.push(Action::Jellyfin(action));
+                }
+            }
+        }
         ui.add_space(SECTION_GAP);
     }
     // With Playing next empty, the panel holds no drop target at all: every
     // row on it belongs to Next up, which plays from the context and is never
-    // rewritten. The player bar's Queue button still takes the drop.
+    // rewritten. A short, labeled drop slot before Next up accepts a new
+    // manual row without treating any context row as a target.
+    if jellyfin_reorderable
+        && queued_len == 0
+        && queue_len > 0
+        && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(ui.ctx())
+    {
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(ui.available_width(), 26.0), egui::Sense::hover());
+        ui.painter().rect_stroke(
+            rect.shrink(2.0),
+            5.0,
+            egui::Stroke::new(1.0, palette.accent),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            gettext(app.locale, "Drop here to add to Playing next"),
+            theme::regular(12.0),
+            palette.accent,
+        );
+        if let Some(drag) = provider_queue_drop(ui, rect)
+            && app
+                .jellyfin_player
+                .context()
+                .is_some_and(|(source, _)| source == drag.source)
+        {
+            app.actions.push(Action::Jellyfin(
+                crate::jellyfin::browser::BrowserAction::InsertManual {
+                    source: drag.source.clone(),
+                    expected: app.jellyfin_player.snapshot().queued.snapshot(),
+                    item: Box::new(drag.item.clone()),
+                    to: 0,
+                },
+            ));
+        }
+    }
+    // The player bar's Queue button continues to accept Spotify drag drops.
     if queue_len > queued_len {
         theme::text(
             ui,

@@ -1,8 +1,9 @@
 # Jellyfin fork roadmap
 
 This is the current working roadmap. The chronological implementation notes in
-[the fork reference](docs/_reference/jellyfin-fork.md) describe earlier stages;
-completed milestones below supersede their old "next step" language.
+[the fork reference](docs/_reference/jellyfin-fork.md) describe earlier stages.
+Accepted work and completed live validation are recorded in the
+[completed milestones reference](docs/_reference/completed-milestones.md).
 
 ## Product and architecture decisions
 
@@ -22,84 +23,27 @@ completed milestones below supersede their old "next step" language.
 - Install validated Mac milestones in `/Applications/Spotifast.app`, refresh the
   development ZIP, and leave a running instance alone until the user relaunches.
 
-## Completed milestones
-
-- Protected Jellyfin sign-in and restoration for one server/account, separate
-  browsing selection, account-scoped catalog/page caches and artwork caching.
-- Existing left rail, search, album/artist/playlist pages, grids, track rows and
-  playlist dialogs fed by provider adapters. Provider and Jellyfin collection
-  selection live in menus, preserving the existing rail layout.
-- Jellyfin playback through the shared transport controls, exclusive local output
-  ownership and common encoded-media/cache infrastructure. Retain the existing
-  Spotify transport and its backend cache; there are no offline downloads.
-- Bounded read-ahead/PCM buffering, whole-response network deadlines, visible
-  errors and responsive controls. The user confirmed continuous playback after
-  the buffering correction. Arbitrary future server stalls are not ruled out.
-- Removed the bespoke Jellyfin queue panel. Main queue page/panel use the existing
-  UI with `QueuePresentation`, preserving duplicate manual occurrences, manual
-  priority and context continuation.
-- Fixed the Winamp mini player closing when Spotify is signed out. Its existing
-  PL pane uses Jellyfin queue data and provider actions for play, selected manual
-  removal, clear/save, search, library/playlist loading and available album links.
-- Atomic manual batch removal rejects stale queue snapshots and other accounts.
-  Automated full-to-mini-to-full tests cover order, duplicates, selection, source
-  ownership and retained playback state. Spotify queue save stays Spotify-owned
-  even while browsing Jellyfin.
-- Live Jellyfin queue acceptance passed: repeated manual entries matched in main
-  and mini views; Next, playing a selected entry, selected removal, clear, pause,
-  resume and seek behaved as expected. With a multi-track album playing, the
-  manual entry appeared ahead of album context; the maintainer confirmed Next
-  and clear preserve the expected context.
-- Live Jellyfin playlist load/save passed: loaded and played an existing playlist,
-  saved the current queue as a private playlist and verified its current/upcoming
-  tracks, then deleted the temporary saved copy. The original playlist remained.
-- Integrated 42 upstream commits through `ee8900d54693a807d657154e6b16ea572e963791`,
-  including upstream 0.13.3. Preserved provider adapters and adapted the new
-  fullscreen queue column. The combined lockfile's Nix vendor hash is refreshed.
-
-## Next session: bugs and live acceptance
-
-1. **MP3 startup recovery is verified.** Reproduced on
-   "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
-   rejects its first packet at timestamp zero with `mpa: invalid main_data
-   offset`. The current entity was checked online and its exact-length cached
-   opening range passed its cache checksum. FFmpeg decoded that range but warned
-   `invalid new backstep -1`; the Jellyfin web client also plays the track. The
-   failure is in handling this MP3's opening frame/reservoir, not duration or a
-   reported incomplete HTTP range. The earlier screenshot's open album was not
-   the current song; the recorded failing item was Push It. An offline probe
-   recovered at packet 27. The decoder now skips up to 64 undecodable leading
-   MP3 packets (about 1.5 to 1.7 seconds at common sample rates), with a
-   regression test for a damaged leader. The user confirmed live playback works
-   with commit `08aa3f3`. Keep the private workspace plan preserving the original
-   screenshot and track names.
-
 ## Next architecture milestone
 
-Continue extracting one common local playback/queue controller, not just a shared
-renderer. The first shared foundation is `ManualQueue<T>`: Spotify and Jellyfin
-now use the same ordered manual-occurrence storage, immutable row snapshots,
-move, front-consumption and batch-removal rules. Their controllers remain
-separate. Bounded backward-playback cursor history and deterministic
-Next/Previous decisions are now provider-neutral queue primitives. Jellyfin
-uses them for local advancement, Shuffle and Repeat, and persists its mode and
-shuffle order without changing the existing saved-state format. Context play
-order now also has a shared primitive for creation, validation and explicit
-current-track re-anchoring; its transparent serialization keeps the saved JSON
-array shape unchanged. The active local context now groups its tracks, current
-cursor and order behind one shared type. Jellyfin serializes that type flattened
-to the same `tracks`, `index`, `manual` and `shuffle_order` fields, with tests
-guarding compatibility. Spotify's Connect service continues to own its remote
-queue and shuffle order. Next, identify another local-controller state seam to
-adapt while reusing the existing Spotify and Jellyfin rules. Provider execution
-adapters resolve and play entries; exclusive output ownership coordinates
-handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
-extraction.
+Continue extracting the shared local playback controller, reusing existing
+provider rules and keeping execution in provider adapters. Spotify and Jellyfin
+share `ManualQueue<T>` for ordered manual occurrences, immutable row snapshots,
+move, front-consumption and batch-removal. Backward cursor history,
+Next/Previous decisions, context play order and current-track re-anchoring are
+provider-neutral primitives. `LocalPlaybackController<T>` now groups the local
+context, manual queue and Previous history; Jellyfin uses it as the authoritative
+state while retaining its saved JSON shape. Its main queue page and panel now
+accept provider track drags for insertion and manual-row reordering, guarded by
+source identity and the queue snapshot the UI drew. The empty Playing next section
+has its own drop slot; context rows remain outside the target. Spotify Connect
+continues to own its remote queue and shuffle order.
 
-Then finish provider-neutral drag/drop payloads and Jellyfin queue insertion /
-reordering. Move up/down menus already work; Jellyfin drag/drop is not complete.
-Keep tests for stale snapshots, account switches, repeated songs, seeking,
-playback errors and full/mini window transitions as the regression contract.
+Next, assess whether any Spotify local-playback path can use the controller
+without crossing into Connect service ownership. Keep regression coverage for
+stale snapshots, account switches, repeated songs, seeking, playback errors and
+full/mini window transitions. Provider execution adapters resolve and play
+entries; exclusive output ownership coordinates handoffs. Do not rewrite Spotify
+Connect's remote service queue as part of this extraction.
 
 ## Later work
 

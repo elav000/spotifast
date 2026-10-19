@@ -7,7 +7,7 @@ use crate::media::{
     pipeline::{BufferedDecoder, Readiness},
 };
 use crate::playback_output::OutputRequest;
-use crate::player::queue::ManualQueue;
+use crate::player::queue::{ManualQueue, PlaybackCursor, PlaybackHistory};
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
 use crate::{backend::Waker, paths::AppDirs, player::EngineConfig, provider::Provider};
@@ -54,13 +54,6 @@ struct Job {
     context_index: Option<usize>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Cursor {
-    item: Item,
-    index: usize,
-    manual: bool,
-}
-
 #[derive(Serialize, Deserialize)]
 struct SavedPlayback {
     version: u32,
@@ -76,7 +69,7 @@ struct SavedPlayback {
     position_ms: u64,
     finished: bool,
     queue_complete: bool,
-    history: Vec<Cursor>,
+    history: Vec<PlaybackCursor<Item>>,
 }
 
 const SAVED_LIMIT: u64 = 16 * 1024 * 1024;
@@ -92,7 +85,7 @@ struct State {
     cancel: Arc<AtomicBool>,
     shutdown: bool,
     active_epoch: Option<u64>,
-    history: Vec<Cursor>,
+    history: PlaybackHistory<Item>,
     restored: bool,
 }
 
@@ -126,7 +119,7 @@ impl Transport {
                 cancel: Arc::new(AtomicBool::new(false)),
                 shutdown: false,
                 active_epoch: None,
-                history: Vec::new(),
+                history: PlaybackHistory::default(),
                 restored: !enabled,
             }),
             changed: Condvar::new(),
@@ -214,7 +207,7 @@ impl Transport {
                 position_ms: state.snapshot.position_ms,
                 finished: state.snapshot.finished,
                 queue_complete: state.snapshot.queue_complete,
-                history: state.history.clone(),
+                history: state.history.clone().into_vec(),
             });
         drop(state);
         let bytes =
@@ -247,6 +240,7 @@ impl Transport {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .history
+            .as_slice()
             .iter()
             .rev()
             .map(|cursor| cursor.item.clone())
@@ -718,10 +712,7 @@ fn select(state: &mut State, job: Job) {
 
 fn remember_current(state: &mut State) {
     if let Some(item) = state.snapshot.item.clone() {
-        if state.history.len() == 1000 {
-            state.history.remove(0);
-        }
-        state.history.push(Cursor {
+        state.history.push(PlaybackCursor {
             item,
             index: state.snapshot.index,
             manual: state.snapshot.manual_current,
@@ -729,7 +720,7 @@ fn remember_current(state: &mut State) {
     }
 }
 
-fn select_cursor(state: &mut State, cursor: Cursor) {
+fn select_cursor(state: &mut State, cursor: PlaybackCursor<Item>) {
     if let Some(mut job) = state.template.clone() {
         job.album = cursor.item.album_id.clone().unwrap_or(job.album);
         job.item = cursor.item;
@@ -743,7 +734,7 @@ fn select_cursor(state: &mut State, cursor: Cursor) {
 fn advance(state: &mut State, forward: bool) {
     let target = if forward {
         if !state.snapshot.queued.is_empty() {
-            Some(Cursor {
+            Some(PlaybackCursor {
                 item: state
                     .snapshot
                     .queued
@@ -759,7 +750,7 @@ fn advance(state: &mut State, forward: bool) {
                     .tracks
                     .get(index)
                     .cloned()
-                    .map(|item| Cursor {
+                    .map(|item| PlaybackCursor {
                         item,
                         index,
                         manual: false,
@@ -774,7 +765,7 @@ fn advance(state: &mut State, forward: bool) {
                     .tracks
                     .get(index)
                     .cloned()
-                    .map(|item| Cursor {
+                    .map(|item| PlaybackCursor {
                         item,
                         index,
                         manual: false,
@@ -857,7 +848,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         manual: saved.manual,
         context_index: Some(saved.index),
     });
-    state.history = saved.history;
+    state.history = saved.history.into();
     let volume = state.snapshot.volume;
     state.snapshot = Snapshot {
         source_id: Some(saved.source.id),

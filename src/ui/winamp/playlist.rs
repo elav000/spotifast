@@ -919,6 +919,7 @@ mod tests {
         use std::sync::Arc;
 
         let source = Source {
+            nickname: "Test server".into(),
             id: "source".into(),
             server_url: "http://server".into(),
             server_id: "server".into(),

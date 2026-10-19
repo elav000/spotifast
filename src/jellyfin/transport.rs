@@ -8,8 +8,8 @@ use crate::media::{
 };
 use crate::playback_output::OutputRequest;
 use crate::player::queue::{
-    ManualQueue, PlaybackCursor, PlaybackHistory, PlaybackOrder, QueueTransition, TransitionPolicy,
-    transition,
+    LocalPlaybackContext, ManualQueue, PlaybackCursor, PlaybackHistory, PlaybackOrder,
+    QueueTransition, TransitionPolicy, transition,
 };
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -68,10 +68,9 @@ struct SavedPlayback {
     #[serde(default)]
     query: Option<super::catalog::Query>,
     item: Item,
-    tracks: Vec<Item>,
+    #[serde(flatten)]
+    context: LocalPlaybackContext<Item>,
     queued: Vec<Item>,
-    index: usize,
-    manual: bool,
     position_ms: u64,
     finished: bool,
     queue_complete: bool,
@@ -80,8 +79,6 @@ struct SavedPlayback {
     shuffle: bool,
     #[serde(default)]
     repeat: crate::player::RepeatMode,
-    #[serde(default)]
-    shuffle_order: PlaybackOrder,
 }
 
 const SAVED_LIMIT: u64 = 16 * 1024 * 1024;
@@ -98,7 +95,7 @@ struct State {
     shutdown: bool,
     active_epoch: Option<u64>,
     history: PlaybackHistory<Item>,
-    context_order: PlaybackOrder,
+    context: LocalPlaybackContext<Item>,
     restored: bool,
 }
 
@@ -133,7 +130,7 @@ impl Transport {
                 shutdown: false,
                 active_epoch: None,
                 history: PlaybackHistory::default(),
-                context_order: PlaybackOrder::default(),
+                context: LocalPlaybackContext::default(),
                 restored: !enabled,
             }),
             changed: Condvar::new(),
@@ -162,7 +159,7 @@ impl Transport {
     pub fn snapshot(&self) -> Snapshot {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         let mut snapshot = state.snapshot.clone();
-        snapshot.context_order = Arc::new(state.context_order.clone().into_vec());
+        snapshot.context_order = Arc::new(state.context.order.clone().into_vec());
         snapshot
     }
 
@@ -212,17 +209,19 @@ impl Transport {
                 album: job.album.clone(),
                 query: job.query.clone(),
                 item: item.clone(),
-                tracks: state.snapshot.tracks.as_ref().clone(),
+                context: LocalPlaybackContext::new(
+                    state.snapshot.tracks.as_ref().clone(),
+                    state.snapshot.index,
+                    state.snapshot.manual_current,
+                    state.context.order.clone(),
+                ),
                 queued: state.snapshot.queued.to_vec(),
-                index: state.snapshot.index,
-                manual: state.snapshot.manual_current,
                 position_ms: state.snapshot.position_ms,
                 finished: state.snapshot.finished,
                 queue_complete: state.snapshot.queue_complete,
                 history: state.history.clone(),
                 shuffle: state.snapshot.shuffle,
                 repeat: state.snapshot.repeat,
-                shuffle_order: state.context_order.clone(),
             });
         drop(state);
         let bytes =
@@ -325,7 +324,7 @@ impl Transport {
                 .as_ref()
                 .is_some_and(|current| current.source == job.source && current.album == job.album)
         {
-            state.context_order.rotate_to(index);
+            state.context.order.rotate_to(index);
         }
         select(&mut state, job);
         self.shared.changed.notify_one();
@@ -382,7 +381,7 @@ impl Transport {
         }
         state.snapshot.shuffle = enabled;
         let len = state.snapshot.tracks.len();
-        state.context_order = PlaybackOrder::for_context(len, state.snapshot.index, enabled);
+        state.context.order = PlaybackOrder::for_context(len, state.snapshot.index, enabled);
         drop(state);
         self.shared.waker.wake();
     }
@@ -422,7 +421,7 @@ impl Transport {
             remember_current(&mut state);
             state.snapshot.queued.clear();
             if state.snapshot.shuffle {
-                state.context_order.rotate_to(index);
+                state.context.order.rotate_to(index);
             }
             job.item = item;
             job.manual = false;
@@ -755,9 +754,11 @@ fn select(state: &mut State, job: Job) {
                 .flatten()
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
-    if context_changed || state.context_order.len() != tracks.len() {
-        state.context_order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
+    if context_changed || state.context.order.len() != tracks.len() {
+        state.context.order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
     }
+    state.context.set_tracks(tracks.clone());
+    state.context.set_cursor(index, job.manual);
     state.snapshot = Snapshot {
         source_id: Some(job.source.id.clone()),
         queue_complete: job.known_tracks.is_some(),
@@ -780,11 +781,7 @@ fn select(state: &mut State, job: Job) {
 
 fn remember_current(state: &mut State) {
     if let Some(item) = state.snapshot.item.clone() {
-        state.history.push(PlaybackCursor {
-            item,
-            index: state.snapshot.index,
-            manual: state.snapshot.manual_current,
-        });
+        state.history.push(state.context.cursor(item));
     }
 }
 
@@ -794,7 +791,7 @@ fn select_cursor(state: &mut State, cursor: PlaybackCursor<Item>) {
         job.item = cursor.item;
         job.manual = cursor.manual;
         job.context_index = Some(cursor.index);
-        job.known_tracks = Some(state.snapshot.tracks.as_ref().clone());
+        job.known_tracks = Some(state.context.tracks.clone());
         select(state, job);
     }
 }
@@ -803,20 +800,16 @@ fn advance(state: &mut State, forward: bool, natural_end: bool) {
     let Some(item) = state.snapshot.item.clone() else {
         return;
     };
-    let current = PlaybackCursor {
-        item,
-        index: state.snapshot.index,
-        manual: state.snapshot.manual_current,
-    };
+    let current = state.context.cursor(item);
     let transition = transition(
-        &state.snapshot.tracks,
+        &state.context.tracks,
         current,
         &mut state.snapshot.queued,
         &mut state.history,
         TransitionPolicy {
             forward,
             natural_end,
-            context_order: &state.context_order,
+            context_order: &state.context.order,
             repeat: state.snapshot.repeat,
         },
     );
@@ -853,22 +846,25 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         let source = crate::backend::jellyfin::saved_playback_source(dirs).ok()?;
         if saved.version != 1
             || saved.source != source
-            || saved.tracks.is_empty()
-            || saved.tracks.len() > 10000
+            || saved.context.tracks.is_empty()
+            || saved.context.tracks.len() > 10000
             || saved.queued.len() > 1000
             || saved.history.len() > PlaybackHistory::<Item>::LIMIT
-            || (!saved.shuffle_order.is_empty()
-                && !saved.shuffle_order.is_valid_for(saved.tracks.len()))
-            || saved.index >= saved.tracks.len()
-            || (!saved.manual && saved.tracks[saved.index].id != saved.item.id)
+            || (!saved.context.order.is_empty()
+                && !saved.context.order.is_valid_for(saved.context.tracks.len()))
+            || saved.context.index >= saved.context.tracks.len()
+            || (!saved.context.current_is_manual
+                && saved.context.tracks[saved.context.index].id != saved.item.id)
             || !saved
+                .context
                 .tracks
                 .iter()
                 .chain(&saved.queued)
                 .chain(std::iter::once(&saved.item))
                 .all(|item| super::validate_id(&item.id).is_ok())
             || !saved.history.as_slice().iter().all(|cursor| {
-                cursor.index < saved.tracks.len() && super::validate_id(&cursor.item.id).is_ok()
+                cursor.index < saved.context.tracks.len()
+                    && super::validate_id(&cursor.item.id).is_ok()
             })
         {
             return None;
@@ -884,30 +880,35 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     }
     let shuffle = saved.shuffle;
     let repeat = saved.repeat;
-    state.context_order = if saved.shuffle_order.is_empty() {
-        PlaybackOrder::for_context(saved.tracks.len(), saved.index, shuffle)
+    state.context = if saved.context.order.is_empty() {
+        LocalPlaybackContext::new(
+            saved.context.tracks.clone(),
+            saved.context.index,
+            saved.context.current_is_manual,
+            PlaybackOrder::for_context(saved.context.tracks.len(), saved.context.index, shuffle),
+        )
     } else {
-        saved.shuffle_order.clone()
+        saved.context.clone()
     };
     state.template = Some(Job {
         source: saved.source.clone(),
         album: saved.album,
         query: saved.query,
         item: saved.item.clone(),
-        known_tracks: saved.queue_complete.then(|| saved.tracks.clone()),
+        known_tracks: saved.queue_complete.then(|| saved.context.tracks.clone()),
         config: config.clone(),
-        manual: saved.manual,
-        context_index: Some(saved.index),
+        manual: saved.context.current_is_manual,
+        context_index: Some(saved.context.index),
     });
     state.history = saved.history;
     let volume = state.snapshot.volume;
     state.snapshot = Snapshot {
         source_id: Some(saved.source.id),
         item: Some(saved.item),
-        tracks: Arc::new(saved.tracks),
+        tracks: Arc::new(saved.context.tracks),
         queued: ManualQueue::from(saved.queued),
-        index: saved.index,
-        manual_current: saved.manual,
+        index: saved.context.index,
+        manual_current: saved.context.current_is_manual,
         position_ms: saved.position_ms,
         duration_ms: state
             .template
@@ -1042,10 +1043,13 @@ fn session(
                 })
                 .ok_or("Track is no longer available in this album.")?;
         }
+        state.context.set_tracks(tracks.clone());
+        let index = state.snapshot.index;
+        state.context.set_cursor(index, job.manual);
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
-        if state.context_order.len() != state.snapshot.tracks.len() {
-            state.context_order = PlaybackOrder::for_context(
+        if state.context.order.len() != state.snapshot.tracks.len() {
+            state.context.order = PlaybackOrder::for_context(
                 state.snapshot.tracks.len(),
                 state.snapshot.index,
                 state.snapshot.shuffle,
@@ -1420,7 +1424,7 @@ mod tests {
             Some(vec![item("a"), item("b"), item("c")]),
         );
         shuffled.set_shuffle(true);
-        let order = shuffled.shared.state.lock().unwrap().context_order.clone();
+        let order = shuffled.shared.state.lock().unwrap().context.order.clone();
         assert!(order.is_valid_for(3));
         assert_eq!(order.first(), Some(&0));
         shuffled.step(true);
@@ -1661,13 +1665,21 @@ mod tests {
         .unwrap();
         let encoded = original.encode_session().unwrap().unwrap();
         let mut legacy: serde_json::Value = serde_json::from_slice(&encoded).unwrap();
+        let saved_fields = legacy.as_object().unwrap();
+        for field in ["tracks", "index", "manual", "shuffle_order"] {
+            assert!(
+                saved_fields.contains_key(field),
+                "missing saved field: {field}"
+            );
+        }
+        assert!(!saved_fields.contains_key("context"));
         for field in ["shuffle", "repeat", "shuffle_order"] {
             legacy.as_object_mut().unwrap().remove(field);
         }
         let legacy: SavedPlayback = serde_json::from_value(legacy).unwrap();
         assert!(!legacy.shuffle);
         assert_eq!(legacy.repeat, crate::player::RepeatMode::Off);
-        assert!(legacy.shuffle_order.is_empty());
+        assert!(legacy.context.order.is_empty());
         std::fs::write(root.join("jellyfin-playback.json"), encoded).unwrap();
         let resumed = transport();
         restore(&dirs, &resumed.shared, &resumed.config);

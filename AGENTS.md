@@ -170,9 +170,12 @@ Keep `main` linear. Squash outside pull requests into one focused commit,
 preserving contributor credit. Never create or push merge commits, including
 local `git merge --no-ff` commits that bypass GitHub's squash-only setting.
 When updating a local checkout, use fast-forward-only pulls; rebase unpublished
-local commits if needed. Before pushing, verify that the commits being added
-contain no merge commits. Rewriting published history requires explicit
-maintainer approval and an exact force-with-lease guard; keep a recovery ref.
+local commits if needed. For this fork's upstream sync, rebase the fork-only
+commits onto `crmne/spotifast:main`; do not merge upstream or push to upstream.
+This sync rewrites published commits on this fork so GitHub's behind count stays
+accurate. Do it only with explicit maintainer approval, after keeping a recovery
+ref, and push with an exact force-with-lease guard. Before pushing, verify the
+commits being added contain no merge commits.
 
 ## Disk use
 

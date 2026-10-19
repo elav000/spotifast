@@ -3625,24 +3625,24 @@ msgstr ""
 
 #: src/ui/sidebar.rs:2110
 msgid "Open"
-msgstr ""
+msgstr "Abrir"
 
 #: src/ui/queue.rs:678
 msgid "Drop here to add to Playing next"
-msgstr ""
+msgstr "Largue aqui para adicionar a «A seguir»"
 
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
-msgstr ""
+msgstr "Eliminar «{name}»? A playlist será removida do servidor Jellyfin."
 
 #: src/ui/dialogs.rs:639
 msgid "Rename playlist"
-msgstr ""
+msgstr "Mudar o nome da playlist"
 
 #: src/ui/topbar.rs:203
 msgid "Music source"
-msgstr ""
+msgstr "Fonte de música"
 
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"

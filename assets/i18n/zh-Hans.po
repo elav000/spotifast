@@ -3495,24 +3495,24 @@ msgstr ""
 
 #: src/ui/sidebar.rs:2110
 msgid "Open"
-msgstr ""
+msgstr "打开"
 
 #: src/ui/queue.rs:678
 msgid "Drop here to add to Playing next"
-msgstr ""
+msgstr "拖到此处以添加到接下来播放"
 
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
-msgstr ""
+msgstr "删除“{name}”？这会从你的 Jellyfin 服务器移除此播放列表。"
 
 #: src/ui/dialogs.rs:639
 msgid "Rename playlist"
-msgstr ""
+msgstr "重命名播放列表"
 
 #: src/ui/topbar.rs:203
 msgid "Music source"
-msgstr ""
+msgstr "音乐来源"
 
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"

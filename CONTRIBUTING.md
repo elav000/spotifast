@@ -142,7 +142,11 @@ generated prose, and large mechanical rewrites.
 focused commit with contributor credit; merge commits are not accepted.
 Maintainer work is committed directly on `main`, one topic per commit. Use
 fast-forward-only pulls and rebase unpublished local commits when needed.
-Do not rewrite published history without explicit maintainer approval.
+Do not rewrite published history without explicit maintainer approval. This
+Jellyfin fork is an exception when syncing from `crmne/spotifast:main`: rebase
+the fork-only commits onto upstream so GitHub's ahead/behind count remains
+accurate. Keep a recovery ref, push only to this fork with an exact
+`--force-with-lease` guard, and never push to upstream.
 
 The same rules apply to hand-written and AI-assisted changes. The author must
 understand every line and answer review comments with specific reasoning.

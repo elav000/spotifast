@@ -38,12 +38,22 @@ source identity and the queue snapshot the UI drew. The empty Playing next secti
 has its own drop slot; context rows remain outside the target. Spotify Connect
 continues to own its remote queue and shuffle order.
 
-Next, assess whether any Spotify local-playback path can use the controller
-without crossing into Connect service ownership. Keep regression coverage for
-stale snapshots, account switches, repeated songs, seeking, playback errors and
-full/mini window transitions. Provider execution adapters resolve and play
-entries; exclusive output ownership coordinates handoffs. Do not rewrite Spotify
-Connect's remote service queue as part of this extraction.
+Spotify local playback already reuses `ManualQueue<T>`, but it does not have a
+second local transition controller to adopt. librespot's Connect state drives
+Spotify context transitions and the reported queue, while `app.rs` keeps an
+optimistic, reconciled view for the UI and queue edits. Moving those transitions
+under `LocalPlaybackController<T>` would duplicate or obscure Connect ownership.
+Keep Spotify's transitions in its adapter and treat the shared queue primitive
+as the integration point for now. Revisit only if librespot exposes a distinct
+local-only playback mode with its own context and transitions.
+
+Next, assess and implement drag insertion and reordering in the Winamp mini
+playlist so it matches the main queue page and panel for Jellyfin local queues.
+Keep regression coverage for stale snapshots, account switches, repeated songs,
+seeking, playback errors and full/mini window transitions. Provider execution
+adapters resolve and play entries; exclusive output ownership coordinates
+handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
+extraction.
 
 ## Later work
 

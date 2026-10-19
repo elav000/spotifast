@@ -8,8 +8,8 @@ use crate::media::{
 };
 use crate::playback_output::OutputRequest;
 use crate::player::queue::{
-    LocalPlaybackContext, ManualQueue, PlaybackCursor, PlaybackHistory, PlaybackOrder,
-    QueueTransition, TransitionPolicy, transition,
+    LocalPlaybackContext, LocalPlaybackController, ManualQueue, PlaybackCursor, PlaybackHistory,
+    PlaybackOrder, QueueTransition, TransitionPolicy,
 };
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
@@ -94,8 +94,7 @@ struct State {
     cancel: Arc<AtomicBool>,
     shutdown: bool,
     active_epoch: Option<u64>,
-    history: PlaybackHistory<Item>,
-    context: LocalPlaybackContext<Item>,
+    controller: LocalPlaybackController<Item>,
     restored: bool,
 }
 
@@ -129,8 +128,7 @@ impl Transport {
                 cancel: Arc::new(AtomicBool::new(false)),
                 shutdown: false,
                 active_epoch: None,
-                history: PlaybackHistory::default(),
-                context: LocalPlaybackContext::default(),
+                controller: LocalPlaybackController::default(),
                 restored: !enabled,
             }),
             changed: Condvar::new(),
@@ -159,7 +157,8 @@ impl Transport {
     pub fn snapshot(&self) -> Snapshot {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         let mut snapshot = state.snapshot.clone();
-        snapshot.context_order = Arc::new(state.context.order.clone().into_vec());
+        snapshot.context_order = Arc::new(state.controller.context.order.clone().into_vec());
+        snapshot.queued = state.controller.manual.clone();
         snapshot
     }
 
@@ -213,13 +212,13 @@ impl Transport {
                     state.snapshot.tracks.as_ref().clone(),
                     state.snapshot.index,
                     state.snapshot.manual_current,
-                    state.context.order.clone(),
+                    state.controller.context.order.clone(),
                 ),
-                queued: state.snapshot.queued.to_vec(),
+                queued: state.controller.manual.to_vec(),
                 position_ms: state.snapshot.position_ms,
                 finished: state.snapshot.finished,
                 queue_complete: state.snapshot.queue_complete,
-                history: state.history.clone(),
+                history: state.controller.history.clone(),
                 shuffle: state.snapshot.shuffle,
                 repeat: state.snapshot.repeat,
             });
@@ -253,6 +252,7 @@ impl Transport {
             .state
             .lock()
             .unwrap_or_else(|p| p.into_inner())
+            .controller
             .history
             .as_slice()
             .iter()
@@ -292,7 +292,7 @@ impl Transport {
             context_index: None,
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
-        state.history.clear();
+        state.controller.history.clear();
         select(&mut state, job);
         self.shared.changed.notify_one();
     }
@@ -316,7 +316,7 @@ impl Transport {
             context_index: index,
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
-        state.history.clear();
+        state.controller.history.clear();
         if let Some(index) = index
             && state.snapshot.shuffle
             && state
@@ -324,7 +324,7 @@ impl Transport {
                 .as_ref()
                 .is_some_and(|current| current.source == job.source && current.album == job.album)
         {
-            state.context.order.rotate_to(index);
+            state.controller.context.order.rotate_to(index);
         }
         select(&mut state, job);
         self.shared.changed.notify_one();
@@ -381,7 +381,8 @@ impl Transport {
         }
         state.snapshot.shuffle = enabled;
         let len = state.snapshot.tracks.len();
-        state.context.order = PlaybackOrder::for_context(len, state.snapshot.index, enabled);
+        state.controller.context.order =
+            PlaybackOrder::for_context(len, state.snapshot.index, enabled);
         drop(state);
         self.shared.waker.wake();
     }
@@ -419,9 +420,9 @@ impl Transport {
             && let Some(mut job) = state.template.clone()
         {
             remember_current(&mut state);
-            state.snapshot.queued.clear();
+            state.controller.manual.clear();
             if state.snapshot.shuffle {
-                state.context.order.rotate_to(index);
+                state.controller.context.order.rotate_to(index);
             }
             job.item = item;
             job.manual = false;
@@ -443,11 +444,33 @@ impl Transport {
                 Some("Play a track from this Jellyfin account before adding to its queue.".into());
             return;
         }
-        if state.snapshot.queued.len() >= 1000 {
+        if state.controller.manual.len() >= 1000 {
             state.snapshot.error = Some("The Jellyfin queue is full (1,000 tracks).".into());
             return;
         }
-        state.snapshot.queued.push(item);
+        state.controller.manual.push(item);
+        state.snapshot.error = None;
+    }
+
+    pub(crate) fn insert_manual(
+        &self,
+        source: &Source,
+        expected: &Arc<Vec<Item>>,
+        item: Item,
+        to: usize,
+    ) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state
+            .template
+            .as_ref()
+            .is_some_and(|job| &job.source == source)
+            || !state.controller.manual.is_snapshot(expected)
+            || state.controller.manual.len() >= 1000
+        {
+            return;
+        }
+        let position = to.min(state.controller.manual.len());
+        state.controller.manual.insert(position, item);
         state.snapshot.error = None;
     }
 
@@ -465,16 +488,16 @@ impl Transport {
             .template
             .as_ref()
             .is_some_and(|job| &job.source == source)
-            || !state.snapshot.queued.is_snapshot(expected)
-            || index >= state.snapshot.queued.len()
+            || !state.controller.manual.is_snapshot(expected)
+            || index >= state.controller.manual.len()
         {
             return;
         }
         if let Some(to) = to {
-            let to = to.min(state.snapshot.queued.len().saturating_sub(1));
-            state.snapshot.queued.move_to(index, to);
+            let to = to.min(state.controller.manual.len().saturating_sub(1));
+            state.controller.manual.move_to(index, to);
         } else {
-            state.snapshot.queued.remove(index);
+            state.controller.manual.remove(index);
         }
     }
 
@@ -490,21 +513,18 @@ impl Transport {
             .template
             .as_ref()
             .is_some_and(|job| &job.source == source)
-            || !state.snapshot.queued.is_snapshot(expected)
+            || !state.controller.manual.is_snapshot(expected)
             || indices.iter().any(|index| *index >= expected.len())
         {
             return;
         }
-        state.snapshot.queued.remove_indices(indices);
+        state.controller.manual.remove_indices(indices);
     }
 
     pub fn clear_queue(&self) {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .snapshot
-            .queued = ManualQueue::default();
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.controller.manual.clear();
+        state.snapshot.queued = ManualQueue::default();
     }
 
     pub fn play_queued(&self, index: usize) {
@@ -512,11 +532,11 @@ impl Transport {
         if !state.snapshot.queue_complete {
             return;
         }
-        if let Some(item) = state.snapshot.queued.get(index).cloned()
+        if let Some(item) = state.controller.manual.get(index).cloned()
             && let Some(mut job) = state.template.clone()
         {
             remember_current(&mut state);
-            state.snapshot.queued.remove_through(index);
+            state.controller.manual.remove_through(index);
             job.album = item.album_id.clone().unwrap_or(job.album);
             job.item = item;
             job.manual = true;
@@ -568,7 +588,8 @@ impl Transport {
         state.restored = true;
         state.job = None;
         state.template = None;
-        state.history.clear();
+        state.controller.history.clear();
+        state.controller.manual.clear();
         state.request = None;
         state.seek = None;
         let volume = state.snapshot.volume;
@@ -727,12 +748,12 @@ fn select(state: &mut State, job: Job) {
         .as_ref()
         .is_some_and(|previous| previous.source == job.source);
     let queued = if same_source {
-        state.snapshot.queued.clone()
+        state.controller.manual.clone()
     } else {
         ManualQueue::default()
     };
     if !same_source {
-        state.history.clear();
+        state.controller.history.clear();
     }
     let index = job
         .context_index
@@ -754,11 +775,12 @@ fn select(state: &mut State, job: Job) {
                 .flatten()
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
-    if context_changed || state.context.order.len() != tracks.len() {
-        state.context.order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
+    if context_changed || state.controller.context.order.len() != tracks.len() {
+        state.controller.context.order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
     }
-    state.context.set_tracks(tracks.clone());
-    state.context.set_cursor(index, job.manual);
+    state.controller.context.set_tracks(tracks.clone());
+    state.controller.context.set_cursor(index, job.manual);
+    state.controller.manual = queued.clone();
     state.snapshot = Snapshot {
         source_id: Some(job.source.id.clone()),
         queue_complete: job.known_tracks.is_some(),
@@ -781,7 +803,10 @@ fn select(state: &mut State, job: Job) {
 
 fn remember_current(state: &mut State) {
     if let Some(item) = state.snapshot.item.clone() {
-        state.history.push(state.context.cursor(item));
+        state
+            .controller
+            .history
+            .push(state.controller.context.cursor(item));
     }
 }
 
@@ -791,7 +816,7 @@ fn select_cursor(state: &mut State, cursor: PlaybackCursor<Item>) {
         job.item = cursor.item;
         job.manual = cursor.manual;
         job.context_index = Some(cursor.index);
-        job.known_tracks = Some(state.context.tracks.clone());
+        job.known_tracks = Some(state.controller.context.tracks.clone());
         select(state, job);
     }
 }
@@ -800,16 +825,14 @@ fn advance(state: &mut State, forward: bool, natural_end: bool) {
     let Some(item) = state.snapshot.item.clone() else {
         return;
     };
-    let current = state.context.cursor(item);
-    let transition = transition(
-        &state.context.tracks,
+    let current = state.controller.context.cursor(item);
+    let order = state.controller.context.order.clone();
+    let transition = state.controller.transition(
         current,
-        &mut state.snapshot.queued,
-        &mut state.history,
         TransitionPolicy {
             forward,
             natural_end,
-            context_order: &state.context.order,
+            context_order: &order,
             repeat: state.snapshot.repeat,
         },
     );
@@ -880,7 +903,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     }
     let shuffle = saved.shuffle;
     let repeat = saved.repeat;
-    state.context = if saved.context.order.is_empty() {
+    state.controller.context = if saved.context.order.is_empty() {
         LocalPlaybackContext::new(
             saved.context.tracks.clone(),
             saved.context.index,
@@ -900,13 +923,14 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         manual: saved.context.current_is_manual,
         context_index: Some(saved.context.index),
     });
-    state.history = saved.history;
+    state.controller.history = saved.history;
     let volume = state.snapshot.volume;
+    state.controller.manual = ManualQueue::from(saved.queued);
     state.snapshot = Snapshot {
         source_id: Some(saved.source.id),
         item: Some(saved.item),
         tracks: Arc::new(saved.context.tracks),
-        queued: ManualQueue::from(saved.queued),
+        queued: state.controller.manual.clone(),
         index: saved.context.index,
         manual_current: saved.context.current_is_manual,
         position_ms: saved.position_ms,
@@ -1043,13 +1067,13 @@ fn session(
                 })
                 .ok_or("Track is no longer available in this album.")?;
         }
-        state.context.set_tracks(tracks.clone());
+        state.controller.context.set_tracks(tracks.clone());
         let index = state.snapshot.index;
-        state.context.set_cursor(index, job.manual);
+        state.controller.context.set_cursor(index, job.manual);
         state.snapshot.tracks = Arc::new(tracks);
         state.snapshot.queue_complete = true;
-        if state.context.order.len() != state.snapshot.tracks.len() {
-            state.context.order = PlaybackOrder::for_context(
+        if state.controller.context.order.len() != state.snapshot.tracks.len() {
+            state.controller.context.order = PlaybackOrder::for_context(
                 state.snapshot.tracks.len(),
                 state.snapshot.index,
                 state.snapshot.shuffle,
@@ -1424,7 +1448,15 @@ mod tests {
             Some(vec![item("a"), item("b"), item("c")]),
         );
         shuffled.set_shuffle(true);
-        let order = shuffled.shared.state.lock().unwrap().context.order.clone();
+        let order = shuffled
+            .shared
+            .state
+            .lock()
+            .unwrap()
+            .controller
+            .context
+            .order
+            .clone();
         assert!(order.is_valid_for(3));
         assert_eq!(order.first(), Some(&0));
         shuffled.step(true);
@@ -1837,6 +1869,44 @@ mod tests {
         );
         assert_eq!(transport.snapshot().tracks.len(), 2);
         assert_eq!(transport.snapshot().item.unwrap().id, "a");
+    }
+
+    #[test]
+    fn manual_drag_insertions_use_the_drawn_snapshot_and_keep_duplicate_rows() {
+        let transport = transport();
+        let source = source();
+        transport.play(
+            source.clone(),
+            "album".into(),
+            item("a"),
+            Some(vec![item("a"), item("b")]),
+        );
+        transport.enqueue(&source, item("x"));
+        transport.enqueue(&source, item("x"));
+        let expected = transport.snapshot().queued.snapshot();
+        let mut other = source.clone();
+        other.user_id.push('x');
+        transport.insert_manual(&other, &expected, item("wrong-user"), 0);
+        transport.insert_manual(&source, &expected, item("middle"), 1);
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["x", "middle", "x"]
+        );
+        transport.insert_manual(&source, &expected, item("stale"), 0);
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["x", "middle", "x"]
+        );
     }
 
     #[test]

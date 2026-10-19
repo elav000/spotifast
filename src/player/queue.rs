@@ -133,6 +133,42 @@ impl<T: Clone> LocalPlaybackContext<T> {
     }
 }
 
+/// Provider-neutral state owned by a local playback controller. Provider
+/// adapters still resolve and execute the selected item; this value owns the
+/// local context, manual occurrences and Previous history together.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalPlaybackController<T> {
+    pub context: LocalPlaybackContext<T>,
+    pub manual: ManualQueue<T>,
+    pub history: PlaybackHistory<T>,
+}
+
+impl<T> Default for LocalPlaybackController<T> {
+    fn default() -> Self {
+        Self {
+            context: LocalPlaybackContext::default(),
+            manual: ManualQueue::default(),
+            history: PlaybackHistory::default(),
+        }
+    }
+}
+
+impl<T: Clone> LocalPlaybackController<T> {
+    pub fn transition(
+        &mut self,
+        current: PlaybackCursor<T>,
+        policy: TransitionPolicy<'_>,
+    ) -> QueueTransition<T> {
+        transition(
+            &self.context.tracks,
+            current,
+            &mut self.manual,
+            &mut self.history,
+            policy,
+        )
+    }
+}
+
 /// A playback location that can be revisited by the Previous command.
 ///
 /// Context rows use their stable position in the context. Manually queued

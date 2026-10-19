@@ -4179,6 +4179,7 @@ msgstr ""
 "eller slå på GPU-acceleration för den virtuella maskinen. Öppna {url} för "
 "att läsa mer?"
 
+<<<<<<< HEAD
 #~ msgid "3. Pair once in Spotify"
 #~ msgstr "3. Parkoppla en gång i Spotify"
 
@@ -4553,6 +4554,32 @@ msgstr ""
 
 #~ msgid "Soloist setup, privacy and limitations"
 #~ msgstr "Soloist: inställning, integritet och begränsningar"
+=======
+#: src/ui/sidebar.rs:2110
+msgid "Open"
+msgstr ""
+
+#: src/ui/queue.rs:678
+msgid "Drop here to add to Playing next"
+msgstr ""
+
+#: src/ui/dialogs.rs:81
+#, rust-format
+msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
+msgstr ""
+
+#: src/ui/dialogs.rs:639
+msgid "Rename playlist"
+msgstr ""
+
+#: src/ui/topbar.rs:203
+msgid "Music source"
+msgstr ""
+
+#: src/ui/winamp/mod.rs:914
+msgid "Size: 2x, 3x, 4x"
+msgstr "Storlek: 2x, 3x, 4x"
+>>>>>>> c4c90c7a (Share Jellyfin local playback controller and drag queue)
 
 #~ msgid ""
 #~ "Use a personal Development Mode app for a separate API quota. The shared "

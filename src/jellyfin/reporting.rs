@@ -69,6 +69,7 @@ mod tests {
         Playback {
             source: Source {
                 id: "source".into(),
+                nickname: "Test server".into(),
                 server_url: "http://localhost:8096/".into(),
                 server_id: "server".into(),
                 user_id: "user".into(),

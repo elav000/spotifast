@@ -11338,8 +11338,8 @@ mod tests {
         );
         assert_eq!(app.jellyfin.view, View::Settings);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        accessible_node(&tree, "Change server", Role::Button);
-        accessible_node(&tree, "Sign out of Jellyfin", Role::Button);
+        accessible_node(&tree, "Remove", Role::Button);
+        accessible_node(&tree, "Connect with Quick Connect", Role::Button);
         app.backend.shutdown();
     }
 

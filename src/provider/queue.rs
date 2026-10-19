@@ -12,15 +12,8 @@ use std::sync::Arc;
 fn jellyfin_context_upcoming(state: &crate::jellyfin::transport::Snapshot) -> Vec<usize> {
     let len = state.tracks.len();
     let natural: Vec<_> = (0..len).collect();
-    let order = if state.context_order.len() == len
-        && state
-            .context_order
-            .iter()
-            .copied()
-            .collect::<std::collections::HashSet<_>>()
-            .len()
-            == len
-        && state.context_order.iter().all(|index| *index < len)
+    let order = if crate::player::queue::PlaybackOrder::from(state.context_order.as_ref().clone())
+        .is_valid_for(len)
     {
         state.context_order.as_slice()
     } else {

@@ -1,6 +1,38 @@
 use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[test]
+fn audio_format_uses_reported_audio_stream_metadata() {
+    let item: Item = serde_json::from_str(
+        r#"{"Id":"song","Name":"Song","MediaStreams":[{"Type":"Video","SampleRate":24000},{"Type":"Audio","SampleRate":48000,"BitRate":320000}],"MediaSources":[{"MediaStreams":[{"Type":"Audio","SampleRate":96000,"BitRate":1000000}]}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        item.audio_format(),
+        Some(crate::app::AudioFormat {
+            bitrate_kbps: Some(320),
+            sample_rate_hz: Some(48_000),
+        })
+    );
+}
+
+#[test]
+fn audio_format_falls_back_to_media_source_and_omits_unknown_values() {
+    let item: Item = serde_json::from_str(
+        r#"{"Id":"song","Name":"Song","MediaSources":[{"MediaStreams":[{"Type":"Audio","SampleRate":96000}]}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        item.audio_format(),
+        Some(crate::app::AudioFormat {
+            bitrate_kbps: None,
+            sample_rate_hz: Some(96_000),
+        })
+    );
+    let item: Item = serde_json::from_str(r#"{"Id":"song","Name":"Song"}"#).unwrap();
+    assert_eq!(item.audio_format(), None);
+}
+
 /// A bounded local server, returning every request for contract assertions.
 async fn server(
     replies: Vec<(u16, &'static str)>,

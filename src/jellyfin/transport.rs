@@ -594,6 +594,7 @@ impl crate::app::App {
         }
         let state = self.jellyfin_player.snapshot();
         let item = state.item?;
+        let audio_format = item.audio_format();
         let artwork = self
             .jellyfin
             .source
@@ -621,6 +622,7 @@ impl crate::app::App {
                 .collect(),
             album_name: item.album.unwrap_or_default(),
             album_id: None,
+            audio_format,
             show_id: None,
             art_url: artwork.clone(),
             art_small: artwork,

@@ -119,6 +119,34 @@ impl Item {
     pub fn duration_ms(&self) -> Option<u64> {
         self.run_time_ticks.map(|ticks| ticks / 10_000)
     }
+
+    pub fn audio_format(&self) -> Option<crate::app::AudioFormat> {
+        let streams = self.media_streams.iter().flatten().chain(
+            self.media_sources
+                .iter()
+                .flatten()
+                .flat_map(|source| source.media_streams.iter().flatten()),
+        );
+        streams
+            .filter(|stream| {
+                stream
+                    .kind
+                    .as_deref()
+                    .is_some_and(|kind| kind.eq_ignore_ascii_case("Audio"))
+            })
+            .find_map(|stream| {
+                let bitrate_kbps = stream
+                    .bit_rate
+                    .and_then(|rate| u32::try_from(rate / 1000).ok());
+                let sample_rate_hz = stream.sample_rate;
+                (bitrate_kbps.is_some() || sample_rate_hz.is_some()).then_some(
+                    crate::app::AudioFormat {
+                        bitrate_kbps,
+                        sample_rate_hz,
+                    },
+                )
+            })
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

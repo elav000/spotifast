@@ -71,7 +71,7 @@ struct SavedPlayback {
     position_ms: u64,
     finished: bool,
     queue_complete: bool,
-    history: Vec<PlaybackCursor<Item>>,
+    history: PlaybackHistory<Item>,
 }
 
 const SAVED_LIMIT: u64 = 16 * 1024 * 1024;
@@ -209,7 +209,7 @@ impl Transport {
                 position_ms: state.snapshot.position_ms,
                 finished: state.snapshot.finished,
                 queue_complete: state.snapshot.queue_complete,
-                history: state.history.clone().into_vec(),
+                history: state.history.clone(),
             });
         drop(state);
         let bytes =
@@ -796,7 +796,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
                 .chain(&saved.queued)
                 .chain(std::iter::once(&saved.item))
                 .all(|item| super::validate_id(&item.id).is_ok())
-            || !saved.history.iter().all(|cursor| {
+            || !saved.history.as_slice().iter().all(|cursor| {
                 cursor.index < saved.tracks.len() && super::validate_id(&cursor.item.id).is_ok()
             })
         {
@@ -821,7 +821,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         manual: saved.manual,
         context_index: Some(saved.index),
     });
-    state.history = saved.history.into();
+    state.history = saved.history;
     let volume = state.snapshot.volume;
     state.snapshot = Snapshot {
         source_id: Some(saved.source.id),

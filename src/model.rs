@@ -1034,6 +1034,16 @@ pub struct DragTrack {
     pub source_playlist: Option<String>,
 }
 
+/// Provider-owned song carried between a catalog row and the local queue.
+/// The origin snapshot exists only for manual queue rows, so duplicate item
+/// IDs still identify the exact occurrence being moved.
+#[derive(Clone, Debug)]
+pub struct ProviderQueueDrag {
+    pub source: crate::jellyfin::browser::Source,
+    pub item: crate::jellyfin::Item,
+    pub origin: Option<(std::sync::Arc<Vec<crate::jellyfin::Item>>, usize)>,
+}
+
 /// Where the playing songs come from, as the queue's header names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlayingFrom {

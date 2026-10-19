@@ -193,5 +193,10 @@ controller for now; the catalogs and playback ordering are not combined.
 Clear, manual-row removal and Move up/down affect only manual Jellyfin rows.
 Save as a playlist creates a private Jellyfin playlist, deduplicated in playback
 order. Recent shows the transport's bounded current-context playback history.
-Jellyfin drag-and-drop and complete server-history browsing remain follow-up
-work. The existing Spotify behavior and the rules above remain unchanged.
+In the main queue page and side panel, a Jellyfin catalog track can be dragged
+into **Playing next**, and a manual row can be dragged to reorder it. Drops are
+accepted only for the playback account, and row moves use the queue snapshot that
+was visible when the drag began. When **Playing next** is empty, a separate drop
+slot appears before **Next up**; context rows themselves are never drop targets.
+The existing Spotify behavior and the rules above remain unchanged. Complete
+server-history browsing remains follow-up work.

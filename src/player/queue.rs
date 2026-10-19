@@ -7,6 +7,71 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
+/// A playback location that can be revisited by the Previous command.
+///
+/// Context rows use their stable position in the context. Manually queued
+/// rows retain that same context position so returning from them resumes the
+/// album or playlist after the song that was interrupted.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PlaybackCursor<T> {
+    pub item: T,
+    pub index: usize,
+    pub manual: bool,
+}
+
+/// Bounded backward-playback history shared by local provider controllers.
+///
+/// This is distinct from Recent history, which is a user-facing record of
+/// played items rather than a stack used to implement Previous.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PlaybackHistory<T> {
+    cursors: Vec<PlaybackCursor<T>>,
+}
+
+impl<T> Default for PlaybackHistory<T> {
+    fn default() -> Self {
+        Self {
+            cursors: Vec::new(),
+        }
+    }
+}
+
+impl<T> PlaybackHistory<T> {
+    pub const LIMIT: usize = 1000;
+
+    pub fn as_slice(&self) -> &[PlaybackCursor<T>] {
+        &self.cursors
+    }
+
+    pub fn push(&mut self, cursor: PlaybackCursor<T>) {
+        if self.cursors.len() == Self::LIMIT {
+            self.cursors.remove(0);
+        }
+        self.cursors.push(cursor);
+    }
+
+    pub fn pop(&mut self) -> Option<PlaybackCursor<T>> {
+        self.cursors.pop()
+    }
+
+    pub fn clear(&mut self) {
+        self.cursors.clear();
+    }
+
+    pub fn into_vec(self) -> Vec<PlaybackCursor<T>> {
+        self.cursors
+    }
+}
+
+impl<T> From<Vec<PlaybackCursor<T>>> for PlaybackHistory<T> {
+    fn from(cursors: Vec<PlaybackCursor<T>>) -> Self {
+        let start = cursors.len().saturating_sub(Self::LIMIT);
+        Self {
+            cursors: cursors.into_iter().skip(start).collect(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManualQueue<T> {
     rows: Arc<Vec<T>>,
@@ -194,5 +259,36 @@ mod tests {
         assert!(queue.remove_indices(&[0, 2, 2]));
         assert_eq!(queue.as_ref(), &["b", "c"]);
         assert_eq!(old.as_slice(), &["a", "b", "a", "c"]);
+    }
+
+    #[test]
+    fn playback_history_is_a_bounded_lifo_of_occurrences() {
+        let mut history = PlaybackHistory::default();
+        history.push(PlaybackCursor {
+            item: "same",
+            index: 1,
+            manual: false,
+        });
+        history.push(PlaybackCursor {
+            item: "same",
+            index: 1,
+            manual: true,
+        });
+
+        assert!(history.pop().unwrap().manual);
+        assert!(!history.pop().unwrap().manual);
+        assert!(history.pop().is_none());
+
+        let mut bounded = PlaybackHistory::default();
+        for index in 0..=PlaybackHistory::<usize>::LIMIT {
+            bounded.push(PlaybackCursor {
+                item: index,
+                index,
+                manual: false,
+            });
+        }
+        assert_eq!(bounded.as_slice().len(), PlaybackHistory::<usize>::LIMIT);
+        assert_eq!(bounded.as_slice()[0].item, 1);
+        assert_eq!(bounded.pop().unwrap().item, PlaybackHistory::<usize>::LIMIT);
     }
 }

@@ -86,7 +86,10 @@ uses them for local advancement, Shuffle and Repeat, and persists its mode and
 shuffle order without changing the existing saved-state format. Context play
 order now also has a shared primitive for creation, validation and explicit
 current-track re-anchoring; its transparent serialization keeps the saved JSON
-array shape unchanged. Spotify's Connect service continues to own its remote
+array shape unchanged. The active local context now groups its tracks, current
+cursor and order behind one shared type. Jellyfin serializes that type flattened
+to the same `tracks`, `index`, `manual` and `shuffle_order` fields, with tests
+guarding compatibility. Spotify's Connect service continues to own its remote
 queue and shuffle order. Next, identify another local-controller state seam to
 adapt while reusing the existing Spotify and Jellyfin rules. Provider execution
 adapters resolve and play entries; exclusive output ownership coordinates

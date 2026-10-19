@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:08-0800\n"
+"POT-Creation-Date: 2026-11-22 16:09-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -143,7 +143,7 @@ msgstr "ライブラリ内を検索"
 #: src/ui/sidebar.rs:1459 src/ui/widgets.rs:1463 src/app.rs:4303
 #: src/ui/artist.rs:267 src/ui/artist.rs:462 src/ui/home.rs:791
 #: src/ui/library.rs:99 src/ui/search.rs:163 src/ui/search.rs:495
-#: src/ui/winamp/playlist.rs:787
+#: src/ui/winamp/playlist.rs:873
 msgid "Artist"
 msgstr "アーティスト"
 
@@ -3987,8 +3987,8 @@ msgstr "スキンを選択"
 msgid "Big window"
 msgstr "大きいウインドウ"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:767
-#: src/ui/winamp/playlist.rs:781
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:853
+#: src/ui/winamp/playlist.rs:867
 msgid "Song info"
 msgstr "曲の情報"
 
@@ -4054,45 +4054,45 @@ msgstr "シーク先：{position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "大きいウインドウを開く"
 
-#: src/ui/winamp/playlist.rs:710
+#: src/ui/winamp/playlist.rs:796
 msgid "Remove selected"
 msgstr "選択した曲を削除"
 
-#: src/ui/winamp/playlist.rs:721
+#: src/ui/winamp/playlist.rs:807
 msgid "Remove all"
 msgstr "すべて削除"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:734
+#: src/ui/winamp/playlist.rs:820
 msgctxt "selection"
 msgid "All"
 msgstr "すべて"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:736
+#: src/ui/winamp/playlist.rs:822
 msgctxt "selection"
 msgid "None"
 msgstr "なし"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:738
+#: src/ui/winamp/playlist.rs:824
 msgctxt "selection"
 msgid "Invert"
 msgstr "反転"
 
-#: src/ui/winamp/playlist.rs:797
+#: src/ui/winamp/playlist.rs:883
 msgid "Load list"
 msgstr "リストを読み込む"
 
-#: src/ui/winamp/playlist.rs:806
+#: src/ui/winamp/playlist.rs:892
 msgid "No playlists yet"
 msgstr "プレイリストはまだありません"
 
-#: src/ui/winamp/playlist.rs:821
+#: src/ui/winamp/playlist.rs:907
 msgid "Save list"
 msgstr "リストを保存"
 
-#: src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:909
 msgid "Save the queue as a new playlist"
 msgstr "再生待ちリストを新しいプレイリストとして保存"
 

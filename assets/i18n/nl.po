@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:08-0800\n"
+"POT-Creation-Date: 2026-11-22 16:09-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Dutch\n"
@@ -143,7 +143,7 @@ msgstr "Zoeken in je bibliotheek"
 #: src/ui/sidebar.rs:1459 src/ui/widgets.rs:1463 src/app.rs:4303
 #: src/ui/artist.rs:267 src/ui/artist.rs:462 src/ui/home.rs:791
 #: src/ui/library.rs:99 src/ui/search.rs:163 src/ui/search.rs:495
-#: src/ui/winamp/playlist.rs:787
+#: src/ui/winamp/playlist.rs:873
 msgid "Artist"
 msgstr "Artiest"
 
@@ -4008,8 +4008,8 @@ msgstr "Skin kiezen"
 msgid "Big window"
 msgstr "Groot venster"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:767
-#: src/ui/winamp/playlist.rs:781
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:853
+#: src/ui/winamp/playlist.rs:867
 msgid "Song info"
 msgstr "Nummerinfo"
 
@@ -4075,45 +4075,45 @@ msgstr "Spoelen naar: {position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "Groot venster openen"
 
-#: src/ui/winamp/playlist.rs:710
+#: src/ui/winamp/playlist.rs:796
 msgid "Remove selected"
 msgstr "Selectie verwijderen"
 
-#: src/ui/winamp/playlist.rs:721
+#: src/ui/winamp/playlist.rs:807
 msgid "Remove all"
 msgstr "Alles verwijderen"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:734
+#: src/ui/winamp/playlist.rs:820
 msgctxt "selection"
 msgid "All"
 msgstr "Alles"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:736
+#: src/ui/winamp/playlist.rs:822
 msgctxt "selection"
 msgid "None"
 msgstr "Niets"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:738
+#: src/ui/winamp/playlist.rs:824
 msgctxt "selection"
 msgid "Invert"
 msgstr "Omkeren"
 
-#: src/ui/winamp/playlist.rs:797
+#: src/ui/winamp/playlist.rs:883
 msgid "Load list"
 msgstr "Lijst laden"
 
-#: src/ui/winamp/playlist.rs:806
+#: src/ui/winamp/playlist.rs:892
 msgid "No playlists yet"
 msgstr "Nog geen playlists"
 
-#: src/ui/winamp/playlist.rs:821
+#: src/ui/winamp/playlist.rs:907
 msgid "Save list"
 msgstr "Lijst opslaan"
 
-#: src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:909
 msgid "Save the queue as a new playlist"
 msgstr "De wachtrij opslaan als nieuwe playlist"
 

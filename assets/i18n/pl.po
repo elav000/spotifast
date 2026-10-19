@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:08-0800\n"
+"POT-Creation-Date: 2026-11-22 16:09-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Polish\n"
@@ -144,7 +144,7 @@ msgstr "Przeszukaj swoją bibliotekę"
 #: src/ui/sidebar.rs:1459 src/ui/widgets.rs:1463 src/app.rs:4303
 #: src/ui/artist.rs:267 src/ui/artist.rs:462 src/ui/home.rs:791
 #: src/ui/library.rs:99 src/ui/search.rs:163 src/ui/search.rs:495
-#: src/ui/winamp/playlist.rs:787
+#: src/ui/winamp/playlist.rs:873
 msgid "Artist"
 msgstr "Wykonawca"
 
@@ -4023,8 +4023,8 @@ msgstr "Wybierz skórkę"
 msgid "Big window"
 msgstr "Duże okno"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:767
-#: src/ui/winamp/playlist.rs:781
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:853
+#: src/ui/winamp/playlist.rs:867
 msgid "Song info"
 msgstr "Informacje o utworze"
 
@@ -4090,45 +4090,45 @@ msgstr "Przewiń do: {position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "Otwórz duże okno"
 
-#: src/ui/winamp/playlist.rs:710
+#: src/ui/winamp/playlist.rs:796
 msgid "Remove selected"
 msgstr "Usuń zaznaczone"
 
-#: src/ui/winamp/playlist.rs:721
+#: src/ui/winamp/playlist.rs:807
 msgid "Remove all"
 msgstr "Usuń wszystko"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:734
+#: src/ui/winamp/playlist.rs:820
 msgctxt "selection"
 msgid "All"
 msgstr "Wszystkie"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:736
+#: src/ui/winamp/playlist.rs:822
 msgctxt "selection"
 msgid "None"
 msgstr "Żadne"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:738
+#: src/ui/winamp/playlist.rs:824
 msgctxt "selection"
 msgid "Invert"
 msgstr "Odwróć"
 
-#: src/ui/winamp/playlist.rs:797
+#: src/ui/winamp/playlist.rs:883
 msgid "Load list"
 msgstr "Wczytaj listę"
 
-#: src/ui/winamp/playlist.rs:806
+#: src/ui/winamp/playlist.rs:892
 msgid "No playlists yet"
 msgstr "Na razie brak playlist"
 
-#: src/ui/winamp/playlist.rs:821
+#: src/ui/winamp/playlist.rs:907
 msgid "Save list"
 msgstr "Zapisz listę"
 
-#: src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:909
 msgid "Save the queue as a new playlist"
 msgstr "Zapisz kolejkę jako nową playlistę"
 

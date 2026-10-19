@@ -32,11 +32,11 @@ move, front-consumption and batch-removal. Backward cursor history,
 Next/Previous decisions, context play order and current-track re-anchoring are
 provider-neutral primitives. `LocalPlaybackController<T>` now groups the local
 context, manual queue and Previous history; Jellyfin uses it as the authoritative
-state while retaining its saved JSON shape. Its main queue page and panel now
-accept provider track drags for insertion and manual-row reordering, guarded by
-source identity and the queue snapshot the UI drew. The empty Playing next section
-has its own drop slot; context rows remain outside the target. Spotify Connect
-continues to own its remote queue and shuffle order.
+state while retaining its saved JSON shape. Its main queue page, panel and
+Winamp mini playlist accept provider track drags for insertion and manual-row
+reordering, guarded by source identity and the queue snapshot the UI drew. The
+empty Playing next section has its own drop slot; context rows remain outside
+the target. Spotify Connect continues to own its remote queue and shuffle order.
 
 Spotify local playback already reuses `ManualQueue<T>`, but it does not have a
 second local transition controller to adopt. librespot's Connect state drives
@@ -47,9 +47,10 @@ Keep Spotify's transitions in its adapter and treat the shared queue primitive
 as the integration point for now. Revisit only if librespot exposes a distinct
 local-only playback mode with its own context and transitions.
 
-Next, assess and implement drag insertion and reordering in the Winamp mini
-playlist so it matches the main queue page and panel for Jellyfin local queues.
-Keep regression coverage for stale snapshots, account switches, repeated songs,
+Next, assess the Jellyfin server's supported playback-history surface and extend
+Recent beyond the bounded current-context history where the API allows it. Keep
+Recent distinct from the controller's Previous cursor history. Preserve
+regression coverage for stale snapshots, account switches, repeated songs,
 seeking, playback errors and full/mini window transitions. Provider execution
 adapters resolve and play entries; exclusive output ownership coordinates
 handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
@@ -60,8 +61,6 @@ extraction.
 - Revamp login, account/sign-in and server management: choose a provider during
   sign-in, then manage connected accounts and server(s) from Settings. This is
   future design work; no implementation is requested yet.
-- Broader Jellyfin Recent history. The shared Recent tab currently shows bounded
-  current-context playback history, not full server history.
 - Shared Home layout with suitable Jellyfin sections; content remains undecided.
 - Better recovery from transient range/network stalls, including bounded retries
   and incremental delivery within a not-yet-complete range where appropriate.

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-10-19 08:45-0700\n"
+"POT-Creation-Date: 2026-10-19 11:39-0700\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Swedish\n"
@@ -141,7 +141,7 @@ msgstr "Sök i ditt bibliotek"
 
 #: src/ui/sidebar.rs:1382 src/app.rs:3482 src/ui/artist.rs:221
 #: src/ui/artist.rs:364 src/ui/home.rs:791 src/ui/library.rs:99
-#: src/ui/search.rs:163 src/ui/search.rs:495 src/ui/winamp/playlist.rs:782
+#: src/ui/search.rs:163 src/ui/search.rs:495 src/ui/winamp/playlist.rs:868
 msgid "Artist"
 msgstr "Artist"
 
@@ -168,7 +168,7 @@ msgstr "Spela"
 
 #: src/ui/sidebar.rs:2110
 msgid "Open"
-msgstr ""
+msgstr "Öppna"
 
 #: src/ui/sidebar.rs:2151
 msgid "Sort by recently played"
@@ -359,7 +359,7 @@ msgstr "Härnäst"
 
 #: src/ui/queue.rs:678
 msgid "Drop here to add to Playing next"
-msgstr ""
+msgstr "Släpp här för att lägga till i ”Härnäst”"
 
 #. Translators: Upcoming songs from the current playlist or album, after manually queued songs.
 #: src/ui/queue.rs:705
@@ -2474,7 +2474,7 @@ msgstr "Ta bort från Ditt bibliotek?"
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
-msgstr ""
+msgstr "Ta bort ”{name}”? Spellistan tas bort från din Jellyfin-server."
 
 #. Translators: {name} is a playlist name.
 #: src/ui/dialogs.rs:84
@@ -2631,7 +2631,7 @@ msgstr "Spara"
 
 #: src/ui/dialogs.rs:639
 msgid "Rename playlist"
-msgstr ""
+msgstr "Byt namn på spellistan"
 
 #: src/ui/home.rs:342
 msgid "Made for you"
@@ -3089,7 +3089,7 @@ msgstr "Spelad"
 
 #: src/ui/topbar.rs:203
 msgid "Music source"
-msgstr ""
+msgstr "Musikkälla"
 
 #: src/ui/topbar.rs:304
 msgid "Show sidebar (Ctrl+B)"
@@ -3253,8 +3253,8 @@ msgstr "Välj en skin"
 msgid "Big window"
 msgstr "Stort fönster"
 
-#: src/ui/winamp/mod.rs:885 src/ui/winamp/playlist.rs:762
-#: src/ui/winamp/playlist.rs:776
+#: src/ui/winamp/mod.rs:885 src/ui/winamp/playlist.rs:848
+#: src/ui/winamp/playlist.rs:862
 msgid "Song info"
 msgstr "Låtinfo"
 
@@ -3320,45 +3320,45 @@ msgstr "Spola till: {position}/{duration} ({percent} %)"
 msgid "Open the big window"
 msgstr "Öppna stora fönstret"
 
-#: src/ui/winamp/playlist.rs:705
+#: src/ui/winamp/playlist.rs:791
 msgid "Remove selected"
 msgstr "Ta bort markerade"
 
-#: src/ui/winamp/playlist.rs:716
+#: src/ui/winamp/playlist.rs:802
 msgid "Remove all"
 msgstr "Ta bort alla"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:729
+#: src/ui/winamp/playlist.rs:815
 msgctxt "selection"
 msgid "All"
 msgstr "Alla"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:731
+#: src/ui/winamp/playlist.rs:817
 msgctxt "selection"
 msgid "None"
 msgstr "Inga"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:733
+#: src/ui/winamp/playlist.rs:819
 msgctxt "selection"
 msgid "Invert"
 msgstr "Invertera"
 
-#: src/ui/winamp/playlist.rs:792
+#: src/ui/winamp/playlist.rs:878
 msgid "Load list"
 msgstr "Läs in lista"
 
-#: src/ui/winamp/playlist.rs:801
+#: src/ui/winamp/playlist.rs:887
 msgid "No playlists yet"
 msgstr "Inga spellistor än"
 
-#: src/ui/winamp/playlist.rs:816
+#: src/ui/winamp/playlist.rs:902
 msgid "Save list"
 msgstr "Spara lista"
 
-#: src/ui/winamp/playlist.rs:818
+#: src/ui/winamp/playlist.rs:904
 msgid "Save the queue as a new playlist"
 msgstr "Spara kön som en ny spellista"
 

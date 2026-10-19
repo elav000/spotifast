@@ -19,11 +19,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     egui::CentralPanel::default().frame(Frame::new().fill(palette.window).inner_margin(24))
         .show(ui, |ui| {
             ui.add_space(super::provider_titlebar_inset(ui.ctx()));
-            super::topbar::provider_menu(app, ui);
             let browser = &app.jellyfin;
             let mut actions = Vec::new();
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Jellyfin").font(theme::bold(30.0)).color(palette.text));
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Use Spotify").clicked() {
+                        actions.push(A::Select(crate::provider::Provider::Spotify));
+                    }
+                });
                 if browser.source.is_some() {
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button("Sign out").clicked() { actions.push(A::SignOut); }

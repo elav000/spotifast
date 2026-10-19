@@ -1456,6 +1456,7 @@ pub struct ProviderRowActions {
     pub enqueue: Option<Action>,
     pub queue_label: String,
     pub can_enqueue: bool,
+    pub queue_drag: Option<crate::model::ProviderQueueDrag>,
     pub current: bool,
     pub playing: bool,
     pub loading: bool,
@@ -1686,6 +1687,11 @@ fn track_row_contents(
                 source_playlist,
             },
         );
+    }
+    if let Some(payload) = actions.and_then(|actions| actions.queue_drag.clone())
+        && response.drag_started_by(egui::PointerButton::Primary)
+    {
+        egui::DragAndDrop::set_payload(ui.ctx(), payload);
     }
     // A queue row is a position, not the song itself: the same song can
     // sit in the queue while it plays (a repeat wrapping around, a song

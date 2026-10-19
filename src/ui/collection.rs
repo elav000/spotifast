@@ -3048,7 +3048,14 @@ pub fn provider_tracks(
                 play,
                 enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
                 queue_label: format!("Add {title} to Jellyfin queue"),
-                can_enqueue: state.item.is_some(),
+                can_enqueue: state.item.is_some() && state.source_id.as_deref() == Some(&source.id),
+                queue_drag: (state.source_id.as_deref() == Some(&source.id)).then(|| {
+                    crate::model::ProviderQueueDrag {
+                        source: source.clone(),
+                        item: item.clone(),
+                        origin: None,
+                    }
+                }),
                 current,
                 playing: state.playing,
                 loading: state.loading,

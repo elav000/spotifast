@@ -870,6 +870,12 @@ pub enum BrowserAction {
         source: Source,
         item: Box<Item>,
     },
+    InsertManual {
+        source: Source,
+        expected: std::sync::Arc<Vec<Item>>,
+        item: Box<Item>,
+        to: usize,
+    },
     EditManual {
         source: Source,
         expected: std::sync::Arc<Vec<Item>>,
@@ -1055,6 +1061,14 @@ impl crate::app::App {
             BrowserAction::EnqueueItem { source, item } => {
                 self.jellyfin_player.enqueue(&source, *item)
             }
+            BrowserAction::InsertManual {
+                source,
+                expected,
+                item,
+                to,
+            } => self
+                .jellyfin_player
+                .insert_manual(&source, &expected, *item, to),
             BrowserAction::Queue(id) => {
                 if let Some(source) = &self.jellyfin.source {
                     let item = match &self.jellyfin.rows {

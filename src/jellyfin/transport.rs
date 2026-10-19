@@ -7,7 +7,9 @@ use crate::media::{
     pipeline::{BufferedDecoder, Readiness},
 };
 use crate::playback_output::OutputRequest;
-use crate::player::queue::{ManualQueue, PlaybackCursor, PlaybackHistory};
+use crate::player::queue::{
+    ManualQueue, PlaybackCursor, PlaybackHistory, QueueTransition, transition,
+};
 use crate::sink::{AudioControl, RodioSink};
 use crate::vis::Tapped;
 use crate::{backend::Waker, paths::AppDirs, player::EngineConfig, provider::Provider};
@@ -732,68 +734,39 @@ fn select_cursor(state: &mut State, cursor: PlaybackCursor<Item>) {
 }
 
 fn advance(state: &mut State, forward: bool) {
-    let target = if forward {
-        if !state.snapshot.queued.is_empty() {
-            Some(PlaybackCursor {
-                item: state
-                    .snapshot
-                    .queued
-                    .pop_front()
-                    .expect("queue was not empty"),
-                index: state.snapshot.index,
-                manual: true,
-            })
-        } else {
-            state.snapshot.index.checked_add(1).and_then(|index| {
-                state
-                    .snapshot
-                    .tracks
-                    .get(index)
-                    .cloned()
-                    .map(|item| PlaybackCursor {
-                        item,
-                        index,
-                        manual: false,
-                    })
-            })
-        }
-    } else {
-        state.history.pop().or_else(|| {
-            state.snapshot.index.checked_sub(1).and_then(|index| {
-                state
-                    .snapshot
-                    .tracks
-                    .get(index)
-                    .cloned()
-                    .map(|item| PlaybackCursor {
-                        item,
-                        index,
-                        manual: false,
-                    })
-            })
-        })
+    let Some(item) = state.snapshot.item.clone() else {
+        return;
     };
-    if let Some(target) = target {
-        if forward {
-            remember_current(state);
-        } else if state.snapshot.manual_current
-            && let Some(item) = state.snapshot.item.clone()
-        {
-            state.snapshot.queued.insert(0, item);
+    let current = PlaybackCursor {
+        item,
+        index: state.snapshot.index,
+        manual: state.snapshot.manual_current,
+    };
+    let transition = transition(
+        &state.snapshot.tracks,
+        current,
+        &mut state.snapshot.queued,
+        &mut state.history,
+        forward,
+        &[],
+        crate::player::RepeatMode::Off,
+    );
+    match transition {
+        QueueTransition::Play(target) => select_cursor(state, target),
+        QueueTransition::Finished => {
+            state.cancel.store(true, Ordering::SeqCst);
+            state.epoch += 1;
+            state.job = None;
+            state.snapshot.playing = false;
+            state.snapshot.loading = false;
+            state.snapshot.finished = true;
+            state.snapshot.position_ms = state.snapshot.duration_ms;
         }
-        select_cursor(state, target);
-    } else if forward {
-        state.cancel.store(true, Ordering::SeqCst);
-        state.epoch += 1;
-        state.job = None;
-        state.snapshot.playing = false;
-        state.snapshot.loading = false;
-        state.snapshot.finished = true;
-        state.snapshot.position_ms = state.snapshot.duration_ms;
-    } else {
-        state.seek_revision += 1;
-        state.seek = Some((state.seek_revision, 0));
-        state.snapshot.position_ms = 0;
+        QueueTransition::Restart => {
+            state.seek_revision += 1;
+            state.seek = Some((state.seek_revision, 0));
+            state.snapshot.position_ms = 0;
+        }
     }
 }
 
@@ -814,7 +787,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
             || saved.tracks.is_empty()
             || saved.tracks.len() > 10000
             || saved.queued.len() > 1000
-            || saved.history.len() > 1000
+            || saved.history.len() > PlaybackHistory::<Item>::LIMIT
             || saved.index >= saved.tracks.len()
             || (!saved.manual && saved.tracks[saved.index].id != saved.item.id)
             || !saved

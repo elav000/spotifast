@@ -50,19 +50,19 @@ completed milestones below supersede their old "next step" language.
   resume and seek behaved as expected. With a multi-track album playing, the
   manual entry appeared ahead of album context; the maintainer confirmed Next
   and clear preserve the expected context.
+- Live Jellyfin playlist load/save passed: loaded and played an existing playlist,
+  saved the current queue as a private playlist and verified its current/upcoming
+  tracks, then deleted the temporary saved copy. The original playlist remained.
 - Integrated 42 upstream commits through `ee8900d54693a807d657154e6b16ea572e963791`,
   including upstream 0.13.3. Preserved provider adapters and adapted the new
   fullscreen queue column. The combined lockfile's Nix vendor hash is refreshed.
 
 ## Next session: bugs and live acceptance
 
-1. **Verify playlist load/save against the live Jellyfin server.** Automated checks
-   verify provider-bound actions; a real server mutation is still outstanding.
-   Queue save currently uses the main view's private-playlist/deduplication policy.
-2. **Show real mini-player media metadata.** The existing bitrate/sample-rate
+1. **Show real mini-player media metadata.** The existing bitrate/sample-rate
    readout assumes Spotify's configured bitrate and 44 kHz. Feed actual Jellyfin
    media metadata through shared presentation rather than hard-coding a format.
-3. **MP3 startup recovery is verified.** Reproduced on
+2. **MP3 startup recovery is verified.** Reproduced on
    "Push It (March 2014 Mix)" (48 kHz stereo, 320 kbps MP3, 1:06:49). Symphonia
    rejects its first packet at timestamp zero with `mpa: invalid main_data
    offset`. The current entity was checked online and its exact-length cached

@@ -8169,7 +8169,7 @@ mod tests {
         if let Loadable::Loaded(queue) = &app.queue
             && let Some(first) = queue.queue.first()
         {
-            app.manual_queue = vec![first.uri().to_string()];
+            app.manual_queue = vec![first.uri().to_string()].into();
         }
         frame(&ctx, &mut app);
         app.manual_queue.clear();
@@ -8985,7 +8985,7 @@ mod tests {
             }
         }
         let uris: Vec<String> = songs.iter().map(|song| song.uri.clone()).collect();
-        app.manual_queue = uris.clone();
+        app.manual_queue = uris.clone().into();
         uris
     }
 

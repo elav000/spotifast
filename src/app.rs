@@ -168,6 +168,8 @@ pub struct NowPlaying {
     pub subtitle: String,
     pub album_name: String,
     pub album_id: Option<String>,
+    /// Reported media format when the provider exposes it.
+    pub audio_format: Option<AudioFormat>,
     pub show_id: Option<String>,
     pub art_url: Option<String>,
     pub art_small: Option<String>,
@@ -186,6 +188,12 @@ pub struct NowPlaying {
     /// The remembered song from the last session, shown paused before a
     /// first press. Nothing is playing yet.
     pub resuming: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AudioFormat {
+    pub bitrate_kbps: Option<u32>,
+    pub sample_rate_hz: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1974,6 +1982,7 @@ impl App {
                 album_id: cached
                     .and_then(|cached| cached.album.as_ref())
                     .map(|album| album.id.clone()),
+                audio_format: None,
                 show_id: None,
                 art_url: track.art_url.clone(),
                 art_small: track
@@ -2080,6 +2089,7 @@ impl App {
             artists,
             album_name,
             album_id,
+            audio_format: None,
             show_id,
             art_url: item.image(640).map(str::to_string),
             art_small: item.image(64).map(str::to_string),
@@ -2125,6 +2135,7 @@ impl App {
                 .map(|album| album.name.clone())
                 .unwrap_or_default(),
             album_id: track.album.as_ref().map(|album| album.id.clone()),
+            audio_format: None,
             show_id: None,
             art_url: track.image(640).map(str::to_string),
             art_small: track.image(64).map(str::to_string),
@@ -16483,6 +16494,7 @@ mod tests {
             subtitle: String::new(),
             album_name: String::new(),
             album_id: None,
+            audio_format: None,
             show_id: None,
             art_url: None,
             art_small: None,
@@ -29007,6 +29019,7 @@ mod tests {
                 subtitle: String::new(),
                 album_name: String::new(),
                 album_id: None,
+                audio_format: None,
                 show_id: None,
                 art_url: None,
                 art_small: None,

@@ -1323,10 +1323,25 @@ fn rates(app: &App, view: &mut View, now: Option<&NowPlaying>) {
     let Some(now) = now.filter(|now| !stopped(Some(now))) else {
         return;
     };
-    if now.local {
-        view.text(&format!("{:>3}", app.settings.bitrate), layout::KBPS);
+    let (bitrate, sample_rate) = displayed_rates(now, app.settings.bitrate);
+    if let Some(bitrate) = bitrate {
+        view.text(&format!("{:>3}", bitrate), layout::KBPS);
     }
-    view.text("44", layout::KHZ);
+    if let Some(sample_rate) = sample_rate {
+        view.text(&format!("{}", sample_rate / 1000), layout::KHZ);
+    }
+}
+
+fn displayed_rates(now: &NowPlaying, spotify_bitrate: u16) -> (Option<u32>, Option<u32>) {
+    if now.provider == crate::provider::Provider::Jellyfin {
+        return now.audio_format.map_or((None, None), |format| {
+            (format.bitrate_kbps, format.sample_rate_hz)
+        });
+    }
+    (
+        now.local.then_some(u32::from(spotify_bitrate)),
+        Some(44_100),
+    )
 }
 
 fn sliders(app: &mut App, view: &mut View, now: Option<&NowPlaying>) {
@@ -1584,6 +1599,7 @@ mod tests {
             subtitle: subtitle.into(),
             album_name: String::new(),
             album_id: None,
+            audio_format: None,
             show_id: None,
             art_url: None,
             art_small: None,
@@ -1617,6 +1633,21 @@ mod tests {
             marquee_text(Locale::English, Some(&untitled), None, None, None, None),
             "Episode 12"
         );
+    }
+
+    #[test]
+    fn format_readout_uses_jellyfin_metadata_and_preserves_spotify_behavior() {
+        let mut track = now("Song", "Artist", 180_000);
+        assert_eq!(displayed_rates(&track, 320), (Some(320), Some(44_100)));
+
+        track.provider = crate::provider::Provider::Jellyfin;
+        track.audio_format = Some(crate::app::AudioFormat {
+            bitrate_kbps: Some(256),
+            sample_rate_hz: Some(48_000),
+        });
+        assert_eq!(displayed_rates(&track, 320), (Some(256), Some(48_000)));
+        track.audio_format = None;
+        assert_eq!(displayed_rates(&track, 320), (None, None));
     }
 
     #[test]

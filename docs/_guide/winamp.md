@@ -63,6 +63,10 @@ You can also use the **V** menu. Changes to the equalizer affect the picture;
 turning down the volume does not, even at zero. The display reacts only to
 music playing on this computer.
 
+The bitrate and sample-rate readout uses the selected Spotify quality for
+Spotify playback. For Jellyfin, it shows the audio format reported by the
+server when that information is available.
+
 ## Playlist
 
 **PL** opens the playlist below the player. It shows the playing song followed

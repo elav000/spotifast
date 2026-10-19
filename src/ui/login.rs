@@ -66,17 +66,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
             fastframe_titlebar::drag(ui, drag_rect);
             let top = super::blend(palette.window, palette.accent, 0.10);
             super::widgets::paint_vertical_gradient(ui, rect, top, palette.window);
-            if app.jellyfin.enabled {
-                let origin = rect.min
-                    + Vec2::new(16.0, super::provider_titlebar_inset(ui.ctx()) + 12.0);
-                ui.scope_builder(
-                    egui::UiBuilder::new()
-                        .max_rect(Rect::from_min_size(origin, Vec2::new(200.0, 32.0))),
-                    |ui| {
-                        super::topbar::provider_menu(app, ui);
-                    },
-                );
-            }
             let waiting = connecting || matches!(app.auth, AuthStatus::WaitingForBrowser { .. });
             let steps = !waiting && show_steps(app, &ctx);
             // Two columns share what the window has beside the card's
@@ -231,6 +220,60 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
         );
     }
     ui.add_space(if steps { 12.0 } else { 22.0 });
+    if app.jellyfin.enabled
+        && !connecting
+        && !matches!(app.auth, AuthStatus::WaitingForBrowser { .. })
+    {
+        theme::text(ui, "Provider", theme::medium(12.0), palette.secondary);
+        ui.horizontal(|ui| {
+            let button_padding = Vec2::new(18.0, 8.0);
+            let button_width = ["Spotify", "Jellyfin"]
+                .iter()
+                .map(|label| {
+                    ui.painter()
+                        .layout_no_wrap(
+                            (*label).to_owned(),
+                            theme::semibold(13.0),
+                            palette.text,
+                        )
+                        .size()
+                        .x
+                        + button_padding.x * 2.0
+                })
+                .sum::<f32>()
+                + ui.spacing().item_spacing.x;
+            ui.add_space((ui.available_width() - button_width).max(0.0) / 2.0);
+            if theme::pill_button(
+                ui,
+                &palette,
+                "Spotify",
+                app.jellyfin.provider == crate::provider::Provider::Spotify,
+            )
+            .clicked()
+            {
+                app.actions.push(Action::Jellyfin(
+                    crate::jellyfin::browser::BrowserAction::Select(
+                        crate::provider::Provider::Spotify,
+                    ),
+                ));
+            }
+            if theme::pill_button(
+                ui,
+                &palette,
+                "Jellyfin",
+                app.jellyfin.provider == crate::provider::Provider::Jellyfin,
+            )
+            .clicked()
+            {
+                app.actions.push(Action::Jellyfin(
+                    crate::jellyfin::browser::BrowserAction::Select(
+                        crate::provider::Provider::Jellyfin,
+                    ),
+                ));
+            }
+        });
+        ui.add_space(12.0);
+    }
     match &app.auth {
         AuthStatus::WaitingForBrowser { url } => {
             let url = url.clone();

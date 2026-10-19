@@ -17636,6 +17636,23 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_settings_action_opens_account_management_without_loading_catalog() {
+        use crate::{
+            jellyfin::browser::{BrowserAction, View},
+            provider::Provider,
+        };
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-albums");
+        let source = app.jellyfin.source.clone();
+        app.apply_jellyfin_action(BrowserAction::OpenSettings);
+        assert_eq!(app.jellyfin.provider, Provider::Jellyfin);
+        assert_eq!(app.jellyfin.view, View::Settings);
+        assert_eq!(app.jellyfin.source, source);
+        assert!(!app.jellyfin.busy);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_does_not_replace_spotify_resume_or_saved_library_requests() {
         let mut app = headless_app();
         app.offline = true;

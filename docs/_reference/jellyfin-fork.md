@@ -245,7 +245,8 @@ request. Transient range failures and temporary server errors receive at most
 two automatic retries, with 150 ms and 400 ms backoff. Malformed ranges,
 authorization errors and entity changes fail without retry. Each attempt fetches
 and validates a complete range before exposing bytes to the decoder. Incremental
-delivery from an incomplete range is not implemented. Full process memory
+delivery from an incomplete range is deferred until timing evidence shows the
+server delivers useful bytes before a full range completes. Full process memory
 (including demuxer metadata/artwork) has
 not been profiled. Jellyfin playback does not yet offer transcoding, downloads, shuffle, repeat,
 lyrics or artwork in the shared player bar.
@@ -671,7 +672,8 @@ remains an accessible Pause button while buffering; pausing restores Play. No
 provider panel, setting or mixed queue is introduced. This pipeline is reusable
 by other HTTP providers; Spotify retains its native decoder/queue. A finite
 buffer cannot hide arbitrarily long server stalls. Incremental delivery of a
-partly received range remains future work.
+partly received range is deferred until timing evidence shows earlier bytes are
+available to consume.
 
 
 ## Shared queue interface

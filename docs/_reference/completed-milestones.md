@@ -45,6 +45,11 @@ history below is not a list of tasks to repeat.
   playlist, saved the current queue as a private playlist and verified its
   current/upcoming tracks, then deleted the temporary saved copy. The original
   playlist remained.
+- Jellyfin queue Recent now reads the active user's played audio across
+  libraries, sorted by server last-played date and paginated. Jellyfin exposes
+  per-item played state rather than a play-occurrence log, so each song appears
+  once. The currently playing item is shown at the top; Previous remains the
+  local controller's bounded cursor history.
 
 ## Upstream integration
 

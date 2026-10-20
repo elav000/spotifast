@@ -186,11 +186,17 @@ controller for now; the catalogs and playback ordering are not combined.
 
 Clear, manual-row removal and Move up/down affect only manual Jellyfin rows.
 Save as a playlist creates a private Jellyfin playlist, deduplicated in playback
-order. Recent shows the transport's bounded current-context playback history.
+order. Recent uses the active Jellyfin user's server history across music
+libraries, ordered by last-played date, refreshes when the tab is opened, and can
+page through all matching items.
+It reflects Jellyfin's per-item `IsPlayed` and `LastPlayedDate` data, so each
+song appears once and it is not a log of every play occurrence. The current
+song may appear at the top while it is playing. Previous remains the local
+controller's bounded cursor history and is independent of Recent.
 In the main queue page, side panel, and Winamp mini playlist, a Jellyfin catalog
 track can be dragged into **Playing next**, and a manual row can be dragged to
 reorder it. Drops are accepted only for the playback account, and row moves use
 the queue snapshot that was visible when the drag began. When **Playing next** is
 empty, its drop slot sits before the context rows; context rows themselves are
 never drop targets. The existing Spotify behavior and the rules above remain
-unchanged. Complete server-history browsing remains follow-up work.
+unchanged.

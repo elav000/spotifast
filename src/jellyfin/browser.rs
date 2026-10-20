@@ -7,7 +7,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 use super::{
-    Item, MusicLibrary,
+    Item, MusicLibrary, Page,
     catalog::{Kind, Query},
 };
 use crate::{backend::Waker, paths::AppDirs, settings::ProxyConfig};
@@ -142,6 +142,11 @@ pub enum Command {
         view: View,
         start: u32,
     },
+    Recent {
+        source: Source,
+        request: u64,
+        start: u32,
+    },
     Cancel,
     RenameServer(Source),
     ActivateServer(String),
@@ -179,6 +184,16 @@ pub enum Reply {
     },
     CatalogError {
         request: u64,
+        error: String,
+    },
+    Recent {
+        request: u64,
+        source: Source,
+        page: Page<Item>,
+    },
+    RecentError {
+        request: u64,
+        source: Source,
         error: String,
     },
     Restored {
@@ -244,6 +259,12 @@ pub struct Browser {
     pub playlists: Vec<Item>,
     pub playlists_loading: bool,
     pub playlists_error: Option<String>,
+    pub recent_items: Vec<Item>,
+    pub recent_total: u32,
+    pub recent_loading: bool,
+    pub recent_loaded_once: bool,
+    pub recent_error: Option<String>,
+    pub recent_request: u64,
     pub edit_request: u64,
     pub edit_busy: bool,
     pub edit_error: Option<String>,
@@ -310,6 +331,12 @@ impl Browser {
             playlists: Vec::new(),
             playlists_loading: false,
             playlists_error: None,
+            recent_items: Vec::new(),
+            recent_total: 0,
+            recent_loading: false,
+            recent_loaded_once: false,
+            recent_error: None,
+            recent_request: 0,
             edit_request: 0,
             edit_busy: false,
             edit_error: None,
@@ -353,6 +380,8 @@ impl Browser {
                     | Reply::Edited { .. }
                     | Reply::Playlists { .. }
                     | Reply::ReportError { .. }
+                    | Reply::Recent { .. }
+                    | Reply::RecentError { .. }
             ) && event.generation != self.generation.load(Ordering::SeqCst)
             {
                 continue;
@@ -495,6 +524,35 @@ impl Browser {
                 self.catalog.busy = false;
             }
             Reply::Catalog { .. } | Reply::CatalogError { .. } => {}
+            Reply::Recent {
+                request,
+                source,
+                page,
+            } if request == self.recent_request && self.source.as_ref() == Some(&source) => {
+                if page.start_index as usize > self.recent_items.len() {
+                    self.recent_error = Some(
+                        "Jellyfin returned an incomplete recent-history page. Retry loading Recent."
+                            .into(),
+                    );
+                } else {
+                    self.recent_items.truncate(page.start_index as usize);
+                    self.recent_items.extend(page.items);
+                    self.recent_total = page.total_record_count;
+                    self.recent_error = None;
+                }
+                self.recent_loading = false;
+                self.recent_loaded_once = true;
+            }
+            Reply::RecentError {
+                request,
+                source,
+                error,
+            } if request == self.recent_request && self.source.as_ref() == Some(&source) => {
+                self.recent_loading = false;
+                self.recent_loaded_once = true;
+                self.recent_error = Some(error);
+            }
+            Reply::Recent { .. } | Reply::RecentError { .. } => {}
             Reply::Restored {
                 source,
                 servers,
@@ -509,6 +567,7 @@ impl Browser {
                 let changed = self.source.as_ref().map(|source| &source.id)
                     != source.as_ref().map(|source| &source.id);
                 if changed {
+                    self.clear_recent();
                     self.rows = None;
                     self.catalog = Catalog::default();
                     self.libraries.clear();
@@ -564,6 +623,9 @@ impl Browser {
             }
             Reply::Pending => self.poll_at = Some(Instant::now() + Duration::from_secs(5)),
             Reply::Connected(source) => {
+                if self.source.as_ref().map(|saved| &saved.id) != Some(&source.id) {
+                    self.clear_recent();
+                }
                 self.source = Some(source);
                 if let Some(source) = self.source.clone() {
                     self.servers.retain(|saved| saved.id != source.id);
@@ -590,6 +652,7 @@ impl Browser {
                 self.busy = cached;
             }
             Reply::SignedOut => {
+                self.clear_recent();
                 self.source = None;
                 self.busy = false;
             }
@@ -718,6 +781,7 @@ impl Browser {
     }
 
     pub fn sign_out(&mut self, proxy: &ProxyConfig) {
+        self.clear_recent();
         self.catalog_generation.fetch_add(1, Ordering::SeqCst);
         self.catalog = Catalog::default();
         self.libraries.clear();
@@ -739,6 +803,43 @@ impl Browser {
         self.send(proxy, Command::SignOut);
     }
 
+    pub fn load_recent(&mut self, reload: bool, proxy: &ProxyConfig) {
+        if self.recent_loading {
+            return;
+        }
+        let Some(source) = self.source.clone() else {
+            return;
+        };
+        let start = if reload {
+            0
+        } else {
+            self.recent_items.len() as u32
+        };
+        if !reload && self.recent_loaded_once && start >= self.recent_total {
+            return;
+        }
+        self.recent_request = self.recent_request.wrapping_add(1);
+        self.recent_loading = true;
+        self.recent_error = None;
+        self.send(
+            proxy,
+            Command::Recent {
+                source,
+                request: self.recent_request,
+                start,
+            },
+        );
+    }
+
+    fn clear_recent(&mut self) {
+        self.recent_request = self.recent_request.wrapping_add(1);
+        self.recent_items.clear();
+        self.recent_total = 0;
+        self.recent_loading = false;
+        self.recent_loaded_once = false;
+        self.recent_error = None;
+    }
+
     pub fn rename_server(&mut self, id: String, nickname: String, proxy: &ProxyConfig) {
         let nickname = nickname.trim();
         if !nickname.is_empty()
@@ -756,6 +857,7 @@ impl Browser {
     }
 
     fn reset_for_server_switch(&mut self) {
+        self.clear_recent();
         self.rows = None;
         self.catalog_generation.fetch_add(1, Ordering::SeqCst);
         self.catalog = Catalog::default();
@@ -957,6 +1059,9 @@ pub enum BrowserAction {
     Browse {
         view: View,
         start: u32,
+    },
+    LoadRecent {
+        reload: bool,
     },
     Play(String),
     PlayItem {
@@ -1228,6 +1333,9 @@ impl crate::app::App {
                 self.jellyfin
                     .browse(view, start, &self.applied_jellyfin_proxy())
             }
+            BrowserAction::LoadRecent { reload } => self
+                .jellyfin
+                .load_recent(reload, &self.applied_jellyfin_proxy()),
         }
     }
 }
@@ -1507,6 +1615,75 @@ mod tests {
         let mut model = Browser::new(dirs, Waker::default(), false);
         model.demo("jellyfin-albums");
         model
+    }
+
+    #[test]
+    fn recent_history_pages_append_and_ignore_stale_account_replies() {
+        let mut model = model();
+        let source = model.source.clone().unwrap();
+        model.recent_request = 4;
+        model.recent_loading = true;
+        let item: Item = serde_json::from_value(serde_json::json!({
+            "Id": "recent-song",
+            "Name": "Recent song",
+            "AlbumId": "album",
+            "UserData": {"LastPlayedDate": "2026-10-19T12:00:00Z"}
+        }))
+        .unwrap();
+        model.apply(
+            Reply::Recent {
+                request: 4,
+                source: source.clone(),
+                page: Page {
+                    items: vec![item.clone()],
+                    start_index: 0,
+                    total_record_count: 2,
+                },
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(model.recent_items, vec![item]);
+        assert_eq!(model.recent_total, 2);
+        assert!(model.recent_loaded_once);
+        assert!(!model.recent_loading);
+
+        let mut other = source.clone();
+        other.id = "other-account".into();
+        model.apply(
+            Reply::Recent {
+                request: 4,
+                source: other,
+                page: Page {
+                    items: vec![],
+                    start_index: 1,
+                    total_record_count: 2,
+                },
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(model.recent_items.len(), 1);
+
+        let second: Item = serde_json::from_value(serde_json::json!({
+            "Id": "second-song",
+            "Name": "Second song"
+        }))
+        .unwrap();
+        model.apply(
+            Reply::Recent {
+                request: 4,
+                source,
+                page: Page {
+                    items: vec![second],
+                    start_index: 1,
+                    total_record_count: 2,
+                },
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(model.recent_items.len(), 2);
+        model.load_recent(true, &ProxyConfig::Off);
+        assert!(model.recent_loading);
+        assert_eq!(model.recent_items.len(), 2);
     }
     use std::path::PathBuf;
 

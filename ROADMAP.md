@@ -47,14 +47,17 @@ Keep Spotify's transitions in its adapter and treat the shared queue primitive
 as the integration point for now. Revisit only if librespot exposes a distinct
 local-only playback mode with its own context and transitions.
 
-Next, assess the Jellyfin server's supported playback-history surface and extend
-Recent beyond the bounded current-context history where the API allows it. Keep
-Recent distinct from the controller's Previous cursor history. Preserve
-regression coverage for stale snapshots, account switches, repeated songs,
-seeking, playback errors and full/mini window transitions. Provider execution
-adapters resolve and play entries; exclusive output ownership coordinates
-handoffs. Do not rewrite Spotify Connect's remote service queue as part of this
-extraction.
+Jellyfin Recent now loads the active user's played audio across libraries,
+sorted by server last-played date, while Previous remains the local controller's
+bounded cursor history. The server API stores per-item played state rather than
+an occurrence log, so Recent lists each song once. See the
+[queue contract](docs/_reference/queue.md) and
+[completed milestones](docs/_reference/completed-milestones.md).
+
+The shared local controller milestone is complete for current provider needs:
+provider execution adapters resolve and play entries, while exclusive output
+ownership coordinates handoffs. Do not rewrite Spotify Connect's remote service
+queue as part of this extraction.
 
 The sign-in screen now offers Spotify or Jellyfin. The main source/account
 dropdown is removed; Settings switches providers and manages saved Jellyfin

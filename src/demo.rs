@@ -12277,6 +12277,32 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_now_playing_title_opens_its_album_in_the_jellyfin_catalog() {
+        use crate::{jellyfin::browser::BrowserAction as A, provider::Provider};
+        use egui::accesskit::{Action as Click, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-now-playing-album");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
+        app.jellyfin_player.demo_ready(0, true);
+        app.jellyfin.provider = Provider::Spotify;
+
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let title = accessible_node(&tree, "Rosewood", Role::Link);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(title, Click::Click, None)],
+        );
+
+        assert_eq!(app.jellyfin.provider, Provider::Jellyfin);
+        assert!(matches!(
+            &app.jellyfin.view,
+            crate::jellyfin::browser::View::Tracks { album_id, .. } if album_id == "album0"
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_queue_rows_enqueue_from_playback_metadata_without_the_browsed_page() {
         use crate::{
             jellyfin::browser::{BrowserAction as A, View},

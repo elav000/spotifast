@@ -18,6 +18,7 @@ enum Reply {
     FreshDated,
     NoStore,
     Drip,
+    ServerError,
 }
 
 struct Server {
@@ -88,6 +89,7 @@ impl Server {
                     Reply::WholeFile => 200,
                     Reply::Redirect => 302,
                     Reply::Unauthorized => 401,
+                    Reply::ServerError => 503,
                     _ => 206,
                 };
                 let etag = if matches!(reply, Reply::Changed) {
@@ -247,11 +249,33 @@ fn interrupted_range_can_be_retried_without_advancing_or_splicing_partial_bytes(
     let mut source = server.source().unwrap();
     source.seek(SeekFrom::Start(RANGE_BYTES as u64)).unwrap();
     let mut byte = [0];
-    assert!(source.read(&mut byte).is_err());
-    assert_eq!(source.stream_position().unwrap(), RANGE_BYTES as u64);
     source.read_exact(&mut byte).unwrap();
     assert_eq!(byte[0], (RANGE_BYTES % 251) as u8);
+    assert_eq!(source.stream_position().unwrap(), RANGE_BYTES as u64 + 1);
     assert_eq!(source.metrics.snapshot().requests, 3);
+}
+
+#[test]
+fn transient_server_failure_is_retried_but_retries_are_bounded() {
+    let server = Server::new(bytes(), vec![Reply::ServerError, Reply::Good]);
+    let source = server.source().unwrap();
+    assert_eq!(source.metrics.snapshot().requests, 2);
+
+    let server = Server::new(
+        bytes(),
+        vec![
+            Reply::Good,
+            Reply::Truncated,
+            Reply::Truncated,
+            Reply::Truncated,
+        ],
+    );
+    let mut source = server.source().unwrap();
+    source.seek(SeekFrom::Start(RANGE_BYTES as u64)).unwrap();
+    assert!(source.read(&mut [0]).is_err());
+    assert_eq!(source.stream_position().unwrap(), RANGE_BYTES as u64);
+    assert_eq!(source.buffer_start, 0);
+    assert_eq!(source.metrics.snapshot().requests, 4);
 }
 
 #[test]
@@ -774,16 +798,20 @@ fn date_validator_rejects_clock_ambiguity_and_weak_etags() {
 
 #[test]
 fn a_trickling_response_cannot_extend_the_total_range_deadline() {
-    let server = Server::new(playback_bytes(), vec![Reply::Good, Reply::Drip]);
+    let server = Server::new(
+        playback_bytes(),
+        vec![Reply::Good, Reply::Drip, Reply::Drip, Reply::Drip],
+    );
     let mut source = server.source().unwrap();
     source.request_timeout = Duration::from_millis(80);
     source.seek(SeekFrom::Start(RANGE_BYTES as u64)).unwrap();
     let start = Instant::now();
     assert!(source.read(&mut [0; 1]).is_err());
-    assert!(start.elapsed() < Duration::from_millis(700));
+    assert!(start.elapsed() < Duration::from_millis(1200));
     assert_eq!(
         source.position, RANGE_BYTES as u64,
         "no partial range advances the decoder"
     );
     assert_eq!(source.buffer_start, 0);
+    assert_eq!(source.metrics.snapshot().requests, 4);
 }

@@ -15,13 +15,14 @@ Spotify client; its releases do not include this experimental work.
 
 ## Current implementation
 
-The sign-in screen lets you choose Spotify or Jellyfin. For Jellyfin, enter your
-server address, choose **Connect with Quick Connect**, and approve the displayed
-code in a signed-in Jellyfin client. After sign-in, use **Settings** to switch
-providers and manage saved Jellyfin servers. Each server/account can have its
-own nickname, can be activated or removed, and adding another server keeps the
-current connection available until the new approval completes. The provider
-dropdown has been removed from the main interface. The existing central page frame,
+The sign-in screen lets you choose Spotify or Jellyfin. For Jellyfin, choose a
+saved server or enter a new server address, choose **Connect with Quick Connect**,
+and approve the displayed code in a signed-in Jellyfin client. After sign-in, use
+**Settings** to switch providers and manage saved Jellyfin servers. Each
+server/account can have its own nickname, can be activated or removed, and adding
+another server keeps the current connection available until the new approval
+completes. The account menu identifies the active Jellyfin server with its mark
+and nickname. The provider dropdown has been removed from the main interface. The existing central page frame,
 Back/Forward controls, search bar and Library rail serve Jellyfin too. Spotify
 keeps its own sign-in, navigation history and search state. The Library rail
 offers Albums, Artists and Playlists for Jellyfin; the selected music library

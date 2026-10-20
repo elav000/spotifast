@@ -15,6 +15,17 @@ pub struct Reference {
 }
 
 impl Reference {
+    pub fn for_library(source: &Source, library: &super::MusicLibrary) -> Option<Self> {
+        let tag = library.image_tags.as_ref()?.get("Primary")?.as_deref()?;
+        let reference = Self {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
+            item: library.id.clone(),
+            tag: tag.to_owned(),
+        };
+        Self::parse(&reference.uri())
+    }
+
     pub fn for_item(source: &Source, item: &Item) -> Option<Self> {
         let (id, tag) = item
             .image_tags
@@ -166,6 +177,24 @@ mod tests {
         assert_eq!(track.item, "track1");
         assert_eq!(track.tag, "track-cover");
         assert!(!track.uri().contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn collection_primary_artwork_uses_the_shared_provider_cache_identity() {
+        let source: Source = serde_json::from_value(serde_json::json!({
+            "id": "a".repeat(32), "server_url": "http://127.0.0.1/", "server_id":"server1", "user_id":"user1", "device_id":"device1"
+        })).unwrap();
+        let library: super::super::MusicLibrary = serde_json::from_value(serde_json::json!({
+            "Id": "music-library",
+            "Name": "Music",
+            "CollectionType": "music",
+            "ImageTags": { "Primary": "image-revision" }
+        }))
+        .unwrap();
+        let reference = Reference::for_library(&source, &library).unwrap();
+        assert_eq!(reference.item, library.id);
+        assert_eq!(reference.tag, "image-revision");
+        assert_eq!(Reference::parse(&reference.uri()), Some(reference));
     }
 
     #[test]

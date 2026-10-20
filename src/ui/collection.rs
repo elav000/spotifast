@@ -2897,7 +2897,8 @@ fn jellyfin_library_cards(
             },
             name: library.name.clone(),
             subtitle: "Music library".into(),
-            artwork: None,
+            artwork: crate::jellyfin::artwork::Reference::for_library(source, library)
+                .map(|art| art.uri()),
             open: Action::Jellyfin(A::Browse {
                 view: View::Albums {
                     library_id: library.id.clone(),

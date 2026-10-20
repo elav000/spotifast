@@ -24,6 +24,31 @@ fn seed_jellyfin_artwork(app: &App) {
     let Some(source) = &app.jellyfin.source else {
         return;
     };
+    let libraries = match &app.jellyfin.rows {
+        Some(Rows::Libraries(libraries)) | Some(Rows::Home { libraries, .. }) => libraries,
+        _ => &app.jellyfin.libraries,
+    };
+    for (index, library) in libraries.iter().enumerate() {
+        let Some(reference) = Reference::for_library(source, library) else {
+            continue;
+        };
+        let seed = index as u8;
+        let image = image::RgbImage::from_fn(128, 128, |x, y| {
+            let band = ((x + y) / 24) as u8;
+            image::Rgb([
+                40u8.wrapping_add(seed * 23).wrapping_add(band * 13),
+                70u8.wrapping_add(seed * 17).wrapping_add(x as u8 / 2),
+                120u8.wrapping_add(seed * 11).wrapping_add(y as u8 / 2),
+            ])
+        });
+        let mut encoded = std::io::Cursor::new(Vec::new());
+        image
+            .write_to(&mut encoded, image::ImageFormat::Png)
+            .unwrap();
+        app.backend
+            .art()
+            .include_fixture(&reference.uri(), std::sync::Arc::from(encoded.into_inner()));
+    }
     let items: Vec<_> = match &app.jellyfin.rows {
         Some(Rows::Items { items, .. }) => items.iter().collect(),
         Some(Rows::Search(sections)) => sections
@@ -6458,11 +6483,19 @@ mod tests {
                     id: "music1".into(),
                     name: "Evan's Collection".into(),
                     collection_type: Some("music".into()),
+                    image_tags: Some(std::collections::HashMap::from([(
+                        "Primary".into(),
+                        Some("fixture-v1".into()),
+                    )])),
                 },
                 MusicLibrary {
                     id: "music2".into(),
                     name: "DJ".into(),
                     collection_type: Some("music".into()),
+                    image_tags: Some(std::collections::HashMap::from([(
+                        "Primary".into(),
+                        Some("fixture-v1".into()),
+                    )])),
                 },
             ],
             recently_added: HomeShelf {
@@ -6478,6 +6511,13 @@ mod tests {
                 error: None,
             },
         });
+        let source = app.jellyfin.source.as_ref().unwrap();
+        let Some(Rows::Home { libraries, .. }) = app.jellyfin.rows.as_ref() else {
+            unreachable!()
+        };
+        assert!(libraries.iter().all(|library| {
+            crate::jellyfin::artwork::Reference::for_library(source, library).is_some()
+        }));
         let recent_card = app.jellyfin_library_item(
             match app.jellyfin.rows.as_ref().unwrap() {
                 Rows::Home {

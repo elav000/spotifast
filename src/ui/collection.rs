@@ -2625,7 +2625,7 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let title = match &view {
-        View::Libraries => "Your Library",
+        View::Libraries => "Home",
         View::Albums { name, .. } | View::Tracks { name, .. } | View::Catalog { name, .. } => name,
         _ => "Library",
     };
@@ -2809,37 +2809,25 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                 start: app.jellyfin.start,
             }));
         }
-        if matches!(view, View::Libraries)
-            && let Some(library) = &app.jellyfin.catalog.library
-            && ui.button("Recently played").clicked()
-        {
-            app.actions.push(Action::Jellyfin(A::Browse {
-                view: View::Catalog {
-                    query: Query::History {
-                        library: library.id.clone(),
-                    },
-                    name: "Recently played".into(),
-                },
-                start: 0,
-            }));
-        }
     });
-    ui.add_space(12.0);
-    let mut filter = app.jellyfin.filter.clone();
-    if widgets::search_field(
-        ui,
-        &app.palette,
-        app.locale,
-        ui.make_persistent_id("catalog-filter"),
-        &mut filter,
-        "Filter this page…",
-        ui.available_width().min(280.0),
-    )
-    .changed()
-    {
-        app.actions.push(Action::Jellyfin(A::Filter(filter)));
+    if !matches!(view, View::Libraries) {
+        ui.add_space(12.0);
+        let mut filter = app.jellyfin.filter.clone();
+        if widgets::search_field(
+            ui,
+            &app.palette,
+            app.locale,
+            ui.make_persistent_id("catalog-filter"),
+            &mut filter,
+            "Filter this page…",
+            ui.available_width().min(280.0),
+        )
+        .changed()
+        {
+            app.actions.push(Action::Jellyfin(A::Filter(filter)));
+        }
+        ui.add_space(12.0);
     }
-    ui.add_space(12.0);
     if let Some(error) = app.jellyfin.report_error.clone() {
         widgets::error_row(ui, app, &error, None);
     }
@@ -2854,33 +2842,43 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
     }
     match rows {
         Some(Rows::Libraries(libraries)) => {
-            let cards: Vec<_> = libraries
-                .into_iter()
-                .map(|library| crate::provider::LibraryItem {
-                    reference: crate::provider::ItemReference::Jellyfin {
-                        source: source.id.clone(),
-                        account: source.user_id.clone(),
-                        item: library.id.clone(),
-                    },
-                    name: library.name.clone(),
-                    subtitle: "Music library".into(),
-                    artwork: None,
-                    open: Action::Jellyfin(A::Browse {
-                        view: View::Albums {
-                            library_id: library.id,
-                            name: library.name,
-                        },
-                        start: 0,
-                    }),
-                    play: None,
-                    menu: Vec::new(),
-                    kind: crate::provider::MediaKind::Album,
-                    round: false,
-                    selected: false,
-                    current: false,
-                })
-                .collect();
+            theme::section_title(ui, &app.palette, "Music libraries");
+            let cards = jellyfin_library_cards(&source, &libraries);
             super::library::item_grid(app, ui, &cards);
+        }
+        Some(Rows::Home {
+            libraries,
+            recently_added,
+            recently_played,
+            frequently_played,
+        }) => {
+            theme::section_title(ui, &app.palette, "Music libraries");
+            let cards = jellyfin_library_cards(&source, &libraries);
+            super::library::item_grid(app, ui, &cards);
+            home_shelf(
+                app,
+                ui,
+                "jellyfin-home-added",
+                "Recently Added Music",
+                &recently_added,
+                Kind::Album,
+            );
+            home_shelf(
+                app,
+                ui,
+                "jellyfin-home-recent",
+                "Recently Played",
+                &recently_played,
+                Kind::Song,
+            );
+            home_shelf(
+                app,
+                ui,
+                "jellyfin-home-frequent",
+                "Frequently Played",
+                &frequently_played,
+                Kind::Song,
+            );
         }
         Some(Rows::Items {
             items,
@@ -2914,6 +2912,75 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
             provider_paging(app, ui, view, start, items.len(), total);
         }
         _ => {}
+    }
+}
+
+fn jellyfin_library_cards(
+    source: &crate::jellyfin::browser::Source,
+    libraries: &[crate::jellyfin::MusicLibrary],
+) -> Vec<crate::provider::LibraryItem> {
+    use crate::jellyfin::browser::{BrowserAction as A, View};
+    libraries
+        .iter()
+        .map(|library| crate::provider::LibraryItem {
+            reference: crate::provider::ItemReference::Jellyfin {
+                source: source.id.clone(),
+                account: source.user_id.clone(),
+                item: library.id.clone(),
+            },
+            name: library.name.clone(),
+            subtitle: "Music library".into(),
+            artwork: None,
+            open: Action::Jellyfin(A::Browse {
+                view: View::Albums {
+                    library_id: library.id.clone(),
+                    name: library.name.clone(),
+                },
+                start: 0,
+            }),
+            play: None,
+            menu: Vec::new(),
+            kind: crate::provider::MediaKind::Album,
+            round: false,
+            selected: false,
+            current: false,
+        })
+        .collect()
+}
+
+fn home_shelf(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    id: &str,
+    title: &str,
+    shelf: &crate::jellyfin::browser::HomeShelf,
+    kind: crate::jellyfin::catalog::Kind,
+) {
+    const CARDS: usize = 12;
+    if shelf.items.is_empty() {
+        if let Some(error) = &shelf.error {
+            widgets::error_row(ui, app, error, Some(Page::Home));
+        } else if app.jellyfin.busy {
+            widgets::shelf(ui, &app.palette, id, title, |ui| {
+                widgets::skeleton_cards(ui, &app.palette, app.locale, 6, false);
+            });
+        }
+        return;
+    }
+    let cards: Vec<_> = shelf
+        .items
+        .iter()
+        .take(CARDS)
+        .map(|item| app.jellyfin_library_item(item, kind))
+        .collect();
+    let palette = app.palette;
+    widgets::shelf(ui, &palette, id, title, |ui| {
+        for card in &cards {
+            super::library::item_card(app, ui, card);
+        }
+    });
+    if let Some(error) = &shelf.error {
+        widgets::error_row(ui, app, error, Some(Page::Home));
     }
 }
 

@@ -501,6 +501,7 @@ impl Browser {
                 provider,
             } => {
                 self.servers = servers;
+                self.error = None;
                 if !self.selection_changed {
                     self.provider = provider;
                 }
@@ -1881,6 +1882,21 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert_eq!(model.provider, Provider::Spotify);
+    }
+
+    #[test]
+    fn successful_restore_clears_a_previous_error() {
+        let mut model = model();
+        model.error = Some("Saved sign-in is unavailable".into());
+        model.apply(
+            Reply::Restored {
+                source: None,
+                servers: Vec::new(),
+                provider: Provider::Jellyfin,
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.error.is_none());
     }
 
     #[test]

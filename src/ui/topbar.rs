@@ -490,6 +490,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             ui.add_space(10.0);
+                            if provider {
+                                theme::icon(ui, Icon::Jellyfin, 16.0, palette.text);
+                            }
                             theme::text(ui, &name, theme::semibold(14.0), palette.text);
                         });
                         if let Some(product) = app

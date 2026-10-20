@@ -414,7 +414,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.add_space(super::widgets::PAGE_PADDING);
                 // Account.
                 let (name, avatar) = if provider {
-                    ("Jellyfin".to_owned(), None)
+                    (
+                        app.jellyfin
+                            .source
+                            .as_ref()
+                            .map(|source| source.nickname.trim())
+                            .filter(|nickname| !nickname.is_empty())
+                            .unwrap_or("Jellyfin")
+                            .to_owned(),
+                        None,
+                    )
                 } else {
                     app.user
                         .as_ref()

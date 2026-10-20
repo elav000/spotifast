@@ -32,7 +32,8 @@ history below is not a list of tasks to repeat.
   server errors at most twice, with bounded backoff. Each attempt starts at the
   range boundary and must validate the full range and entity before the decoder
   sees bytes. Integrity, authorization and entity-change errors are not retried;
-  incremental delivery of incomplete ranges remains future work.
+  incremental delivery of incomplete ranges is deferred until timing evidence
+  shows the server delivers useful bytes before a full range completes.
 - Removed the bespoke Jellyfin queue panel. Main queue page/panel use the
   existing UI with `QueuePresentation`, preserving duplicate manual
   occurrences, manual priority and context continuation.

@@ -9763,6 +9763,14 @@ impl App {
             self.jellyfin_player.toggle();
             return;
         }
+        if self.jellyfin_selected()
+            && !self.resume_only()
+            && self.now_playing_live().is_none()
+            && self.jellyfin_player.snapshot().item.is_some()
+        {
+            self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Resume);
+            return;
+        }
         let playing = self.now_playing().map(|now| now.playing);
         match self.target() {
             Target::Local => {
@@ -17596,6 +17604,23 @@ mod tests {
         app.set_volume(20, true);
         app.apply_jellyfin_action(BrowserAction::Resume);
         assert_eq!(app.jellyfin_player.snapshot().volume, 20);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn play_resumes_suspended_jellyfin_queue_instead_of_falling_through_to_spotify() {
+        use crate::jellyfin::browser::BrowserAction;
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.jellyfin_player.suspend();
+        assert!(!app.jellyfin_player.controls_output());
+        assert!(app.jellyfin_player.snapshot().item.is_some());
+
+        app.toggle_play();
+
+        assert!(app.jellyfin_player.snapshot().loading);
+        assert!(app.queued_play.is_none());
         app.backend.shutdown();
     }
 

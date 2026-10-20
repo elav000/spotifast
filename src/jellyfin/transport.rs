@@ -665,7 +665,7 @@ impl crate::app::App {
                 })
                 .collect(),
             album_name: item.album.unwrap_or_default(),
-            album_id: None,
+            album_id: item.album_id.clone(),
             audio_format,
             show_id: None,
             art_url: artwork.clone(),

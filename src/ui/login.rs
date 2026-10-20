@@ -76,11 +76,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     theme::text(ui, gettext(locale, "A native Spotify client."), theme::regular(14.5), palette.secondary);
                     ui.add_space(22.0);
                     if app.jellyfin.enabled && !connecting && !matches!(app.auth, AuthStatus::WaitingForBrowser { .. }) {
+                        theme::text(ui, "Provider", theme::medium(12.0), palette.secondary);
                         ui.horizontal(|ui| {
                             if theme::pill_button(ui, &palette, "Spotify", app.jellyfin.provider == crate::provider::Provider::Spotify).clicked() {
                                 app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Spotify)));
                             }
-                            if theme::pill_button(ui, &palette, "Jellyfin", false).clicked() {
+                            if theme::pill_button(ui, &palette, "Jellyfin", app.jellyfin.provider == crate::provider::Provider::Jellyfin).clicked() {
                                 app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin)));
                             }
                         });

@@ -477,11 +477,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let offer_expand = art_available && !app.settings.art_expanded && app.settings.sidebar_visible;
     let over_expand = offer_expand && ui.rect_contains_pointer(expand_rect);
     if cover_response.clicked() && !over_expand {
-        if let Some(id) = &now.album_id {
-            app.actions.push(Action::Open(Page::Album(id.clone())));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
-        }
+        open_now_playing_context(app, now);
     }
     if offer_expand && (cover_response.hovered() || over_expand) {
         let expand = ui.interact(
@@ -514,11 +510,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     text_ui.spacing_mut().item_spacing.y = 2.0;
     let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text);
     if title_response.clicked() {
-        if let Some(id) = &now.album_id {
-            app.actions.push(Action::Open(Page::Album(id.clone())));
-        } else if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
-        }
+        open_now_playing_context(app, now);
     }
     text_ui.horizontal_top(|ui| {
         if now.artists.is_empty() {
@@ -654,6 +646,41 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 }
             }
         }
+    }
+}
+
+fn open_now_playing_context(app: &mut App, now: &NowPlaying) {
+    let Some(album_id) = &now.album_id else {
+        if let Some(id) = &now.show_id {
+            app.actions.push(Action::Open(Page::Show(id.clone())));
+        }
+        return;
+    };
+    if now.provider == crate::provider::Provider::Jellyfin {
+        let (library_id, library_name) = app
+            .jellyfin
+            .catalog
+            .library
+            .as_ref()
+            .map(|library| (library.id.clone(), library.name.clone()))
+            .unwrap_or_default();
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin),
+        ));
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::Browse {
+                view: crate::jellyfin::browser::View::Tracks {
+                    library_id,
+                    library_name,
+                    album_id: album_id.clone(),
+                    name: now.album_name.clone(),
+                },
+                start: 0,
+            },
+        ));
+    } else {
+        app.actions
+            .push(Action::Open(Page::Album(album_id.clone())));
     }
 }
 

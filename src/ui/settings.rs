@@ -596,68 +596,95 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if app.jellyfin.provider == crate::provider::Provider::Jellyfin {
                     ui.add_space(12.0);
                     for source in app.jellyfin.servers.clone() {
-                        ui.horizontal_wrapped(|ui| {
-                            let nickname_id =
-                                egui::Id::new(("jellyfin-server-nickname", &source.id));
-                            let mut nickname = ui.data(|data| {
-                                data.get_temp::<String>(nickname_id)
-                                    .unwrap_or_else(|| source.nickname.clone())
-                            });
-                            let edit = widgets::text_edit(
-                                ui,
-                                locale,
-                                egui::TextEdit::singleline(&mut nickname)
-                                    .id(nickname_id)
-                                    .hint_text("Server nickname")
-                                    .font(theme::regular(14.0))
-                                    .desired_width(190.0),
-                            );
-                            let mut keep_draft = edit.has_focus();
-                            if edit.lost_focus() && nickname.trim() != source.nickname {
-                                app.actions.push(Action::Jellyfin(
-                                    crate::jellyfin::browser::BrowserAction::RenameServer {
-                                        id: source.id.clone(),
-                                        nickname: nickname.clone(),
-                                    },
-                                ));
-                                keep_draft = true;
-                            } else if !edit.has_focus() && nickname == source.nickname {
-                                keep_draft = false;
-                            }
-                            ui.data_mut(|data| {
-                                if keep_draft {
-                                    data.insert_temp(nickname_id, nickname);
-                                } else {
-                                    data.remove::<String>(nickname_id);
-                                }
-                            });
-                            theme::text(
-                                ui,
-                                &source.server_url,
-                                theme::regular(12.0),
-                                palette.secondary,
+                        ui.horizontal(|ui| {
+                            let action_width = 140.0;
+                            let row_width = ui.available_width();
+                            let fields_width =
+                                (row_width - action_width - ui.spacing().item_spacing.x).max(0.0);
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(fields_width, ui.spacing().interact_size.y),
+                                Layout::left_to_right(Align::Center),
+                                |ui| {
+                                    let nickname_id =
+                                        egui::Id::new(("jellyfin-server-nickname", &source.id));
+                                    let mut nickname = ui.data(|data| {
+                                        data.get_temp::<String>(nickname_id)
+                                            .unwrap_or_else(|| source.nickname.clone())
+                                    });
+                                    let edit = widgets::text_edit(
+                                        ui,
+                                        locale,
+                                        egui::TextEdit::singleline(&mut nickname)
+                                            .id(nickname_id)
+                                            .hint_text("Server nickname")
+                                            .font(theme::regular(14.0))
+                                            .desired_width(ui.available_width().min(190.0)),
+                                    );
+                                    let mut keep_draft = edit.has_focus();
+                                    if edit.lost_focus() && nickname.trim() != source.nickname {
+                                        app.actions.push(Action::Jellyfin(
+                                            crate::jellyfin::browser::BrowserAction::RenameServer {
+                                                id: source.id.clone(),
+                                                nickname: nickname.clone(),
+                                            },
+                                        ));
+                                        keep_draft = true;
+                                    } else if !edit.has_focus() && nickname == source.nickname {
+                                        keep_draft = false;
+                                    }
+                                    ui.data_mut(|data| {
+                                        if keep_draft {
+                                            data.insert_temp(nickname_id, nickname);
+                                        } else {
+                                            data.remove::<String>(nickname_id);
+                                        }
+                                    });
+                                    let url_width = ui.available_width();
+                                    ui.add_sized(
+                                        Vec2::new(url_width, ui.spacing().interact_size.y),
+                                        egui::Label::new(
+                                            egui::RichText::new(&source.server_url)
+                                                .font(theme::regular(12.0))
+                                                .color(palette.secondary),
+                                        )
+                                        .truncate(),
+                                    );
+                                },
                             );
                             let active = app
                                 .jellyfin
                                 .source
                                 .as_ref()
                                 .is_some_and(|active| active.id == source.id);
-                            if active {
-                                theme::text(ui, "Active", theme::regular(12.0), palette.accent);
-                            } else if theme::pill_button(ui, &palette, "Use", false).clicked() {
-                                app.actions.push(Action::Jellyfin(
-                                    crate::jellyfin::browser::BrowserAction::ActivateServer(
-                                        source.id.clone(),
-                                    ),
-                                ));
-                            }
-                            if theme::pill_button(ui, &palette, "Remove", false).clicked() {
-                                app.actions.push(Action::Jellyfin(
-                                    crate::jellyfin::browser::BrowserAction::RemoveServer(
-                                        source.id,
-                                    ),
-                                ));
-                            }
+                            ui.allocate_ui_with_layout(
+                                Vec2::new(action_width, ui.spacing().interact_size.y),
+                                Layout::right_to_left(Align::Center),
+                                |ui| {
+                                    if theme::pill_button(ui, &palette, "Remove", false).clicked() {
+                                        app.actions.push(Action::Jellyfin(
+                                            crate::jellyfin::browser::BrowserAction::RemoveServer(
+                                                source.id.clone(),
+                                            ),
+                                        ));
+                                    }
+                                    if active {
+                                        theme::text(
+                                            ui,
+                                            "Active",
+                                            theme::regular(12.0),
+                                            palette.accent,
+                                        );
+                                    } else if theme::pill_button(ui, &palette, "Use", false)
+                                        .clicked()
+                                    {
+                                        app.actions.push(Action::Jellyfin(
+                                            crate::jellyfin::browser::BrowserAction::ActivateServer(
+                                                source.id.clone(),
+                                            ),
+                                        ));
+                                    }
+                                },
+                            );
                         });
                     }
                     ui.add_space(8.0);

@@ -12032,6 +12032,11 @@ mod tests {
         app.jellyfin.demo("jellyfin-connect");
         app.jellyfin.provider = Provider::Spotify;
         let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            view_frame(&ctx, &mut app, vec![], crate::ui::show)
+                .iter()
+                .any(|(text, _)| text == "Provider")
+        );
         accessible_node(&tree, "Spotify", Role::Button);
         let jellyfin = accessible_node(&tree, "Jellyfin", Role::Button);
         accessible_frame(
@@ -12041,6 +12046,18 @@ mod tests {
         );
         assert_eq!(app.jellyfin.provider, Provider::Jellyfin);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::show);
+        for label in [
+            "Choose a Jellyfin server",
+            "Music server",
+            "Add another server",
+        ] {
+            assert!(
+                painted.iter().any(|(text, _)| text == label),
+                "missing {label}"
+            );
+        }
+        accessible_node(&tree, "Use", Role::Button);
         let spotify = accessible_node(&tree, "Use Spotify", Role::Button);
         accessible_frame(
             &ctx,

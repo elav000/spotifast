@@ -1461,11 +1461,13 @@ impl Browser {
                 id: "music1".into(),
                 name: "My music".into(),
                 collection_type: Some("music".into()),
+                image_tags: None,
             },
             MusicLibrary {
                 id: "music2".into(),
                 name: "DJ collection".into(),
                 collection_type: Some("music".into()),
+                image_tags: None,
             },
         ]));
         if let Some(Rows::Libraries(libraries)) = &self.rows {

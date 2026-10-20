@@ -72,6 +72,8 @@ pub struct MusicLibrary {
     pub id: String,
     pub name: String,
     pub collection_type: Option<String>,
+    #[serde(default)]
+    pub image_tags: Option<std::collections::HashMap<String, Option<String>>>,
 }
 
 /// Jellyfin IDs stay Jellyfin IDs, never synthetic Spotify URIs.

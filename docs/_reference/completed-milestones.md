@@ -15,6 +15,10 @@ history below is not a list of tasks to repeat.
   dropdown was removed; Settings switches providers and manages multiple saved
   Jellyfin servers/accounts, including nicknames, activation, removal and
   adding a connection without signing out of the active account.
+- Server nicknames are presentation-only. Playback restoration, queue actions,
+  in-flight browser replies and listening-history reporting use stable server
+  and account identity, so renaming a server during playback does not interrupt
+  the session or report a false stop/start.
 - Existing left rail, search, album/artist/playlist pages, grids, track rows and
   playlist dialogs fed by provider adapters. Provider and Jellyfin collection
   selection live in menus, preserving the existing rail layout.

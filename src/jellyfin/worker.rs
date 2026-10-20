@@ -146,7 +146,11 @@ impl Worker {
         source: &Source,
         proxy: &crate::settings::ProxyConfig,
     ) -> Result<Vec<crate::jellyfin::Item>, String> {
-        if self.source.as_ref() != Some(source) {
+        if !self
+            .source
+            .as_ref()
+            .is_some_and(|current| current.same_identity(source))
+        {
             return Err("Jellyfin account changed.".into());
         }
         let token = self.token.as_ref().ok_or("Connect to Jellyfin again.")?;
@@ -182,7 +186,11 @@ impl Worker {
         edit: &PlaylistEdit,
         proxy: &crate::settings::ProxyConfig,
     ) -> Result<Option<(String, String)>, String> {
-        if self.source.as_ref() != Some(source) {
+        if !self
+            .source
+            .as_ref()
+            .is_some_and(|current| current.same_identity(source))
+        {
             return Err("Jellyfin account changed. Open the playlist again.".into());
         }
         let token = self
@@ -247,7 +255,11 @@ impl Worker {
                 if !self.servers.iter().any(|saved| saved.id == source.id) {
                     return Ok(());
                 }
-                let result = if self.source.as_ref() == Some(source) {
+                let result = if self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(source))
+                {
                     if let Some(token) = &self.token {
                         self.send_report(source, token, report, &job.proxy).await
                     } else {
@@ -686,7 +698,11 @@ impl Worker {
                 request,
                 start,
             } => {
-                if self.source.as_ref() != Some(source) {
+                if !self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(source))
+                {
                     return Ok(());
                 }
                 let result = async {
@@ -881,7 +897,7 @@ pub(crate) fn saved_playback_session(
         });
     let source = saved
         .into_iter()
-        .find(|source| source.id == expected.id && source == expected)
+        .find(|source| source.same_identity(expected))
         .filter(valid_source)
         .ok_or("The Jellyfin account changed or was removed. Choose the track again.")?;
     if std::fs::read_to_string(dirs.state.join("jellyfin-revoked"))
@@ -999,6 +1015,34 @@ mod tests {
             .err()
             .unwrap();
         assert!(error.contains("revoked"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn playback_session_lookup_accepts_a_renamed_saved_source() {
+        let mut saved = source();
+        let mut expected = saved.clone();
+        expected.nickname = "Old name".into();
+        saved.nickname = "New name".into();
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target/jellyfin-account-tests")
+            .join(&saved.id);
+        std::fs::create_dir_all(&root).unwrap();
+        let dirs = AppDirs {
+            config: root.clone(),
+            state: root.clone(),
+            cache: root.clone(),
+        };
+        std::fs::write(
+            root.join("jellyfin-account.json"),
+            serde_json::to_vec(&saved).unwrap(),
+        )
+        .unwrap();
+        let error = saved_playback_session(&dirs, &expected, &crate::settings::ProxyConfig::Off)
+            .err()
+            .unwrap();
+        assert!(!error.contains("account changed or was removed"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

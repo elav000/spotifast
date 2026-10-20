@@ -2533,7 +2533,11 @@ impl App {
             self.jellyfin_epoch = epoch;
             if let Some((source, album)) = self.jellyfin_player.context()
                 && self.jellyfin_player.controls_output()
-                && self.jellyfin.source.as_ref() == Some(&source)
+                && self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
                 && let Some(kind) = self.jellyfin_player.context_kind()
             {
                 let key = crate::provider::ItemReference::Jellyfin {

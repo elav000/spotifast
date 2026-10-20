@@ -460,7 +460,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
                 && app
                     .jellyfin_player
                     .context()
-                    .is_some_and(|(source, _)| source == drag.source)
+                    .is_some_and(|(source, _)| source.same_identity(&drag.source))
             {
                 app.actions.push(Action::Jellyfin(
                     crate::jellyfin::browser::BrowserAction::InsertManual {
@@ -628,7 +628,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
                 && app
                     .jellyfin_player
                     .context()
-                    .is_some_and(|(source, _)| source == drag.source)
+                    .is_some_and(|(source, _)| source.same_identity(&drag.source))
             {
                 let action = match drag.origin.as_ref() {
                     Some((expected, from)) if slot != *from && slot != *from + 1 => {
@@ -684,7 +684,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
             && app
                 .jellyfin_player
                 .context()
-                .is_some_and(|(source, _)| source == drag.source)
+                .is_some_and(|(source, _)| source.same_identity(&drag.source))
         {
             app.actions.push(Action::Jellyfin(
                 crate::jellyfin::browser::BrowserAction::InsertManual {

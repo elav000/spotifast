@@ -66,8 +66,10 @@ connection without signing out of the current one. See the
 ## Later work
 
 - Shared Home layout with suitable Jellyfin sections; content remains undecided.
-- Better recovery from transient range/network stalls, including bounded retries
-  and incremental delivery within a not-yet-complete range where appropriate.
+- Incremental delivery within a not-yet-complete range, if it can improve stall
+  recovery without weakening range validation or bounded memory use. The HTTP
+  reader now retries transient failures twice; see the
+  [completed milestone notes](docs/_reference/completed-milestones.md).
 - Combined provider and mixed local queues after the shared controller is stable;
   Plex or other sources can follow through the same contracts. Catalog composition,
   mixed playback and shared caches are independent decisions.

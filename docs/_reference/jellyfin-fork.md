@@ -237,8 +237,12 @@ entering the current DSP. This is not a bit-perfect/high-resolution output claim
 
 Current limits: mono/stereo 8–192 kHz; the blocking reader can take up to its
 20-second request timeout to return after cancellation during an in-flight
-request. Retrying a failed range is tested; seamless decoder-level stall recovery
-is not implemented. Full process memory (including demuxer metadata/artwork) has
+request. Transient range failures and temporary server errors receive at most
+two automatic retries, with 150 ms and 400 ms backoff. Malformed ranges,
+authorization errors and entity changes fail without retry. Each attempt fetches
+and validates a complete range before exposing bytes to the decoder. Incremental
+delivery from an incomplete range is not implemented. Full process memory
+(including demuxer metadata/artwork) has
 not been profiled. Jellyfin playback does not yet offer transcoding, downloads, shuffle, repeat,
 lyrics or artwork in the shared player bar.
 
@@ -647,8 +651,8 @@ trickling body to outlive the intended 20-second range limit. Each audio request
 now carries its own timeout, which reaches reqwest's asynchronous whole-response
 deadline. A regression fixture trickles a response within each individual read
 interval but beyond the whole-request budget, and verifies that partial ranges
-never advance the cursor or enter the cache. Failure remains a visible playback
-error; Play retries from the retained position.
+never advance the cursor or enter the cache. After bounded automatic retries are
+exhausted, failure remains visible; Play can retry from the retained position.
 
 The provider-neutral media pipeline now decodes on its own worker, with at most
 eight seconds of queued stereo 44.1 kHz PCM plus one bounded codec block being
@@ -663,7 +667,7 @@ remains an accessible Pause button while buffering; pausing restores Play. No
 provider panel, setting or mixed queue is introduced. This pipeline is reusable
 by other HTTP providers; Spotify retains its native decoder/queue. A finite
 buffer cannot hide arbitrarily long server stalls. Incremental delivery of a
-partly received range and automatic retry remain further work.
+partly received range remains future work.
 
 
 ## Shared queue interface

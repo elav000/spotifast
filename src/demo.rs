@@ -12191,6 +12191,46 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_server_actions_align_to_the_right_in_both_themes_and_widths() {
+        use crate::jellyfin::browser::View;
+        let (ctx, mut app) = accessible_app("jellyfin-server-alignment");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.view = View::Settings;
+        app.open(crate::model::Page::Settings);
+        for palette in [
+            crate::theme::Palette::dark(),
+            crate::theme::Palette::light(),
+        ] {
+            app.palette = palette;
+            crate::theme::apply(&ctx, &palette);
+            for size in [egui::vec2(720.0, 1000.0), egui::vec2(1280.0, 1000.0)] {
+                let painted =
+                    view_frame_sized(&ctx, &mut app, vec![], crate::ui::settings::show, size);
+                let active = painted
+                    .iter()
+                    .find(|(text, _)| text == "Active")
+                    .map(|(_, rect)| *rect)
+                    .expect("the active Jellyfin server label");
+                let remove = painted
+                    .iter()
+                    .filter(|(text, _)| text == "Remove")
+                    .min_by(|(_, left), (_, right)| {
+                        (left.top() - active.top())
+                            .abs()
+                            .total_cmp(&(right.top() - active.top()).abs())
+                    })
+                    .map(|(_, rect)| *rect)
+                    .expect("the Jellyfin server Remove button");
+                assert!(
+                    active.right() <= remove.left() && remove.left() - active.right() < 40.0,
+                    "Active should sit immediately left of Remove at {size:?}"
+                );
+            }
+        }
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn playback_failures_remain_visible_in_the_shared_provider_page() {
         let (ctx, mut app) = accessible_app("provider-playback-error");
         app.jellyfin.demo("jellyfin-tracks");

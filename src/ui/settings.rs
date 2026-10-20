@@ -597,24 +597,40 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     ui.add_space(12.0);
                     for source in app.jellyfin.servers.clone() {
                         ui.horizontal_wrapped(|ui| {
-                            let mut nickname = source.nickname.clone();
+                            let nickname_id =
+                                egui::Id::new(("jellyfin-server-nickname", &source.id));
+                            let mut nickname = ui.data(|data| {
+                                data.get_temp::<String>(nickname_id)
+                                    .unwrap_or_else(|| source.nickname.clone())
+                            });
                             let edit = widgets::text_edit(
                                 ui,
                                 locale,
                                 egui::TextEdit::singleline(&mut nickname)
-                                    .id(egui::Id::new(("jellyfin-server-nickname", &source.id)))
+                                    .id(nickname_id)
                                     .hint_text("Server nickname")
                                     .font(theme::regular(14.0))
                                     .desired_width(190.0),
                             );
+                            let mut keep_draft = edit.has_focus();
                             if edit.lost_focus() && nickname.trim() != source.nickname {
                                 app.actions.push(Action::Jellyfin(
                                     crate::jellyfin::browser::BrowserAction::RenameServer {
                                         id: source.id.clone(),
-                                        nickname,
+                                        nickname: nickname.clone(),
                                     },
                                 ));
+                                keep_draft = true;
+                            } else if !edit.has_focus() && nickname == source.nickname {
+                                keep_draft = false;
                             }
+                            ui.data_mut(|data| {
+                                if keep_draft {
+                                    data.insert_temp(nickname_id, nickname);
+                                } else {
+                                    data.remove::<String>(nickname_id);
+                                }
+                            });
                             theme::text(
                                 ui,
                                 &source.server_url,

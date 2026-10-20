@@ -479,6 +479,7 @@ fastframe_icons::icons! {
         HeartFilled => "heart-filled",
         House => "house",
         Info => lucide "info",
+        Jellyfin => "jellyfin",
         Laptop => "laptop",
         Library => "library",
         LayoutGrid => "layout-grid",

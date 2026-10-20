@@ -68,24 +68,19 @@ connection without signing out of the current one. See the
 Address the following Jellyfin sharp edges in order. These are review findings,
 not permission for a broad abstraction rewrite.
 
-1. **Separate server nickname from playback identity.** A nickname edit changes
-   the full `Source` value, which playback restoration, queue checks and session
-   reporting currently compare. Use stable server/account identity for those
-   checks so renaming during playback cannot interrupt the next track or emit a
-   false listening-history Stop/Start.
-2. **Keep account actions responsive during slow catalog reads.** The Jellyfin
+1. **Keep account actions responsive during slow catalog reads.** The Jellyfin
    worker processes requests serially, so a slow multi-category search can delay
    sign-out, server activation and playback reports. Isolate/cancel long reads
    without reordering account mutations.
-3. **Keep playlist edits optimistic through refresh.** A successful Remove or
+2. **Keep playlist edits optimistic through refresh.** A successful Remove or
    Move can reload pre-edit cached rows before the live response. Invalidate or
    bypass the affected cached view after a successful edit, and cover the
    optimistic rows in a regression test.
-4. **Preserve playback context across server switches.** If server A is playing
+3. **Preserve playback context across server switches.** If server A is playing
    while the catalog switches to B, A's footer/queue context navigation and
    artwork must continue using A's source/account, or clearly decline the
    action. Do not silently query B with A's item ID.
-5. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
+4. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
    search only the selected collection, while playlists are user-scoped across
    collections. Default to All collections and allow narrowing to one, while
    keeping Home library selection and per-collection browsing intact.

@@ -585,7 +585,11 @@ impl App {
             }
             _ => return None,
         };
-        let open = (self.jellyfin.source.as_ref() == Some(&source))
+        let open = self
+            .jellyfin
+            .source
+            .as_ref()
+            .is_some_and(|current| current.same_identity(&source))
             .then_some(Action::Jellyfin(A::OpenQueueContext { source, view }));
         Some((name, open))
     }

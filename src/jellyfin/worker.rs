@@ -629,6 +629,46 @@ impl Worker {
                     },
                 );
             }
+            Command::Recent {
+                source,
+                request,
+                start,
+            } => {
+                if self.source.as_ref() != Some(source) {
+                    return Ok(());
+                }
+                let result = async {
+                    let token = self
+                        .token
+                        .as_ref()
+                        .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
+                    let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
+                        .map_err(|error| error.to_string())?;
+                    client
+                        .query(
+                            &source.user_id,
+                            &crate::jellyfin::catalog::Query::Recent,
+                            *start,
+                            token,
+                        )
+                        .await
+                        .map_err(|error| error.to_string())
+                }
+                .await;
+                let reply = match result {
+                    Ok(page) => Reply::Recent {
+                        request: *request,
+                        source: source.clone(),
+                        page,
+                    },
+                    Err(error) => Reply::RecentError {
+                        request: *request,
+                        source: source.clone(),
+                        error,
+                    },
+                };
+                self.emit(generation, reply);
+            }
             Command::Cancel => {
                 self.challenge = None;
                 self.pending_source = None;

@@ -42,6 +42,8 @@ pub enum Query {
     History {
         library: String,
     },
+    /// The active user's played audio across all libraries, for queue Recent.
+    Recent,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +131,10 @@ impl Client {
             }
             Query::History { library } => {
                 parent = Some(library.as_str());
+                history = true;
+                Kind::Song
+            }
+            Query::Recent => {
                 history = true;
                 Kind::Song
             }

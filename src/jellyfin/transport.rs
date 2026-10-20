@@ -247,20 +247,6 @@ impl Transport {
             .map(|job| (job.source.clone(), job.album.clone()))
     }
 
-    pub(crate) fn recent_items(&self) -> Vec<Item> {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .controller
-            .history
-            .as_slice()
-            .iter()
-            .rev()
-            .map(|cursor| cursor.item.clone())
-            .collect()
-    }
-
     pub fn controls_output(&self) -> bool {
         let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.snapshot.item.is_some()

@@ -336,6 +336,7 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
         (200, PLAYLIST),
         (200, EMPTY),
         (200, EMPTY),
+        (200, EMPTY),
     ])
     .await;
     let client = client(&address);
@@ -396,6 +397,10 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
         )
         .await
         .unwrap();
+    client
+        .query("user1", &Query::Recent, 0, &token)
+        .await
+        .unwrap();
     let requests = requests.await.unwrap();
     let urls: Vec<_> = requests
         .iter()
@@ -441,6 +446,23 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
             .query_pairs()
             .any(|(k, v)| k == "Filters" && v == "IsPlayed")
     );
+    assert_eq!(urls[6].path(), "/jellyfin/Items");
+    assert!(
+        urls[6]
+            .query_pairs()
+            .any(|(k, v)| k == "IncludeItemTypes" && v == "Audio")
+    );
+    assert!(
+        urls[6]
+            .query_pairs()
+            .any(|(k, v)| k == "SortBy" && v == "DatePlayed")
+    );
+    assert!(
+        urls[6]
+            .query_pairs()
+            .any(|(k, v)| k == "Filters" && v == "IsPlayed")
+    );
+    assert!(!urls[6].query_pairs().any(|(key, _)| key == "ParentId"));
 }
 
 #[tokio::test]

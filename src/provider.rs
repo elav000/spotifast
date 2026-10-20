@@ -217,23 +217,40 @@ impl crate::app::App {
                 },
                 name: name.clone(),
             },
-            _ => View::Tracks {
+            Kind::Song => View::Tracks {
+                library_id,
+                library_name: library.map(|lib| lib.name.clone()).unwrap_or_default(),
+                album_id: item.album_id.clone().unwrap_or_else(|| item.id.clone()),
+                name: item.album.clone().unwrap_or_else(|| name.clone()),
+            },
+            Kind::Album => View::Tracks {
                 library_id,
                 library_name: library.map(|lib| lib.name.clone()).unwrap_or_default(),
                 album_id: item.id.clone(),
                 name: name.clone(),
             },
         };
-        let play_view = if kind == Kind::Artist {
-            View::Catalog {
-                query: Query::ArtistSongs {
-                    library: library.map(|lib| lib.id.clone()).unwrap_or_default(),
-                    artist: item.id.clone(),
-                },
-                name: name.clone(),
-            }
+        let play = if kind == Kind::Song {
+            Action::Jellyfin(BrowserAction::PlayItem {
+                source: source.clone(),
+                item: Box::new(item.clone()),
+                context: item.id.clone(),
+                query: None,
+                index: None,
+            })
         } else {
-            view.clone()
+            let play_view = if kind == Kind::Artist {
+                View::Catalog {
+                    query: Query::ArtistSongs {
+                        library: library.map(|lib| lib.id.clone()).unwrap_or_default(),
+                        artist: item.id.clone(),
+                    },
+                    name: name.clone(),
+                }
+            } else {
+                view.clone()
+            };
+            Action::Jellyfin(BrowserAction::PlayAlbum(play_view))
         };
         let context = self.jellyfin_player.context();
         let reference = ItemReference::Jellyfin {
@@ -279,7 +296,7 @@ impl crate::app::App {
             artwork: crate::jellyfin::artwork::Reference::for_item(source, item)
                 .map(|art| art.uri()),
             open: Action::Jellyfin(BrowserAction::Browse { view, start: 0 }),
-            play: Some(Action::Jellyfin(BrowserAction::PlayAlbum(play_view))),
+            play: Some(play),
             kind,
             round: kind == Kind::Artist,
             selected: self.jellyfin.view.context_id() == Some(item.id.as_str()),

@@ -18,6 +18,9 @@ history below is not a list of tasks to repeat.
 - Existing left rail, search, album/artist/playlist pages, grids, track rows and
   playlist dialogs fed by provider adapters. Provider and Jellyfin collection
   selection live in menus, preserving the existing rail layout.
+- Jellyfin Home retains the music-library cards for selection and adds shared
+  card shelves for Recently Added Music, Recently Played and Frequently Played.
+  These account-scoped shelves use server ordering; Spotify Home is unchanged.
 - Jellyfin playback through the shared transport controls, exclusive local
   output ownership and common encoded-media/cache infrastructure. The existing
   Spotify transport and its backend cache remain separate; there are no offline

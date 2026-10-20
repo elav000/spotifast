@@ -44,6 +44,10 @@ pub enum Query {
     },
     /// The active user's played audio across all libraries, for queue Recent.
     Recent,
+    /// Music albums, newest additions first, across the active user's libraries.
+    RecentlyAdded,
+    /// Audio tracks with the highest play counts, across the active user's libraries.
+    FrequentlyPlayed,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -88,6 +92,9 @@ impl Client {
         let mut playlist = None;
         let mut search = None;
         let mut history = false;
+        let mut is_played = false;
+        let mut sort = "SortName";
+        let mut descending = false;
         let kind = match query {
             Query::Playlists => Kind::Playlist,
             Query::Shelf { library, kind } => {
@@ -132,10 +139,23 @@ impl Client {
             Query::History { library } => {
                 parent = Some(library.as_str());
                 history = true;
+                is_played = true;
                 Kind::Song
             }
             Query::Recent => {
                 history = true;
+                is_played = true;
+                Kind::Song
+            }
+            Query::RecentlyAdded => {
+                sort = "DateCreated";
+                descending = true;
+                Kind::Album
+            }
+            Query::FrequentlyPlayed => {
+                sort = "PlayCount";
+                descending = true;
+                is_played = true;
                 Kind::Song
             }
         };
@@ -167,10 +187,14 @@ impl Client {
         if playlist.is_none() {
             params
                 .append_pair("Recursive", "true")
-                .append_pair("SortBy", if history { "DatePlayed" } else { "SortName" })
+                .append_pair("SortBy", if history { "DatePlayed" } else { sort })
                 .append_pair(
                     "SortOrder",
-                    if history { "Descending" } else { "Ascending" },
+                    if history || descending {
+                        "Descending"
+                    } else {
+                        "Ascending"
+                    },
                 );
             if !artist_path {
                 params.append_pair("IncludeItemTypes", kind.item_type());
@@ -187,7 +211,7 @@ impl Client {
             if let Some(term) = search {
                 params.append_pair("SearchTerm", term);
             }
-            if history {
+            if is_played {
                 params.append_pair("Filters", "IsPlayed");
             }
         }

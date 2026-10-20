@@ -262,12 +262,13 @@ pub fn fullscreen_column(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(8.0);
     // Lazy load recents when tab becomes visible.
     if app.queue_tab == QueueTab::Recents
-        && !app.recents.loading
-        && !app.recents.complete
-        && app.recents.items.is_empty()
-        && app.recents.error.is_none()
+        && !view.recent.loading
+        && !view.recent.complete
+        && view.recent.rows.is_empty()
+        && view.recent.error.is_none()
+        && let Some(action) = &view.recent.load
     {
-        app.actions.push(Action::LoadMoreRecents);
+        app.actions.push(action.clone());
     }
     crate::autoscroll::show(
         ui,

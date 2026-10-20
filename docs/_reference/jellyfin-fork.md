@@ -31,9 +31,13 @@ account.
 Search supports All, Songs, Artists, Albums and Playlists, with server paging.
 Artist pages offer albums and songs. Album, artist, playlist and search-song
 playback use the appropriate catalog request and preserve playlist occurrences.
-Home offers a server **Recently played** view, ordered by the server's last-played
-information. The rail's recent-context order remains the existing local,
-account-scoped history.
+Home keeps the server's music libraries available for selection, then shows
+**Recently Added Music**, **Recently Played**, and **Frequently Played** shelves
+from the active Jellyfin account across its music libraries. The shelves use
+the server's DateCreated, DatePlayed and PlayCount ordering. Recently Played
+lists each audio item once because Jellyfin provides per-item play state rather
+than a play-occurrence log. The rail's recent-context order remains the existing
+local, account-scoped history.
 
 Create public or private playlists with the existing creation dialog. Playlist
 cards and pages offer rename and deletion confirmation. Song menus reuse the

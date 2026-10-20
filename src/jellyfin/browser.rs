@@ -90,12 +90,24 @@ impl View {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Rows {
     Libraries(Vec<MusicLibrary>),
+    Home {
+        libraries: Vec<MusicLibrary>,
+        recently_added: HomeShelf,
+        recently_played: HomeShelf,
+        frequently_played: HomeShelf,
+    },
     Search(Vec<(Kind, super::Page<Item>)>),
     Items {
         items: Vec<Item>,
         start: u32,
         total: u32,
     },
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct HomeShelf {
+    pub items: Vec<Item>,
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -647,6 +659,14 @@ impl Browser {
                         self.select_catalog(library.clone(), proxy);
                     }
                 }
+                if let Rows::Home { libraries, .. } = &rows {
+                    self.libraries = libraries.clone();
+                    if self.catalog.library.is_none()
+                        && let Some(library) = libraries.first()
+                    {
+                        self.select_catalog(library.clone(), proxy);
+                    }
+                }
                 self.rows = Some(rows);
                 self.cached = cached;
                 self.busy = cached;
@@ -993,6 +1013,18 @@ impl Browser {
                             Rows::Search(sections) => sections
                                 .iter()
                                 .flat_map(|(_, page)| &page.items)
+                                .find(|item| item.id == album_id)
+                                .cloned(),
+                            Rows::Home {
+                                recently_added,
+                                recently_played,
+                                frequently_played,
+                                ..
+                            } => recently_added
+                                .items
+                                .iter()
+                                .chain(&recently_played.items)
+                                .chain(&frequently_played.items)
                                 .find(|item| item.id == album_id)
                                 .cloned(),
                             _ => None,

@@ -65,7 +65,6 @@ connection without signing out of the current one. See the
 
 ## Later work
 
-- Shared Home layout with suitable Jellyfin sections; content remains undecided.
 - Incremental delivery within a not-yet-complete range, if it can improve stall
   recovery without weakening range validation or bounded memory use. The HTTP
   reader now retries transient failures twice; see the

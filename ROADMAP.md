@@ -23,12 +23,10 @@ Accepted work and completed live validation are recorded in the
 - Install validated Mac milestones in `/Applications/Spotifast.app`, refresh the
   development ZIP, and leave a running instance alone until the user relaunches.
 
-## Next architecture milestone
+## Current architecture state
 
-Continue extracting the shared local playback controller, reusing existing
-provider rules and keeping execution in provider adapters. Spotify and Jellyfin
-share `ManualQueue<T>` for ordered manual occurrences, immutable row snapshots,
-move, front-consumption and batch-removal. Backward cursor history,
+Spotify and Jellyfin share `ManualQueue<T>` for ordered manual occurrences,
+immutable row snapshots, move, front-consumption and batch-removal. Backward cursor history,
 Next/Previous decisions, context play order and current-track re-anchoring are
 provider-neutral primitives. `LocalPlaybackController<T>` now groups the local
 context, manual queue and Previous history; Jellyfin uses it as the authoritative

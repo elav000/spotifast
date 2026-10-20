@@ -57,7 +57,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if browser.source.is_none() {
                 Frame::new().fill(palette.panel).corner_radius(12).inner_margin(24).show(ui, |ui| {
                     ui.set_max_width(520.0);
-                    ui.label(RichText::new("Your Jellyfin server").strong().size(19.0));
+                    if !browser.servers.is_empty() {
+                        ui.label(RichText::new("Choose a Jellyfin server").strong().size(19.0));
+                        ui.add_space(8.0);
+                        for server in &browser.servers {
+                            ui.horizontal(|ui| {
+                                let name = if server.nickname.trim().is_empty() {
+                                    &server.server_url
+                                } else {
+                                    &server.nickname
+                                };
+                                ui.label(name);
+                                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                                    if ui.button("Use").clicked() {
+                                        actions.push(A::ActivateServer(server.id.clone()));
+                                    }
+                                });
+                            });
+                        }
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.add_space(8.0);
+                    }
+                    ui.label(RichText::new(if browser.servers.is_empty() { "Your Jellyfin server" } else { "Add another server" }).strong().size(19.0));
                     ui.add_space(12.0);
                     let mut server = browser.server_input.clone();
                     let input = ui.add_enabled(!browser.busy, egui::TextEdit::singleline(&mut server)

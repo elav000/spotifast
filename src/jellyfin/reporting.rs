@@ -28,7 +28,7 @@ impl Reporter {
         let changed = self.last.as_ref().is_some_and(|(old, _)| {
             current
                 .as_ref()
-                .is_none_or(|new| new.source != old.source || new.item != old.item)
+                .is_none_or(|new| !new.source.same_identity(&old.source) || new.item != old.item)
         });
         if changed && let Some((old, _)) = self.last.take() {
             reports.push(Report {
@@ -139,5 +139,22 @@ mod tests {
         assert_eq!(reports[0].playback.source.user_id, "user");
         assert!(matches!(reports[1].event, PlaybackEvent::Start));
         assert_eq!(reports[1].playback.source.user_id, "other");
+    }
+
+    #[test]
+    fn renaming_the_source_does_not_split_a_playback_reporting_session() {
+        let mut reporter = Reporter::default();
+        let now = Instant::now();
+        let current = playback();
+        assert!(matches!(
+            reporter.update(Some(current.clone()), now)[0].event,
+            PlaybackEvent::Start
+        ));
+        let mut renamed = current;
+        renamed.source.nickname = "Upstairs".into();
+        let reports = reporter.update(Some(renamed), now + Duration::from_secs(10));
+        assert_eq!(reports.len(), 1);
+        assert!(matches!(reports[0].event, PlaybackEvent::Progress));
+        assert_eq!(reports[0].playback.source.nickname, "Upstairs");
     }
 }

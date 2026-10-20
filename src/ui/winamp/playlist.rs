@@ -581,7 +581,7 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue: &QueuePresentation,
                 && let Some(drag) = egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(
                     view.ui.ctx(),
                 )
-                && drag.source == source
+                && drag.source.same_identity(&source)
             {
                 let expected = app.jellyfin_player.snapshot().queued.snapshot();
                 if let Some(action) = mini_provider_drop_action(&drag, slot, expected) {

@@ -26,6 +26,18 @@ pub struct Source {
     pub device_id: String,
 }
 
+impl Source {
+    /// Whether two saved source records identify the same Jellyfin account.
+    /// The nickname is presentation-only and may change while work is in flight.
+    pub fn same_identity(&self, other: &Self) -> bool {
+        self.id == other.id
+            && self.server_url == other.server_url
+            && self.server_id == other.server_id
+            && self.user_id == other.user_id
+            && self.device_id == other.device_id
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum View {
     #[default]
@@ -418,12 +430,20 @@ impl Browser {
     fn apply(&mut self, reply: Reply, proxy: &ProxyConfig) {
         match reply {
             Reply::ReportError { source, error } => {
-                if self.source.as_ref() == Some(&source) {
+                if self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     self.report_error = error;
                 }
             }
             Reply::Playlists { source, result } => {
-                if self.source.as_ref() != Some(&source) {
+                if !self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     return;
                 }
                 self.playlists_loading = false;
@@ -441,7 +461,12 @@ impl Browser {
                 request,
                 result,
             } => {
-                if self.source.as_ref() != Some(&source) || self.edit_request != request {
+                if !self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                    || self.edit_request != request
+                {
                     return;
                 }
                 self.edit_busy = false;
@@ -504,7 +529,10 @@ impl Browser {
                     },
                 cached,
             } if request == self.catalog_generation.load(Ordering::SeqCst)
-                && self.source.as_ref() == Some(&source) =>
+                && self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source)) =>
             {
                 if start == 0 {
                     self.catalog.items.clear();
@@ -540,7 +568,12 @@ impl Browser {
                 request,
                 source,
                 page,
-            } if request == self.recent_request && self.source.as_ref() == Some(&source) => {
+            } if request == self.recent_request
+                && self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source)) =>
+            {
                 if page.start_index as usize > self.recent_items.len() {
                     self.recent_error = Some(
                         "Jellyfin returned an incomplete recent-history page. Retry loading Recent."
@@ -559,7 +592,12 @@ impl Browser {
                 request,
                 source,
                 error,
-            } if request == self.recent_request && self.source.as_ref() == Some(&source) => {
+            } if request == self.recent_request
+                && self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source)) =>
+            {
                 self.recent_loading = false;
                 self.recent_loaded_once = true;
                 self.recent_error = Some(error);
@@ -724,7 +762,12 @@ impl Browser {
     }
 
     pub fn edit(&mut self, source: Source, edit: PlaylistEdit, proxy: &ProxyConfig) {
-        if self.source.as_ref() != Some(&source) || self.edit_busy {
+        if !self
+            .source
+            .as_ref()
+            .is_some_and(|current| current.same_identity(&source))
+            || self.edit_busy
+        {
             return;
         }
         self.edit_previous = Some(self.view.clone());
@@ -1162,7 +1205,12 @@ impl crate::app::App {
                 }
             }
             BrowserAction::SelectCollection { source, id } => {
-                if self.jellyfin.source.as_ref() == Some(&source) {
+                if self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     self.jellyfin
                         .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
                     self.apply_jellyfin_action(BrowserAction::SelectLibrary(id));
@@ -1241,7 +1289,12 @@ impl crate::app::App {
                 query,
                 index,
             } => {
-                if self.jellyfin.source.as_ref() != Some(&source) {
+                if !self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     return;
                 }
                 self.prepare_jellyfin_playback();
@@ -1311,12 +1364,22 @@ impl crate::app::App {
                     .remove_manual(&source, &expected, &indices);
             }
             BrowserAction::PlayQueueContext { source, view } => {
-                if self.jellyfin.source.as_ref() == Some(&source) {
+                if self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     self.apply_jellyfin_action(BrowserAction::PlayAlbum(view));
                 }
             }
             BrowserAction::OpenQueueContext { source, view } => {
-                if self.jellyfin.source.as_ref() == Some(&source) {
+                if self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     self.jellyfin
                         .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
                     self.jellyfin
@@ -1730,6 +1793,26 @@ mod tests {
         }))
         .unwrap();
         assert!(source.nickname.is_empty());
+    }
+
+    #[test]
+    fn source_identity_ignores_nickname_but_includes_account_and_server() {
+        let mut source = Source {
+            id: "saved-id".into(),
+            nickname: "Living room".into(),
+            server_url: "https://music.example/".into(),
+            server_id: "server".into(),
+            user_id: "user".into(),
+            device_id: "device".into(),
+        };
+        let mut renamed = source.clone();
+        renamed.nickname = "Upstairs".into();
+        assert!(source.same_identity(&renamed));
+        assert_ne!(source, renamed);
+        renamed.user_id = "different-user".into();
+        assert!(!source.same_identity(&renamed));
+        source.server_url = "https://other.example/".into();
+        assert!(!source.same_identity(&renamed));
     }
 
     #[test]

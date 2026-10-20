@@ -169,7 +169,7 @@ impl Transport {
         if !state
             .template
             .as_ref()
-            .is_some_and(|job| &job.source == source)
+            .is_some_and(|job| job.source.same_identity(source))
         {
             return false;
         }
@@ -305,10 +305,9 @@ impl Transport {
         state.controller.history.clear();
         if let Some(index) = index
             && state.snapshot.shuffle
-            && state
-                .template
-                .as_ref()
-                .is_some_and(|current| current.source == job.source && current.album == job.album)
+            && state.template.as_ref().is_some_and(|current| {
+                current.source.same_identity(&job.source) && current.album == job.album
+            })
         {
             state.controller.context.order.rotate_to(index);
         }
@@ -424,7 +423,7 @@ impl Transport {
         if !state
             .template
             .as_ref()
-            .is_some_and(|job| &job.source == source)
+            .is_some_and(|job| job.source.same_identity(source))
         {
             state.snapshot.error =
                 Some("Play a track from this Jellyfin account before adding to its queue.".into());
@@ -449,7 +448,7 @@ impl Transport {
         if !state
             .template
             .as_ref()
-            .is_some_and(|job| &job.source == source)
+            .is_some_and(|job| job.source.same_identity(source))
             || !state.controller.manual.is_snapshot(expected)
             || state.controller.manual.len() >= 1000
         {
@@ -473,7 +472,7 @@ impl Transport {
         if !state
             .template
             .as_ref()
-            .is_some_and(|job| &job.source == source)
+            .is_some_and(|job| job.source.same_identity(source))
             || !state.controller.manual.is_snapshot(expected)
             || index >= state.controller.manual.len()
         {
@@ -498,7 +497,7 @@ impl Transport {
         if !state
             .template
             .as_ref()
-            .is_some_and(|job| &job.source == source)
+            .is_some_and(|job| job.source.same_identity(source))
             || !state.controller.manual.is_snapshot(expected)
             || indices.iter().any(|index| *index >= expected.len())
         {
@@ -719,7 +718,7 @@ fn select(state: &mut State, job: Job) {
     let shuffle = state.snapshot.shuffle;
     let repeat = state.snapshot.repeat;
     let same_context = state.template.as_ref().is_some_and(|previous| {
-        previous.source == job.source
+        previous.source.same_identity(&job.source)
             && tracks.as_slice() == state.snapshot.tracks.as_slice()
             && (job.manual
                 || if job.query.is_some() {
@@ -732,7 +731,7 @@ fn select(state: &mut State, job: Job) {
     let same_source = state
         .template
         .as_ref()
-        .is_some_and(|previous| previous.source == job.source);
+        .is_some_and(|previous| previous.source.same_identity(&job.source));
     let queued = if same_source {
         state.controller.manual.clone()
     } else {
@@ -854,7 +853,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
             serde_json::from_slice::<Option<SavedPlayback>>(&bytes).ok()??;
         let source = crate::backend::jellyfin::saved_playback_source(dirs).ok()?;
         if saved.version != 1
-            || saved.source != source
+            || !saved.source.same_identity(&source)
             || saved.context.tracks.is_empty()
             || saved.context.tracks.len() > 10000
             || saved.queued.len() > 1000

@@ -495,7 +495,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             ui.add_space(10.0);
                             ui.vertical(|ui| {
                                 ui.spacing_mut().item_spacing.y = 2.0;
-                                theme::text(ui, &name, theme::semibold(14.0), palette.text);
+                                ui.horizontal(|ui| {
+                                    if provider {
+                                        theme::icon(ui, Icon::Jellyfin, 16.0, palette.text);
+                                    }
+                                    theme::text(ui, &name, theme::semibold(14.0), palette.text);
+                                });
                                 if let Some(product) = app
                                     .user
                                     .as_ref()

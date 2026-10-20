@@ -25,6 +25,11 @@ history below is not a list of tasks to repeat.
 - Bounded read-ahead/PCM buffering, whole-response network deadlines, visible
   errors and responsive controls. The user confirmed continuous playback after
   the buffering correction. Arbitrary future server stalls are not ruled out.
+- HTTP audio ranges retry transient connection/body failures and temporary
+  server errors at most twice, with bounded backoff. Each attempt starts at the
+  range boundary and must validate the full range and entity before the decoder
+  sees bytes. Integrity, authorization and entity-change errors are not retried;
+  incremental delivery of incomplete ranges remains future work.
 - Removed the bespoke Jellyfin queue panel. Main queue page/panel use the
   existing UI with `QueuePresentation`, preserving duplicate manual
   occurrences, manual priority and context continuation.

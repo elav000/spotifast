@@ -390,12 +390,16 @@ impl App {
                     },
                 })
             });
-        let recent = self
-            .jellyfin_player
-            .recent_items()
+        let recent_source = source.filter(|source| self.jellyfin.source.as_ref() == Some(*source));
+        let mut seen_recent = std::collections::HashSet::new();
+        let recent_items = state
+            .item
             .iter()
+            .chain(self.jellyfin.recent_items.iter())
+            .filter(|item| seen_recent.insert(item.id.clone()));
+        let recent = recent_items
             .filter_map(|item| {
-                let source = source?;
+                let source = recent_source?;
                 let action = Action::Jellyfin(A::PlayItem {
                     source: source.clone(),
                     item: Box::new(item.clone()),
@@ -403,7 +407,15 @@ impl App {
                     query: None,
                     index: None,
                 });
-                make(item, action, false, None).map(|entry| (entry, None))
+                make(item, action, false, None).map(|entry| {
+                    (
+                        entry,
+                        item.details
+                            .user_data
+                            .as_ref()
+                            .and_then(|data| data.last_played_date.clone()),
+                    )
+                })
             })
             .collect();
         QueuePresentation {
@@ -491,12 +503,21 @@ impl App {
             spotify_drag: false,
             recent: RecentPresentation {
                 rows: recent,
-                loading: false,
-                error: None,
-                complete: true,
-                loaded_once: true,
-                load: None,
-                reload: None,
+                loading: self.jellyfin.recent_loading,
+                error: self.jellyfin.recent_error.clone(),
+                complete: recent_source.is_none()
+                    || (self.jellyfin.recent_loaded_once
+                        && self.jellyfin.recent_items.len() as u32 >= self.jellyfin.recent_total),
+                loaded_once: recent_source.is_none() || self.jellyfin.recent_loaded_once,
+                load: recent_source
+                    .filter(|_| {
+                        !self.jellyfin.recent_loaded_once
+                            || self.jellyfin.recent_error.is_some()
+                            || (self.jellyfin.recent_items.len() as u32)
+                                < self.jellyfin.recent_total
+                    })
+                    .map(|_| Action::Jellyfin(A::LoadRecent { reload: false })),
+                reload: recent_source.map(|_| Action::Jellyfin(A::LoadRecent { reload: true })),
             },
         }
     }

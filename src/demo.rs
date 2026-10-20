@@ -12242,7 +12242,15 @@ mod tests {
         );
         app.apply(Action::Next, &ctx);
         app.jellyfin_player.demo_ready(0, true);
-        assert_eq!(app.playback_queue().recent.rows.len(), 1);
+        // Model a song last played from another Jellyfin client. The server
+        // history is independent of the local Previous cursor.
+        app.jellyfin.recent_items = vec![playback.tracks[0].clone()];
+        app.jellyfin.recent_total = 1;
+        app.jellyfin.recent_loaded_once = true;
+        let recent = app.playback_queue().recent.rows;
+        assert!(recent.iter().any(|(entry, _)| {
+            matches!(entry, QueueEntry::Provider(row) if row.0.title == "Rosewood")
+        }));
         app.jellyfin.provider = crate::provider::Provider::Spotify;
         assert!(
             !app.queue_uses_spotify(),

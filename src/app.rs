@@ -11919,6 +11919,11 @@ impl App {
                     && !self.recents.loading
                 {
                     self.load_recents(false);
+                } else if tab == QueueTab::Recents && !self.queue_uses_spotify() {
+                    let reload = self.jellyfin.recent_loaded_once;
+                    self.apply_jellyfin_action(
+                        crate::jellyfin::browser::BrowserAction::LoadRecent { reload },
+                    );
                 }
             }
             Action::LoadMoreArtistAlbums(id) => {

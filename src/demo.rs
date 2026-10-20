@@ -6814,6 +6814,128 @@ mod tests {
         app.backend.shutdown();
     }
 
+    #[test]
+    fn jellyfin_home_keeps_library_selection_and_shows_server_shelves() {
+        use crate::jellyfin::{
+            MusicLibrary,
+            browser::{HomeShelf, Rows, Source, View},
+            catalog::Details,
+        };
+        let (ctx, mut app) = accessible_app("jellyfin-home");
+        let source = Source {
+            id: "0123456789abcdef0123456789abcdef".into(),
+            nickname: "Music server".into(),
+            server_url: "https://music.example/jellyfin/".into(),
+            server_id: "server1".into(),
+            user_id: "user1".into(),
+            device_id: "device1".into(),
+        };
+        let item = |id: &str, name: &str, kind: Option<&str>| crate::jellyfin::Item {
+            details: Details {
+                kind: kind.map(str::to_owned),
+                ..Details::default()
+            },
+            id: id.into(),
+            name: Some(name.into()),
+            album: Some(name.into()),
+            album_id: (kind == Some("Audio")).then(|| "album1".into()),
+            artists: vec!["Demo artist".into()],
+            run_time_ticks: None,
+            index_number: None,
+            parent_index_number: None,
+            container: None,
+            media_streams: None,
+            media_sources: None,
+            image_tags: None,
+            album_primary_image_tag: None,
+        };
+        app.jellyfin.provider = crate::provider::Provider::Jellyfin;
+        app.jellyfin.source = Some(source);
+        app.jellyfin.view = View::Libraries;
+        app.jellyfin.rows = Some(Rows::Home {
+            libraries: vec![
+                MusicLibrary {
+                    id: "music1".into(),
+                    name: "Evan's Collection".into(),
+                    collection_type: Some("music".into()),
+                },
+                MusicLibrary {
+                    id: "music2".into(),
+                    name: "DJ".into(),
+                    collection_type: Some("music".into()),
+                },
+            ],
+            recently_added: HomeShelf {
+                items: vec![item("album1", "New album", Some("MusicAlbum"))],
+                error: None,
+            },
+            recently_played: HomeShelf {
+                items: vec![item("track1", "Recent track", Some("Audio"))],
+                error: None,
+            },
+            frequently_played: HomeShelf {
+                items: vec![item("track2", "Frequent track", Some("Audio"))],
+                error: None,
+            },
+        });
+        let recent_card = app.jellyfin_library_item(
+            match app.jellyfin.rows.as_ref().unwrap() {
+                Rows::Home {
+                    recently_played, ..
+                } => &recently_played.items[0],
+                _ => unreachable!(),
+            },
+            crate::jellyfin::catalog::Kind::Song,
+        );
+        assert!(matches!(
+            recent_card.open,
+            crate::model::Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Browse {
+                view: View::Tracks { album_id, .. },
+                ..
+            }) if album_id == "album1"
+        ));
+        assert!(matches!(
+            recent_card.play,
+            Some(crate::model::Action::Jellyfin(
+                crate::jellyfin::browser::BrowserAction::PlayItem { item, query: None, .. }
+            )) if item.id == "track1"
+        ));
+        for palette in [
+            crate::theme::Palette::dark(),
+            crate::theme::Palette::light(),
+        ] {
+            app.palette = palette;
+            crate::theme::apply(&ctx, &palette);
+            for size in [egui::vec2(720.0, 1400.0), egui::vec2(1280.0, 1400.0)] {
+                let text = view_frame_sized(
+                    &ctx,
+                    &mut app,
+                    vec![],
+                    crate::ui::collection::provider,
+                    size,
+                );
+                for label in [
+                    "Home",
+                    "Music libraries",
+                    "Evan's Collection",
+                    "DJ",
+                    "Recently Added Music",
+                    "New album",
+                    "Recently Played",
+                    "Recent track",
+                    "Frequently Played",
+                    "Frequent track",
+                ] {
+                    assert!(
+                        text.iter().any(|(text, _)| text == label),
+                        "missing {label}"
+                    );
+                }
+            }
+        }
+        app.backend.shutdown();
+    }
+
     /// #907: the New releases page lists the releases' songs, newest
     /// release first, under a Play button.
     #[test]

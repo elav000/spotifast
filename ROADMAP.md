@@ -65,13 +65,16 @@ connection without signing out of the current one. See the
 
 ## Later work
 
-- Incremental delivery within a not-yet-complete range, if it can improve stall
-  recovery without weakening range validation or bounded memory use. The HTTP
-  reader now retries transient failures twice; see the
-  [completed milestone notes](docs/_reference/completed-milestones.md).
 - Combined provider and mixed local queues after the shared controller is stable;
   Plex or other sources can follow through the same contracts. Catalog composition,
   mixed playback and shared caches are independent decisions.
+
+Incremental delivery within a partially received HTTP range is deferred. Revisit
+only if timing data shows the Jellyfin server delivers useful body bytes before
+the full range completes; otherwise changing the client cannot improve the
+stall. Any implementation must preserve range/entity validation and bounded
+memory use. The reader already retries transient failures twice; see the
+[completed milestone notes](docs/_reference/completed-milestones.md).
 
 ## Where to continue in the CLI
 

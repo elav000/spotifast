@@ -301,9 +301,9 @@ impl crate::app::App {
             round: kind == Kind::Artist,
             selected: self.jellyfin.view.context_id() == Some(item.id.as_str()),
             current: self.jellyfin_player.controls_output()
-                && context
-                    .as_ref()
-                    .is_some_and(|(current, context)| current == source && context == &item.id),
+                && context.as_ref().is_some_and(|(current, context)| {
+                    current.same_identity(source) && context == &item.id
+                }),
         }
     }
 
@@ -437,7 +437,12 @@ impl crate::app::App {
                 _ => None,
             };
             if let Some(edit) = edit {
-                if self.jellyfin.source.as_ref() == Some(&source) {
+                if self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                {
                     self.jellyfin
                         .edit(source, edit, &self.applied_jellyfin_proxy());
                 } else {

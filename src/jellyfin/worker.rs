@@ -10,7 +10,7 @@ use std::sync::{
 
 use crate::{
     backend::Waker,
-    jellyfin::{Account, Challenge, Client, Token, browser::*},
+    jellyfin::{Account, Challenge, Client, Error, Item, Token, browser::*},
     paths::AppDirs,
 };
 
@@ -583,12 +583,49 @@ impl Worker {
                             total: page.total_record_count,
                         }
                     }
-                    View::Libraries => Rows::Libraries(
-                        client
+                    View::Libraries => {
+                        let libraries = client
                             .music_libraries(&source.user_id, token)
                             .await
-                            .map_err(|e| e.to_string())?,
-                    ),
+                            .map_err(|e| e.to_string())?;
+                        let (added, recent, frequent) = tokio::join!(
+                            client.query(
+                                &source.user_id,
+                                &crate::jellyfin::catalog::Query::RecentlyAdded,
+                                0,
+                                token,
+                            ),
+                            client.query(
+                                &source.user_id,
+                                &crate::jellyfin::catalog::Query::Recent,
+                                0,
+                                token,
+                            ),
+                            client.query(
+                                &source.user_id,
+                                &crate::jellyfin::catalog::Query::FrequentlyPlayed,
+                                0,
+                                token,
+                            ),
+                        );
+                        let shelf =
+                            |result: Result<crate::jellyfin::Page<Item>, Error>| match result {
+                                Ok(page) => crate::jellyfin::browser::HomeShelf {
+                                    items: page.items,
+                                    error: None,
+                                },
+                                Err(error) => crate::jellyfin::browser::HomeShelf {
+                                    items: Vec::new(),
+                                    error: Some(error.to_string()),
+                                },
+                            };
+                        Rows::Home {
+                            libraries,
+                            recently_added: shelf(added),
+                            recently_played: shelf(recent),
+                            frequently_played: shelf(frequent),
+                        }
+                    }
                     View::Albums { library_id, .. } => {
                         let page = client
                             .albums(&source.user_id, library_id, *start, token)
@@ -616,11 +653,26 @@ impl Worker {
                     return Ok(());
                 }
                 // Cache failure must not hide a successful live response.
-                let _ = crate::account_cache::write(
-                    &path,
-                    &crate::account_cache::Cache::new(identity, rows.clone()),
-                )
-                .await;
+                let cache_home = match &rows {
+                    Rows::Home {
+                        recently_added,
+                        recently_played,
+                        frequently_played,
+                        ..
+                    } => {
+                        recently_added.error.is_none()
+                            && recently_played.error.is_none()
+                            && frequently_played.error.is_none()
+                    }
+                    _ => true,
+                };
+                if cache_home {
+                    let _ = crate::account_cache::write(
+                        &path,
+                        &crate::account_cache::Cache::new(identity, rows.clone()),
+                    )
+                    .await;
+                }
                 self.emit(
                     generation,
                     Reply::Data {

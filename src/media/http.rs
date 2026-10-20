@@ -12,6 +12,7 @@ use symphonia::core::io::MediaSource;
 pub const RANGE_BYTES: usize = 256 * 1024;
 /// About six seconds of CD-quality WAV, with one more range fetched ahead.
 const PLAYBACK_RANGE_BYTES: usize = 1024 * 1024;
+const RANGE_RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(150), Duration::from_millis(400)];
 
 #[derive(Default)]
 pub struct Metrics {
@@ -230,6 +231,36 @@ impl HttpRangeSource {
     }
 
     fn fetch(&mut self, start: u64, initial: bool) -> io::Result<()> {
+        let mut attempt = 0;
+        loop {
+            match self.fetch_once(start, initial) {
+                Ok(()) => return Ok(()),
+                Err(error) if retryable_range_error(&error) => {
+                    let Some(delay) = RANGE_RETRY_DELAYS.get(attempt) else {
+                        return Err(error);
+                    };
+                    log::warn!(
+                        "retrying transient audio range failure: start={start} attempt={}",
+                        attempt + 1
+                    );
+                    self.wait_for_retry(*delay)?;
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    fn wait_for_retry(&self, delay: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + delay;
+        while Instant::now() < deadline {
+            self.check_cancel()?;
+            std::thread::sleep((deadline - Instant::now()).min(Duration::from_millis(25)));
+        }
+        self.check_cancel()
+    }
+
+    fn fetch_once(&mut self, start: u64, initial: bool) -> io::Result<()> {
         self.check_cancel()?;
         // Every new reader validates its first range online. Only a current
         // strong entity validator can unlock persisted ranges for this session.
@@ -269,13 +300,26 @@ impl HttpRangeSource {
         }
         self.metrics.requests.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
-        let mut response = request
-            .send()
-            .map_err(|_| failure("Audio request failed."))?;
+        let mut response = request.send().map_err(|error| {
+            let kind = if error.is_timeout() {
+                io::ErrorKind::TimedOut
+            } else if error.is_connect() {
+                io::ErrorKind::ConnectionAborted
+            } else {
+                io::ErrorKind::Other
+            };
+            io::Error::new(kind, "Audio request failed.")
+        })?;
         let headers_elapsed = started.elapsed();
         // Reject 200 even when the server ignores Range: do not buffer a whole
         // file, or silently splice a changed file into an existing decoder.
         if response.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+            if retryable_status(response.status()) {
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "Temporary audio server response.",
+                ));
+            }
             return Err(failure(&format!(
                 "Audio needs HTTP range support (HTTP {}).",
                 response.status().as_u16()
@@ -328,15 +372,18 @@ impl HttpRangeSource {
                 "audio range interrupted: start={start} expected_bytes={expected} elapsed_ms={}",
                 started.elapsed().as_millis()
             );
-            failure(
+            io::Error::new(
+                io::ErrorKind::ConnectionAborted,
                 "Audio range was interrupted or timed out. Retry from the last playback position.",
             )
         })?;
         let mut extra = [0];
-        if response
-            .read(&mut extra)
-            .map_err(|_| failure("Audio range was interrupted."))?
-            != 0
+        if response.read(&mut extra).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "Audio range was interrupted.",
+            )
+        })? != 0
         {
             return Err(failure("Oversized audio range."));
         }
@@ -372,6 +419,24 @@ impl HttpRangeSource {
         self.length = total;
         Ok(())
     }
+}
+
+fn retryable_range_error(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::UnexpectedEof
+    )
+}
+
+fn retryable_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status == reqwest::StatusCode::TOO_EARLY
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status.is_server_error()
 }
 
 fn cache_storage_allowed(headers: &header::HeaderMap) -> bool {

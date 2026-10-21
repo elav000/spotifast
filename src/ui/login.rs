@@ -727,24 +727,32 @@ fn big_button_painted(ui: &mut egui::Ui, app: &App, label: &str, readable: bool)
         .painter()
         .layout_no_wrap(label.to_string(), theme::bold(15.0), color);
     let size = Vec2::new(ui.available_width().min(300.0), 46.0);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        ui.add_space((ui.available_width() - size.x).max(0.0) / 2.0);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+        });
+        let fill = if muted {
+            palette.surface_active
+        } else if !ui.is_enabled() {
+            palette.accent.gamma_multiply(0.45)
+        } else if response.hovered() {
+            palette.accent_hover
+        } else {
+            palette.accent
+        };
+        ui.painter().rect_filled(rect, 23.0, fill);
+        ui.painter().galley(
+            rect.center() - galley.size() / 2.0,
+            galley,
+            color,
+        );
+        theme::focus_ring(ui, &response);
+        clicked = response.clicked();
     });
-    let fill = if muted {
-        palette.surface_active
-    } else if !ui.is_enabled() {
-        palette.accent.gamma_multiply(0.45)
-    } else if response.hovered() {
-        palette.accent_hover
-    } else {
-        palette.accent
-    };
-    ui.painter().rect_filled(rect, 23.0, fill);
-    ui.painter()
-        .galley(rect.center() - galley.size() / 2.0, galley, color);
-    theme::focus_ring(ui, &response);
-    response.clicked()
+    clicked
 }
 
 #[cfg(test)]

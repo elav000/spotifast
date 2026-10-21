@@ -87,6 +87,11 @@ not permission for a broad abstraction rewrite.
 
 ## Later work
 
+- **Show multi-disc albums as separate disc sections.** Use provider disc numbers
+  to label and group tracks in the shared album page, while preserving their
+  order and keeping the layout useful for single-disc albums. Jellyfin can use
+  this where its library supplies disc numbers.
+
 - Combined provider and mixed local queues after the shared controller is stable;
   Plex or other sources can follow through the same contracts. Catalog composition,
   mixed playback and shared caches are independent decisions.

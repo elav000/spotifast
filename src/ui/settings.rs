@@ -603,6 +603,18 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if app.jellyfin.provider == crate::provider::Provider::Jellyfin {
                     ui.add_space(12.0);
                     for source in app.jellyfin.servers.clone() {
+                        let server_name = if source.nickname.trim().is_empty() {
+                            source.server_url.clone()
+                        } else {
+                            source.nickname.clone()
+                        };
+                        theme::text(
+                            ui,
+                            format!("Jellyfin server: {server_name}"),
+                            theme::semibold(14.0),
+                            palette.text,
+                        );
+                        ui.add_space(4.0);
                         ui.horizontal(|ui| {
                             let action_width = 140.0;
                             let row_width = ui.available_width();

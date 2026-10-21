@@ -78,12 +78,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
                     if app.jellyfin.enabled && !connecting && !matches!(app.auth, AuthStatus::WaitingForBrowser { .. }) {
                         theme::text(ui, "Provider", theme::medium(12.0), palette.secondary);
                         ui.horizontal(|ui| {
-                            if theme::pill_button(ui, &palette, "Spotify", app.jellyfin.provider == crate::provider::Provider::Spotify).clicked() {
-                                app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Spotify)));
-                            }
-                            if theme::pill_button(ui, &palette, "Jellyfin", app.jellyfin.provider == crate::provider::Provider::Jellyfin).clicked() {
-                                app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin)));
-                            }
+                            let button_padding = Vec2::new(18.0, 8.0);
+                            let button_width = ["Spotify", "Jellyfin"]
+                                .iter()
+                                .map(|label| {
+                                    ui.painter()
+                                        .layout_no_wrap(
+                                            (*label).to_owned(),
+                                            theme::semibold(13.0),
+                                            palette.text,
+                                        )
+                                        .size()
+                                        .x
+                                        + button_padding.x * 2.0
+                                })
+                                .sum::<f32>()
+                                + ui.spacing().item_spacing.x;
+                            ui.add_space((ui.available_width() - button_width).max(0.0) / 2.0);
+                                if theme::pill_button(ui, &palette, "Spotify", app.jellyfin.provider == crate::provider::Provider::Spotify).clicked() {
+                                    app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Spotify)));
+                                }
+                                if theme::pill_button(ui, &palette, "Jellyfin", app.jellyfin.provider == crate::provider::Provider::Jellyfin).clicked() {
+                                    app.actions.push(Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin)));
+                                }
                         });
                         ui.add_space(12.0);
                     }
@@ -305,22 +322,27 @@ fn big_button(ui: &mut egui::Ui, app: &App, label: &str) -> bool {
         ui.painter()
             .layout_no_wrap(label.to_string(), theme::bold(15.0), palette.on_accent);
     let size = Vec2::new(ui.available_width().min(300.0), 46.0);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    let mut clicked = false;
+    ui.horizontal(|ui| {
+        ui.add_space((ui.available_width() - size.x).max(0.0) / 2.0);
+        let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+        });
+        let fill = if response.hovered() {
+            palette.accent_hover
+        } else {
+            palette.accent
+        };
+        ui.painter().rect_filled(rect, 23.0, fill);
+        ui.painter().galley(
+            rect.center() - galley.size() / 2.0,
+            galley,
+            palette.on_accent,
+        );
+        clicked = response.clicked();
     });
-    let fill = if response.hovered() {
-        palette.accent_hover
-    } else {
-        palette.accent
-    };
-    ui.painter().rect_filled(rect, 23.0, fill);
-    ui.painter().galley(
-        rect.center() - galley.size() / 2.0,
-        galley,
-        palette.on_accent,
-    );
-    response.clicked()
+    clicked
 }
 
 #[cfg(test)]

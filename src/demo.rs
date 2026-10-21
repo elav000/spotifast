@@ -12137,6 +12137,36 @@ mod tests {
                 .iter()
                 .any(|(text, _)| text == "Provider")
         );
+        let provider_layout = view_frame(&ctx, &mut app, vec![], crate::ui::show);
+        let provider_label = provider_layout
+            .iter()
+            .find(|(text, _)| text == "Provider")
+            .unwrap()
+            .1;
+        let spotify_rect = provider_layout
+            .iter()
+            .find(|(text, _)| text == "Spotify")
+            .unwrap()
+            .1;
+        let jellyfin_rect = provider_layout
+            .iter()
+            .find(|(text, _)| text == "Jellyfin")
+            .unwrap()
+            .1;
+        let sign_in_rect = provider_layout
+            .iter()
+            .find(|(text, _)| text == "Sign in with Spotify")
+            .unwrap()
+            .1;
+        let provider_buttons_center = (spotify_rect.center().x + jellyfin_rect.center().x) / 2.0;
+        assert!(
+            (provider_buttons_center - provider_label.center().x).abs() < 2.0,
+            "provider buttons should be centered in the login window"
+        );
+        assert!(
+            (sign_in_rect.center().x - provider_label.center().x).abs() < 2.0,
+            "Spotify sign-in button should be centered in the login window"
+        );
         accessible_node(&tree, "Spotify", Role::Button);
         let jellyfin = accessible_node(&tree, "Jellyfin", Role::Button);
         accessible_frame(
@@ -12212,6 +12242,10 @@ mod tests {
         use crate::jellyfin::browser::View;
         let (ctx, mut app) = accessible_app("jellyfin-server-alignment");
         app.jellyfin.demo("jellyfin-tracks");
+        let mut second = app.jellyfin.servers[0].clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.nickname = "Upstairs".into();
+        app.jellyfin.servers.push(second);
         app.jellyfin.view = View::Settings;
         app.open(crate::model::Page::Settings);
         for palette in [
@@ -12223,6 +12257,16 @@ mod tests {
             for size in [egui::vec2(720.0, 1000.0), egui::vec2(1280.0, 1000.0)] {
                 let painted =
                     view_frame_sized(&ctx, &mut app, vec![], crate::ui::settings::show, size);
+                assert!(
+                    painted
+                        .iter()
+                        .any(|(text, _)| text == "Jellyfin server: Music server")
+                );
+                assert!(
+                    painted
+                        .iter()
+                        .any(|(text, _)| text == "Jellyfin server: Upstairs")
+                );
                 let active = painted
                     .iter()
                     .find(|(text, _)| text == "Active")

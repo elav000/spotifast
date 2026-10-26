@@ -138,18 +138,15 @@ librespot-metadata = { version = "0.8", default-features = false }
 librespot-protocol = { version = "0.8", default-features = false }
 # Parses the rootlist's playlist4 protobuf, the same crate librespot generates with.
 protobuf = "3"
-# Reads a local file's embedded cover and lyrics. The same decoder librespot
-# already plays local files with, with the formats it enables, so nothing
-# new is built.
-symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac"] }
 # Local playback's audio sink is this crate's own (src/sink.rs): librespot's
 # rodio backend unwraps the device open on the player thread, and a release
 # build aborts on panic, so it is left out. rodio supplies the mixer and the
 # queue only; fastframe-audio below owns the device stream.
 rodio = { version = "0.21", default-features = false }
-# Decode Jellyfin originals with the same Symphonia version already used by
-# librespot. WAV/PCM joins its existing FLAC and MP3 support; no second engine.
-symphonia = { version = "0.5.5", default-features = false, features = ["flac", "mp3", "wav", "pcm"] }
+# Reads local file covers and lyrics, and decodes Jellyfin originals with the
+# same Symphonia version already used by librespot. WAV/PCM joins its existing
+# FLAC and MP3 support, so no second engine is built.
+symphonia = { version = "0.5", default-features = false, features = ["mp3", "flac", "wav", "pcm"] }
 # `socks` is SOCKS5 proxy support for the Web API, artwork, lyrics, and
 # update checks. HTTP proxies work without it. `system-proxy` reads the OS
 # proxy on macOS and Windows when the mode is System; Linux uses environment

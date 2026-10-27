@@ -3626,6 +3626,65 @@ msgstr "Openen"
 msgid "Drop here to add to Playing next"
 msgstr "Sleep hierheen om toe te voegen aan ‘Hierna’"
 
+#: src/ui/settings.rs:340
+msgid ""
+"Play the local files your playlists list from a folder on this computer. "
+"Only 44.1 kHz files play."
+msgstr ""
+"Speel de lokale bestanden uit je playlists af vanuit een map op deze "
+"computer. Alleen bestanden van 44,1 kHz worden afgespeeld."
+
+#: src/ui/settings.rs:668
+msgid ""
+"Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+msgstr ""
+"Spotifast verdwijnt naar het systeemvak. Sluit af via het menu in het "
+"systeemvak of met Cmd+Q."
+
+#: src/ui/settings.rs:681
+msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
+msgstr "PulseAudio dekt ook PipeWire. Rodio praat rechtstreeks met ALSA."
+
+#: src/ui/collection.rs:1595
+msgid "Your most-played tracks from the last four weeks."
+msgstr "Je meest afgespeelde nummers van de afgelopen vier weken."
+
+#: src/ui/dialogs.rs:45
+msgid "Spend less time waiting for Spotify"
+msgstr "Minder wachten op Spotify"
+
+#: src/ui/dialogs.rs:48
+msgid ""
+"Spotifast's default connection shares Spotify's request limit with other "
+"listeners. When it gets busy, loading music and using playback controls can "
+"take longer."
+msgstr ""
+"De standaardverbinding van Spotifast deelt de verzoeklimiet van Spotify met "
+"andere luisteraars. Als het druk is, kan het laden van muziek en het gebruik "
+"van de afspeelknoppen langer duren."
+
+#: src/ui/dialogs.rs:49
+msgid ""
+"Your Premium account lets you create a free personal Spotify app. Connect it "
+"here to give supported requests your own allowance. Some pages still use the "
+"shared connection."
+msgstr ""
+"Met je Premium-account kun je gratis een persoonlijke Spotify-app maken. "
+"Verbind die hier zodat ondersteunde verzoeken je eigen tegoed gebruiken. "
+"Sommige pagina's gebruiken nog steeds de gedeelde verbinding."
+
+#: src/ui/dialogs.rs:50
+msgid ""
+"Setup takes a few minutes. You can also find it later in Settings under "
+"Personal Spotify app."
+msgstr ""
+"Instellen duurt een paar minuten. Je vindt het later ook in Instellingen "
+"onder Persoonlijke Spotify-app."
+
+#: src/ui/dialogs.rs:60
+msgid "Keep shared app"
+msgstr "Gedeelde app houden"
+
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
@@ -3643,56 +3702,6 @@ msgstr "Muziekbron"
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"
 msgstr "Grootte: 2x, 3x, 4x"
-
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
-#~ msgstr ""
-#~ "Spotifast verdwijnt naar het systeemvak. Sluit af via het menu in het "
-#~ "systeemvak of met Cmd+Q."
-
-#~ msgid "Your most-played tracks from the last four weeks."
-#~ msgstr "Je meest afgespeelde nummers van de afgelopen vier weken."
-
-#~ msgid "Spend less time waiting for Spotify"
-#~ msgstr "Minder wachten op Spotify"
-
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "De standaardverbinding van Spotifast deelt de verzoeklimiet van Spotify "
-#~ "met andere luisteraars. Als het druk is, kan het laden van muziek en het "
-#~ "gebruik van de afspeelknoppen langer duren."
-
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "Met je Premium-account kun je gratis een persoonlijke Spotify-app maken. "
-#~ "Verbind die hier zodat ondersteunde verzoeken je eigen tegoed gebruiken. "
-#~ "Sommige pagina's gebruiken nog steeds de gedeelde verbinding."
-
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
-#~ msgstr ""
-#~ "Instellen duurt een paar minuten. Je vindt het later ook in Instellingen "
-#~ "onder Persoonlijke Spotify-app."
-
-#~ msgid "Keep shared app"
-#~ msgstr "Gedeelde app houden"
-
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "Speel de lokale bestanden uit je playlists af vanuit een map op deze "
-#~ "computer. Alleen bestanden van 44,1 kHz worden afgespeeld."
-
-#~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
-#~ msgstr "PulseAudio dekt ook PipeWire. Rodio praat rechtstreeks met ALSA."
 
 #~ msgid "Couldn't load this shelf"
 #~ msgstr "Kan deze rij niet laden"

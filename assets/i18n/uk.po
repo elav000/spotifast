@@ -3654,6 +3654,67 @@ msgstr "Відкрити"
 msgid "Drop here to add to Playing next"
 msgstr "Перетягніть сюди, щоб додати до черги"
 
+#: src/ui/settings.rs:340
+msgid ""
+"Play the local files your playlists list from a folder on this computer. "
+"Only 44.1 kHz files play."
+msgstr ""
+"Відтворюйте локальні файли з ваших плейлистів із папки на цьому комп’ютері. "
+"Відтворюються лише файли 44,1 кГц."
+
+#: src/ui/settings.rs:668
+msgid ""
+"Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+msgstr ""
+"Spotifast згортається в системний трей. Вийти можна через меню трею або за "
+"допомогою Cmd+Q."
+
+#: src/ui/settings.rs:681
+msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
+msgstr ""
+"PulseAudio працює також із PipeWire. Rodio звертається до ALSA напряму."
+
+#: src/ui/collection.rs:1595
+msgid "Your most-played tracks from the last four weeks."
+msgstr "Треки, які ви слухали найчастіше за останні чотири тижні."
+
+#: src/ui/dialogs.rs:45
+msgid "Spend less time waiting for Spotify"
+msgstr "Менше чекайте на Spotify"
+
+#: src/ui/dialogs.rs:48
+msgid ""
+"Spotifast's default connection shares Spotify's request limit with other "
+"listeners. When it gets busy, loading music and using playback controls can "
+"take longer."
+msgstr ""
+"Типове з’єднання Spotifast ділить ліміт запитів Spotify з іншими слухачами. "
+"Коли навантаження велике, музика може завантажуватися довше, а елементи "
+"керування відтворенням можуть реагувати повільніше."
+
+#: src/ui/dialogs.rs:49
+msgid ""
+"Your Premium account lets you create a free personal Spotify app. Connect it "
+"here to give supported requests your own allowance. Some pages still use the "
+"shared connection."
+msgstr ""
+"Ваш обліковий запис Premium дає змогу створити безкоштовний особистий "
+"застосунок Spotify. Під’єднайте його тут, щоб підтримувані запити "
+"використовували вашу власну квоту. Деякі сторінки однаково використовують "
+"спільне з’єднання."
+
+#: src/ui/dialogs.rs:50
+msgid ""
+"Setup takes a few minutes. You can also find it later in Settings under "
+"Personal Spotify app."
+msgstr ""
+"Налаштування займе кілька хвилин. Його також можна знайти пізніше в "
+"налаштуваннях, у розділі «Особистий застосунок Spotify»."
+
+#: src/ui/dialogs.rs:60
+msgid "Keep shared app"
+msgstr "Залишити спільний застосунок"
+
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
@@ -3670,58 +3731,6 @@ msgstr "Джерело музики"
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"
 msgstr "Розмір: 2x, 3x, 4x"
-
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
-#~ msgstr ""
-#~ "Spotifast згортається в системний трей. Вийти можна через меню трею або "
-#~ "за допомогою Cmd+Q."
-
-#~ msgid "Your most-played tracks from the last four weeks."
-#~ msgstr "Треки, які ви слухали найчастіше за останні чотири тижні."
-
-#~ msgid "Spend less time waiting for Spotify"
-#~ msgstr "Менше чекайте на Spotify"
-
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "Типове з’єднання Spotifast ділить ліміт запитів Spotify з іншими "
-#~ "слухачами. Коли навантаження велике, музика може завантажуватися довше, а "
-#~ "елементи керування відтворенням можуть реагувати повільніше."
-
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "Ваш обліковий запис Premium дає змогу створити безкоштовний особистий "
-#~ "застосунок Spotify. Під’єднайте його тут, щоб підтримувані запити "
-#~ "використовували вашу власну квоту. Деякі сторінки однаково використовують "
-#~ "спільне з’єднання."
-
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
-#~ msgstr ""
-#~ "Налаштування займе кілька хвилин. Його також можна знайти пізніше в "
-#~ "налаштуваннях, у розділі «Особистий застосунок Spotify»."
-
-#~ msgid "Keep shared app"
-#~ msgstr "Залишити спільний застосунок"
-
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "Відтворюйте локальні файли з ваших плейлистів із папки на цьому "
-#~ "комп’ютері. Відтворюються лише файли 44,1 кГц."
-
-#~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
-#~ msgstr ""
-#~ "PulseAudio працює також із PipeWire. Rodio звертається до ALSA напряму."
 
 #~ msgid "Couldn't load this shelf"
 #~ msgstr "Не вдалося завантажити цю добірку"

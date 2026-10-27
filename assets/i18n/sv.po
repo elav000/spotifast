@@ -3599,6 +3599,65 @@ msgstr "Öppna"
 msgid "Drop here to add to Playing next"
 msgstr "Släpp här för att lägga till i ”Härnäst”"
 
+#: src/ui/settings.rs:340
+msgid ""
+"Play the local files your playlists list from a folder on this computer. "
+"Only 44.1 kHz files play."
+msgstr ""
+"Spela de lokala filerna i dina spellistor från en mapp på den här datorn. "
+"Bara filer i 44,1 kHz spelas."
+
+#: src/ui/settings.rs:668
+msgid ""
+"Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+msgstr ""
+"Spotifast göms i systemfältet. Avsluta från systemfältets meny eller med "
+"Cmd+Q."
+
+#: src/ui/settings.rs:681
+msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
+msgstr "PulseAudio täcker även PipeWire. Rodio pratar direkt med ALSA."
+
+#: src/ui/collection.rs:1595
+msgid "Your most-played tracks from the last four weeks."
+msgstr "Dina mest spelade låtar de senaste fyra veckorna."
+
+#: src/ui/dialogs.rs:45
+msgid "Spend less time waiting for Spotify"
+msgstr "Vänta mindre på Spotify"
+
+#: src/ui/dialogs.rs:48
+msgid ""
+"Spotifast's default connection shares Spotify's request limit with other "
+"listeners. When it gets busy, loading music and using playback controls can "
+"take longer."
+msgstr ""
+"Spotifasts standardanslutning delar Spotifys gräns för förfrågningar med "
+"andra lyssnare. Vid hög belastning kan det ta längre tid att läsa in musik "
+"och använda uppspelningskontrollerna."
+
+#: src/ui/dialogs.rs:49
+msgid ""
+"Your Premium account lets you create a free personal Spotify app. Connect it "
+"here to give supported requests your own allowance. Some pages still use the "
+"shared connection."
+msgstr ""
+"Med ditt Premium-konto kan du skapa en gratis personlig Spotify-app. Anslut "
+"den här för att ge förfrågningar som stöds en egen kvot. Vissa sidor "
+"använder fortfarande den delade anslutningen."
+
+#: src/ui/dialogs.rs:50
+msgid ""
+"Setup takes a few minutes. You can also find it later in Settings under "
+"Personal Spotify app."
+msgstr ""
+"Konfigurationen tar några minuter. Du hittar den också senare i "
+"Inställningar under Personlig Spotify-app."
+
+#: src/ui/dialogs.rs:60
+msgid "Keep shared app"
+msgstr "Behåll delad app"
+
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
@@ -3615,56 +3674,6 @@ msgstr "Musikkälla"
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"
 msgstr "Storlek: 2x, 3x, 4x"
-
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
-#~ msgstr ""
-#~ "Spotifast göms i systemfältet. Avsluta från systemfältets meny eller med "
-#~ "Cmd+Q."
-
-#~ msgid "Your most-played tracks from the last four weeks."
-#~ msgstr "Dina mest spelade låtar de senaste fyra veckorna."
-
-#~ msgid "Spend less time waiting for Spotify"
-#~ msgstr "Vänta mindre på Spotify"
-
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "Spotifasts standardanslutning delar Spotifys gräns för förfrågningar med "
-#~ "andra lyssnare. Vid hög belastning kan det ta längre tid att läsa in "
-#~ "musik och använda uppspelningskontrollerna."
-
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "Med ditt Premium-konto kan du skapa en gratis personlig Spotify-app. "
-#~ "Anslut den här för att ge förfrågningar som stöds en egen kvot. Vissa "
-#~ "sidor använder fortfarande den delade anslutningen."
-
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
-#~ msgstr ""
-#~ "Konfigurationen tar några minuter. Du hittar den också senare i "
-#~ "Inställningar under Personlig Spotify-app."
-
-#~ msgid "Keep shared app"
-#~ msgstr "Behåll delad app"
-
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "Spela de lokala filerna i dina spellistor från en mapp på den här datorn. "
-#~ "Bara filer i 44,1 kHz spelas."
-
-#~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
-#~ msgstr "PulseAudio täcker även PipeWire. Rodio pratar direkt med ALSA."
 
 #~ msgid "Couldn't load this shelf"
 #~ msgstr "Kunde inte läsa in den här sektionen"

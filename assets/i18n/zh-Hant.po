@@ -3509,6 +3509,59 @@ msgstr "開啟"
 msgid "Drop here to add to Playing next"
 msgstr "拖曳至此以加入接下來播放"
 
+#: src/ui/settings.rs:340
+msgid ""
+"Play the local files your playlists list from a folder on this computer. "
+"Only 44.1 kHz files play."
+msgstr ""
+"從這台電腦上的資料夾播放播放清單中的本機檔案。只能播放 44.1 kHz 的檔案。"
+
+#: src/ui/settings.rs:668
+msgid ""
+"Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
+msgstr "Spotifast 會隱藏到系統匣。可從系統匣選單或按 Cmd+Q 結束。"
+
+#: src/ui/settings.rs:681
+msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
+msgstr "PulseAudio 也支援 PipeWire。Rodio 會直接與 ALSA 溝通。"
+
+#: src/ui/collection.rs:1595
+msgid "Your most-played tracks from the last four weeks."
+msgstr "過去四週你最常播放的歌曲。"
+
+#: src/ui/dialogs.rs:45
+msgid "Spend less time waiting for Spotify"
+msgstr "減少等待 Spotify 的時間"
+
+#: src/ui/dialogs.rs:48
+msgid ""
+"Spotifast's default connection shares Spotify's request limit with other "
+"listeners. When it gets busy, loading music and using playback controls can "
+"take longer."
+msgstr ""
+"Spotifast 的預設連線會與其他聽眾共用 Spotify 的要求上限。繁忙時，載入音樂和使"
+"用播放控制項可能需要更久。"
+
+#: src/ui/dialogs.rs:49
+msgid ""
+"Your Premium account lets you create a free personal Spotify app. Connect it "
+"here to give supported requests your own allowance. Some pages still use the "
+"shared connection."
+msgstr ""
+"你的 Premium 帳戶可以免費建立個人 Spotify 應用程式。在這裡連線後，支援的要求"
+"就會使用你自己的配額。部分頁面仍會使用共用連線。"
+
+#: src/ui/dialogs.rs:50
+msgid ""
+"Setup takes a few minutes. You can also find it later in Settings under "
+"Personal Spotify app."
+msgstr ""
+"設定只需要幾分鐘。之後也可以在「設定」的「個人 Spotify 應用程式」中找到。"
+
+#: src/ui/dialogs.rs:60
+msgid "Keep shared app"
+msgstr "繼續使用共用應用程式"
+
 #: src/ui/dialogs.rs:81
 #, rust-format
 msgid "Delete “{name}”? This removes the playlist from your Jellyfin server."
@@ -3525,50 +3578,6 @@ msgstr "音樂來源"
 #: src/ui/winamp/mod.rs:914
 msgid "Size: 2x, 3x, 4x"
 msgstr "大小：2x、3x、4x"
-
-#~ msgid ""
-#~ "Spotifast hides to the system tray. Quit from the tray menu or with Cmd+Q."
-#~ msgstr "Spotifast 會隱藏到系統匣。可從系統匣選單或按 Cmd+Q 結束。"
-
-#~ msgid "Your most-played tracks from the last four weeks."
-#~ msgstr "過去四週你最常播放的歌曲。"
-
-#~ msgid "Spend less time waiting for Spotify"
-#~ msgstr "減少等待 Spotify 的時間"
-
-#~ msgid ""
-#~ "Spotifast's default connection shares Spotify's request limit with other "
-#~ "listeners. When it gets busy, loading music and using playback controls "
-#~ "can take longer."
-#~ msgstr ""
-#~ "Spotifast 的預設連線會與其他聽眾共用 Spotify 的要求上限。繁忙時，載入音樂"
-#~ "和使用播放控制項可能需要更久。"
-
-#~ msgid ""
-#~ "Your Premium account lets you create a free personal Spotify app. Connect "
-#~ "it here to give supported requests your own allowance. Some pages still "
-#~ "use the shared connection."
-#~ msgstr ""
-#~ "你的 Premium 帳戶可以免費建立個人 Spotify 應用程式。在這裡連線後，支援的要"
-#~ "求就會使用你自己的配額。部分頁面仍會使用共用連線。"
-
-#~ msgid ""
-#~ "Setup takes a few minutes. You can also find it later in Settings under "
-#~ "Personal Spotify app."
-#~ msgstr ""
-#~ "設定只需要幾分鐘。之後也可以在「設定」的「個人 Spotify 應用程式」中找到。"
-
-#~ msgid "Keep shared app"
-#~ msgstr "繼續使用共用應用程式"
-
-#~ msgid ""
-#~ "Play the local files your playlists list from a folder on this computer. "
-#~ "Only 44.1 kHz files play."
-#~ msgstr ""
-#~ "從這台電腦上的資料夾播放播放清單中的本機檔案。只能播放 44.1 kHz 的檔案。"
-
-#~ msgid "PulseAudio also covers PipeWire. Rodio talks to ALSA directly."
-#~ msgstr "PulseAudio 也支援 PipeWire。Rodio 會直接與 ALSA 溝通。"
 
 #~ msgid "Couldn't load this shelf"
 #~ msgstr "無法載入這個區塊"

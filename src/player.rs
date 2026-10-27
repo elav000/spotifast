@@ -33,8 +33,8 @@ use librespot_metadata::{
     audio::{AudioItem, UniqueFields},
 };
 use librespot_playback::{
-    audio_backend::{self, Sink},
-    config::{AudioFormat, Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
+    audio_backend::Sink,
+    config::{Bitrate, NormalisationType, PlayerConfig, VolumeCtrl},
     mixer::{self, Mixer, MixerConfig, NoOpVolume, VolumeGetter},
     player::{Player, PlayerEvent},
 };
@@ -877,25 +877,6 @@ fn sink_builder(
             id: id.as_str().to_string(),
         });
     });
-    if let Some(builder) = librespot_backend(config.backend.as_deref()) {
-        // Apply volume after the tap so visualizers are independent of
-        // volume, including at zero.
-        let applied = mixer.get_soft_volume();
-        let normalisation = Arc::clone(&normalisation);
-        return (
-            Box::new(move || {
-                let sink = builder(device, AudioFormat::S16);
-                Box::new(
-                    Tapped::new(sink, audio, tap, applied, true, eq, normalisation).with_output(
-                        output,
-                        crate::provider::Provider::Spotify,
-                        false,
-                    ),
-                ) as Box<dyn Sink>
-            }),
-            Box::new(NoOpVolume),
-        );
-    }
     let volume = mixer.get_soft_volume();
     // The output applies volume to queued audio. The wrapper reads the same
     // value to calculate the pre-volume limiter ceiling.

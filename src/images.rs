@@ -2005,7 +2005,7 @@ mod tests {
         let song = dir.join("song.mp3");
         std::fs::write(&song, mp3_with(&[apic(3, b"the cover")])).unwrap();
         let url = crate::local_tags::art_url(&song);
-        assert!(is_art(&url));
+        assert!(is_artwork(&url));
         let bytes = runtime.block_on(loader.fetch(&url)).unwrap();
         assert_eq!(&bytes[..], b"the cover");
         runtime.block_on(wait_for_artwork_file(

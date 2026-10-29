@@ -4,12 +4,13 @@ description: Keep the Jellyfin fork current with upstream while preserving clear
 ---
 
 The Jellyfin fork's `main` is based on upstream
-`crmne/spotifast:main` at `f06b05b1032e4be0931ea192204c507f83f44757`.
+`crmne/spotifast:main` at `b708e0a6bf5e0b25aa7d270716e89d4671739f61`.
 Fork-only commits are rebased on that upstream ancestry, keeping GitHub's
 ahead/behind count meaningful while preserving a linear history. The recovery
-ref for the 2026-10-25 sync is
-`recovery/pre-upstream-2026-10-25-e9ec4f4`. Earlier recovery refs are
-`recovery/pre-upstream-2026-10-17-b56cd28` and
+ref for the 2026-10-28 sync is
+`recovery/pre-upstream-2026-10-28-837c52d`. Earlier recovery refs are
+`recovery/pre-upstream-2026-10-25-e9ec4f4`,
+`recovery/pre-upstream-2026-10-17-b56cd28`, and
 `recovery/pre-upstream-rebase-2026-10-18-b977bb4`.
 
 For each future update, fetch upstream and rebase the fork-only commits onto its
@@ -28,6 +29,6 @@ provider rows retain their explicit current/playing/loading state. Keep shared
 encoded-media caching, output ownership and the fork update channel intact.
 
 Run the contribution checks, provider queue/mini-player regressions and visual
-smoke tests. A lockfile change also needs a new Nix vendor hash for the combined
-lockfile. Verify `nix build .#default` locally or in CI. Install a verified Mac
-milestone without interrupting a running app.
+smoke tests. The Nix package reads the combined lockfile directly, so dependency
+updates need no separate vendor hash. Verify `nix build .#default` locally or in
+CI. Install a verified Mac milestone without interrupting a running app.

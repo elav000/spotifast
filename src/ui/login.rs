@@ -231,11 +231,7 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
                 .iter()
                 .map(|label| {
                     ui.painter()
-                        .layout_no_wrap(
-                            (*label).to_owned(),
-                            theme::semibold(13.0),
-                            palette.text,
-                        )
+                        .layout_no_wrap((*label).to_owned(), theme::semibold(13.0), palette.text)
                         .size()
                         .x
                         + button_padding.x * 2.0

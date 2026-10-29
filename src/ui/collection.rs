@@ -2688,6 +2688,7 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                 .into_iter()
                 .filter(|(text, _)| !text.is_empty())
                 .collect(),
+                byline_tooltip: None,
                 avatar: None,
                 round: artist,
             },

@@ -87,6 +87,14 @@ not permission for a broad abstraction rewrite.
 
 ## Later work
 
+- **Rebrand the app across providers.** Choose a source-neutral product name, then
+  update the logo, app icon, in-app identity, package and platform identifiers,
+  documentation and website together. Move Spotify and Jellyfin credentials
+  into separate records under one new app credential-store service namespace;
+  migrate and verify existing credentials before removing the legacy Spotifast
+  entries. Preserve user data and upstream repository references needed for
+  updates and compatibility.
+
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their
   order and keeping the layout useful for single-disc albums. Jellyfin can use

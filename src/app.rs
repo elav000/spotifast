@@ -2515,6 +2515,14 @@ impl App {
         if self.local.is_active() {
             self.backend.player(PlayerCommand::Pause);
         }
+        if let Some(remote) = self.remote_fresh().filter(|remote| remote.state.is_playing) {
+            let device_id = remote
+                .state
+                .device
+                .as_ref()
+                .and_then(|device| device.id.clone());
+            self.remote(RemoteAction::Pause, device_id);
+        }
     }
 
     fn reconfigure_jellyfin_playback(&mut self) {

@@ -339,7 +339,10 @@ impl Client {
             .append_pair("ParentId", parent)
             .append_pair("IncludeItemTypes", kind)
             .append_pair("Recursive", "true")
-            .append_pair("Fields", "Artists,AlbumId,MediaStreams,MediaSources")
+            .append_pair(
+                "Fields",
+                "Artists,AlbumId,MediaStreams,MediaSources,ProductionYear,PremiereDate",
+            )
             .append_pair("SortBy", sort)
             .append_pair("SortOrder", "Ascending")
             .append_pair("StartIndex", &start.to_string())

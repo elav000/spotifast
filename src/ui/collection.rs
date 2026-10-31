@@ -2664,6 +2664,50 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
         } else {
             "Album"
         };
+        let mut byline: Vec<(String, Option<Page>)> = vec![(
+            item.as_ref()
+                .map(|item| item.artists.join(", "))
+                .unwrap_or_default(),
+            None,
+        )];
+        if matches!(view, View::Tracks { .. }) {
+            if let Some(year) = item.as_ref().and_then(|item| {
+                item.details
+                    .production_year
+                    .filter(|year| *year > 0)
+                    .or_else(|| {
+                        item.details
+                            .premiere_date
+                            .as_deref()
+                            .and_then(|date| date.get(..4))
+                            .and_then(|year| year.parse::<u32>().ok())
+                            .filter(|year| *year > 0)
+                    })
+            }) {
+                byline.push((year.to_string(), None));
+            }
+            if let Some(Rows::Items {
+                items,
+                start: 0,
+                total,
+            }) = &rows
+            {
+                let count = if items.len() == *total as usize {
+                    let duration = items
+                        .iter()
+                        .try_fold(0_u64, |total, item| total.checked_add(item.duration_ms()?));
+                    duration.map_or_else(
+                        || song_count(app.locale, *total),
+                        |duration| songs_and_duration(app.locale, *total, duration),
+                    )
+                } else {
+                    song_count(app.locale, *total)
+                };
+                byline.push((count, None));
+            }
+        }
+        byline.push(("Jellyfin".into(), None));
+        byline.retain(|(text, _)| !text.is_empty());
         hero(
             app,
             ui,
@@ -2676,18 +2720,7 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                 kind: kind.into(),
                 title,
                 description: item.as_ref().and_then(|item| item.details.overview.clone()),
-                byline: vec![
-                    (
-                        item.as_ref()
-                            .map(|item| item.artists.join(", "))
-                            .unwrap_or_default(),
-                        None,
-                    ),
-                    ("Jellyfin".into(), None),
-                ]
-                .into_iter()
-                .filter(|(text, _)| !text.is_empty())
-                .collect(),
+                byline,
                 byline_tooltip: None,
                 avatar: None,
                 round: artist,

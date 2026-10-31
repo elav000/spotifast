@@ -195,8 +195,10 @@ uses a dedicated worker for credentials, album resolution, decoding and output.
 Automatic takeover currently requires the normal RodioSink output. Optional
 librespot backends must stop on their playback thread before another provider
 can acquire output; a claim while one remains active is rejected without
-opening the new device. The controller pauses local Spotify playback before starting Jellyfin; a backend
-that has not released output produces a playback error rather than overlapping sound.
+opening the new device. Before starting Jellyfin, the controller pauses local
+Spotify playback and sends a pause to any freshly reported active Spotify
+Connect device. A local backend that has not released output produces a
+playback error rather than overlapping sound.
 
 The app browser exposes playback and queue actions. A separate development probe verifies
 original FLAC, MP3 and PCM/WAV through the existing `Tapped` EQ/visualizer/limiter

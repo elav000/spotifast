@@ -55,6 +55,8 @@ pub enum Query {
 pub struct Details {
     #[serde(rename = "Type")]
     pub kind: Option<String>,
+    pub production_year: Option<u32>,
+    pub premiere_date: Option<String>,
     pub user_data: Option<UserData>,
     pub playlist_item_id: Option<String>,
     pub overview: Option<String>,
@@ -182,7 +184,7 @@ impl Client {
             .append_pair("EnableUserData", "true")
             .append_pair(
                 "Fields",
-                "Artists,AlbumId,MediaStreams,MediaSources,Overview,DateCreated",
+                "Artists,AlbumId,MediaStreams,MediaSources,Overview,DateCreated,ProductionYear,PremiereDate",
             );
         if playlist.is_none() {
             params

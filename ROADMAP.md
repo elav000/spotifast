@@ -87,8 +87,9 @@ not permission for a broad abstraction rewrite.
 
 ## Later work
 
-- **Rebrand the app across providers.** Choose a source-neutral product name, then
-  update the logo, app icon, in-app identity, package and platform identifiers,
+- **Rebrand the app across providers.** Choose and clear a source-neutral
+  product name against existing audio software and hardware, then update the
+  logo, app icon, in-app identity, package and platform identifiers,
   documentation and website together. Move Spotify and Jellyfin credentials
   into separate records under one new app credential-store service namespace;
   migrate and verify existing credentials before removing the legacy Spotifast

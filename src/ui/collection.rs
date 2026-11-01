@@ -2851,12 +2851,27 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
         } else {
             "Album"
         };
-        let mut byline: Vec<(String, Option<Page>)> = vec![(
+        let artist_items = item
+            .as_ref()
+            .map(|item| item.artist_items.as_slice())
+            .filter(|artists| !artists.is_empty())
+            .or_else(|| {
+                rows.as_ref().and_then(|rows| match rows {
+                    Rows::Items { items, .. } => items
+                        .iter()
+                        .find(|item| !item.artist_items.is_empty())
+                        .map(|item| item.artist_items.as_slice()),
+                    _ => None,
+                })
+            });
+        let artist_names = if matches!(view, View::Tracks { .. }) && artist_items.is_some() {
+            String::new()
+        } else {
             item.as_ref()
                 .map(|item| item.artists.join(", "))
-                .unwrap_or_default(),
-            None,
-        )];
+                .unwrap_or_default()
+        };
+        let mut byline: Vec<(String, Option<Page>)> = vec![(artist_names, None)];
         if matches!(view, View::Tracks { .. }) {
             if let Some(year) = item.as_ref().and_then(|item| {
                 item.details
@@ -2913,6 +2928,37 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                 round: artist,
             },
         );
+        // Audio items carry artist names for display and linked ArtistItems
+        // for navigation. Keep the existing byline appearance while making
+        // those names open the matching Jellyfin artist page.
+        if matches!(view, View::Tracks { .. })
+            && let Some(artist_items) = artist_items
+        {
+            let library = app
+                .jellyfin
+                .catalog
+                .library
+                .as_ref()
+                .map(|library| library.id.clone())
+                .unwrap_or_default();
+            ui.horizontal_wrapped(|ui| {
+                for artist in artist_items {
+                    let name = artist.name.as_deref().unwrap_or("Artist");
+                    if ui.link(name).clicked() {
+                        app.actions.push(Action::Jellyfin(A::Browse {
+                            view: View::Catalog {
+                                query: Query::ArtistAlbums {
+                                    library: library.clone(),
+                                    artist: artist.id.clone(),
+                                },
+                                name: name.to_owned(),
+                            },
+                            start: 0,
+                        }));
+                    }
+                }
+            });
+        }
     } else {
         theme::text(ui, title, theme::bold(28.0), app.palette.text);
         ui.add_space(14.0);

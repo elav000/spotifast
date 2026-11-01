@@ -184,7 +184,7 @@ impl Client {
             .append_pair("EnableUserData", "true")
             .append_pair(
                 "Fields",
-                "Artists,AlbumId,MediaStreams,MediaSources,Overview,DateCreated,ProductionYear,PremiereDate",
+                "Artists,ArtistItems,AlbumId,MediaStreams,MediaSources,Overview,DateCreated,ProductionYear,PremiereDate",
             );
         if playlist.is_none() {
             params

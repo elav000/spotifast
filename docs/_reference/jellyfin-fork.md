@@ -30,7 +30,9 @@ scopes albums, artists and search, while playlists belong to the signed-in
 account.
 
 Search supports All, Songs, Artists, Albums and Playlists, with server paging.
-Artist pages offer albums and songs. Album, artist, playlist and search-song
+Artist results show the server's overview on their artist page, and album track
+credits link to Jellyfin artist pages when the server supplies linked artist
+records. Artist pages offer albums and songs. Album, artist, playlist and search-song
 playback use the appropriate catalog request and preserve playlist occurrences.
 Home keeps the server's music libraries available for selection, then shows
 **Recently Added Music**, **Recently Played**, and **Frequently Played** shelves

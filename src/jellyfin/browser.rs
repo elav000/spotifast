@@ -1514,6 +1514,7 @@ impl Browser {
                     album: None,
                     album_id: None,
                     artists: vec!["Your collection".into()],
+                    artist_items: Vec::new(),
                     run_time_ticks: None,
                     index_number: None,
                     parent_index_number: None,
@@ -1560,6 +1561,10 @@ impl Browser {
                     album: Some("Fragments".into()),
                     album_id: Some("album0".into()),
                     artists: vec!["Bonobo".into()],
+                    artist_items: vec![super::ArtistItem {
+                        id: "artist1".into(),
+                        name: Some("Bonobo".into()),
+                    }],
                     run_time_ticks: Some(2_400_000_000),
                     index_number: Some(i as u32 + 1),
                     parent_index_number: Some(1),

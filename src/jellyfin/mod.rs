@@ -88,6 +88,10 @@ pub struct Item {
     pub album_id: Option<String>,
     #[serde(default)]
     pub artists: Vec<String>,
+    /// Jellyfin's linked artist records. `Artists` contains display names only;
+    /// these records keep the IDs needed to open an artist page.
+    #[serde(default)]
+    pub artist_items: Vec<ArtistItem>,
     pub run_time_ticks: Option<u64>,
     pub index_number: Option<u32>,
     pub parent_index_number: Option<u32>,
@@ -96,6 +100,13 @@ pub struct Item {
     pub media_sources: Option<Vec<MediaSourceInfo>>,
     pub image_tags: Option<std::collections::HashMap<String, Option<String>>>,
     pub album_primary_image_tag: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "PascalCase")]
+pub struct ArtistItem {
+    pub id: String,
+    pub name: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -341,7 +352,7 @@ impl Client {
             .append_pair("Recursive", "true")
             .append_pair(
                 "Fields",
-                "Artists,AlbumId,MediaStreams,MediaSources,ProductionYear,PremiereDate",
+                "Artists,ArtistItems,AlbumId,MediaStreams,MediaSources,ProductionYear,PremiereDate",
             )
             .append_pair("SortBy", sort)
             .append_pair("SortOrder", "Ascending")

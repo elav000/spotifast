@@ -2,6 +2,18 @@ use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
+fn item_keeps_linked_artist_records_and_overview() {
+    let item: Item = serde_json::from_str(
+        r#"{"Id":"song","Name":"Song","Artists":["Artist"],"ArtistItems":[{"Id":"artist1","Name":"Artist"}],"Overview":"Artist biography"}"#,
+    )
+    .unwrap();
+    assert_eq!(item.artists, ["Artist"]);
+    assert_eq!(item.artist_items[0].id, "artist1");
+    assert_eq!(item.artist_items[0].name.as_deref(), Some("Artist"));
+    assert_eq!(item.details.overview.as_deref(), Some("Artist biography"));
+}
+
+#[test]
 fn audio_format_uses_reported_audio_stream_metadata() {
     let item: Item = serde_json::from_str(
         r#"{"Id":"song","Name":"Song","MediaStreams":[{"Type":"Video","SampleRate":24000},{"Type":"Audio","SampleRate":48000,"BitRate":320000}],"MediaSources":[{"MediaStreams":[{"Type":"Audio","SampleRate":96000,"BitRate":1000000}]}]}"#,
@@ -239,6 +251,18 @@ async fn library_and_album_requests_are_user_scoped_and_paged() {
     assert_eq!(query["IncludeItemTypes"], "MusicAlbum");
     assert!(requests[2].contains("IncludeItemTypes=Audio"));
     assert!(requests[2].contains("SortBy=ParentIndexNumber%2CIndexNumber%2CSortName"));
+    for request in &requests[1..] {
+        let url = Url::parse(&format!(
+            "http://localhost{}",
+            request.split_whitespace().nth(1).unwrap()
+        ))
+        .unwrap();
+        assert!(
+            url.query_pairs()
+                .any(|(key, value)| key == "Fields" && value.contains("ArtistItems")),
+            "linked artist records must be requested for albums and tracks"
+        );
+    }
 }
 
 #[tokio::test]

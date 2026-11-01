@@ -8129,6 +8129,7 @@ mod tests {
             album: Some(name.into()),
             album_id: (kind == Some("Audio")).then(|| "album1".into()),
             artists: vec!["Demo artist".into()],
+            artist_items: Vec::new(),
             run_time_ticks: None,
             index_number: None,
             parent_index_number: None,

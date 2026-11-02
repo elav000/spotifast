@@ -1,4 +1,4 @@
-//! The macOS bundle carries the launch agent that starts Spotifast in the
+//! The macOS bundle carries the launch agent that starts Tumlo in the
 //! tray at login (#122), exactly as fastframe-autostart registers it.
 use std::fs;
 use std::path::PathBuf;
@@ -16,14 +16,16 @@ fn packaging(file: &str) -> String {
 
 #[test]
 fn the_bundle_carries_the_agent_that_starts_in_the_tray() {
-    let id = "rocks.spotifast.Spotifast";
+    let id = spotifast::brand::MACOS_BUNDLE_ID;
     assert_eq!(
-        packaging("autostart.plist"),
+        packaging("autostart.plist").replace("__IDENTIFIER__", id),
         fastframe_autostart::macos_agent_plist(id, fastframe_autostart::START_HIDDEN),
         "the committed agent is the one the crate expects"
     );
     let bundle = packaging("bundle.sh");
-    assert!(bundle.contains(&format!("identifier={id}\n")));
+    assert!(bundle.contains("identifier=\"$bundle_id\""));
+    assert!(bundle.contains("macos_bundle_id"));
+    assert!(bundle.contains("__IDENTIFIER__/$identifier/g"));
     assert!(
         bundle.contains(
             r#""$here/autostart.plist" "$app/Contents/Library/LaunchAgents/$identifier.autostart.plist""#

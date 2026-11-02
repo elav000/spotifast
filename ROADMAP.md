@@ -7,7 +7,7 @@ Accepted work and completed live validation are recorded in the
 
 ## Product and architecture decisions
 
-- Feed existing Spotifast views and infrastructure through provider data and
+- Feed existing Tumlo views and infrastructure through provider data and
   capabilities. Do not create parallel Jellyfin panels when an adapter will do.
 - Keep Spotify and Jellyfin catalogs separate for now. Switching the provider
   being browsed must not change playback or retarget queue actions.
@@ -20,7 +20,7 @@ Accepted work and completed live validation are recorded in the
   remain Spotify-only.
 - Preserve upstream behavior and make future upstream updates routine. See
   [the recorded sync baseline and procedure](docs/_reference/upstream-sync.md).
-- Install validated Mac milestones in `/Applications/Spotifast.app`, refresh the
+- Install validated Mac milestones in `/Applications/Tumlo.app`, refresh the
   development ZIP, and leave a running instance alone until the user relaunches.
 
 ## Current architecture state
@@ -87,14 +87,14 @@ not permission for a broad abstraction rewrite.
 
 ## Later work
 
-- **Rebrand the app across providers.** Choose and clear a source-neutral
-  product name against existing audio software and hardware, then update the
-  logo, app icon, in-app identity, package and platform identifiers,
-  documentation and website together. Move Spotify and Jellyfin credentials
-  into separate records under one new app credential-store service namespace;
-  migrate and verify existing credentials before removing the legacy Spotifast
-  entries. Preserve user data and upstream repository references needed for
-  updates and compatibility.
+- **Rebrand the app across providers (in progress).** The selected name is
+  Tumlo. `brand.toml` centralizes its display name, slug, macOS bundle ID, and
+  credential-store namespace; the SVG and native icons use the spectrum and
+  play-button mark. Spotify and Jellyfin records now share the new credential
+  namespace and migrate from their legacy Spotifast services only after
+  verification. Finish remaining package metadata and release migration while
+  preserving user data, stable installer upgrades, license notices, and
+  upstream links.
 
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their
@@ -128,7 +128,7 @@ The older fork reference is historical context, not an instruction to redo work.
 - `src/demo.rs`: deterministic provider/UI integration tests and capture fixtures.
 
 NativeAmp in `~/Source/nativeamp` remains a useful reference for decoding/seeking.
-It contains user changes; do not modify or reset it as part of Spotifast work.
+It contains user changes; do not modify or reset it as part of Tumlo work.
 Never log tokens, authorization headers or credential-bearing URLs. Use the
 system credential store; no credentials belong in this roadmap or the repository.
 

@@ -1,14 +1,14 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Spotifast
+Name=Tumlo
 GenericName=Music Player
-Comment=A native Spotify client
+Comment=A native multi-provider music player
 Exec=spotifast %u
 Terminal=false
 Categories=AudioVideo;Audio;Player;Music;
-Keywords=spotify;music;player;streaming;spotifast;
-Icon=spotifast
+Keywords=spotify;jellyfin;music;player;streaming;tumlo;
+Icon=tumlo
 StartupNotify=true
-StartupWMClass=spotifast
+StartupWMClass=tumlo
 MimeType=x-scheme-handler/spotify;

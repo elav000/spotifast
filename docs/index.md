@@ -1,25 +1,25 @@
 ---
 layout: home
-title: Spotifast
-description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
+title: Tumlo
+description: A fast, lightweight music player for Spotify and Jellyfin on Linux, macOS, and Windows.
 permalink: /
 hero:
-  name: Spotifast
-  text: Spotify, native and fast
-  tagline: A lightweight Spotify app for Linux, macOS, and Windows. Listen on your computer, browse your music, and control your other devices.
+  name: Tumlo
+  text: Music, native and fast
+  tagline: One lightweight player for Spotify and Jellyfin. Browse your music, listen on your computer, and control your other devices.
   actions:
     - theme: brand
       text: Download
       link: /download/
     - theme: alt
-      text: What is Spotifast?
+      text: What is Tumlo?
       link: /what-is-spotifast/
     - theme: alt
       text: GitHub
       link: https://github.com/crmne/spotifast
   image:
     src: /screenshot.png
-    alt: "Spotifast Home with the playlist library, recommendations, queue, and player visible"
+    alt: "Tumlo Home with the playlist library, recommendations, queue, and player visible"
     width: 2018
     height: 1198
 
@@ -35,10 +35,10 @@ features:
     details: Listen on your computer with smooth transitions between songs, or control music on a speaker, phone, or TV. Playback needs Spotify Premium.
   - icon: 📚
     title: Library and search
-    details: Browse playlists, Liked Songs, albums, artists, and podcasts. Search the catalogue and edit playlists you own.
+    details: Browse Spotify or Jellyfin catalogs. Search albums, artists and tracks; edit the Spotify playlists you own.
   - icon: 🎨
     title: Themes
-    details: Choose light, dark, or your own colours. On Omarchy, Spotifast can follow your desktop theme as it changes, while the music keeps playing.
+    details: Choose light, dark, or your own colours. On Omarchy, Tumlo can follow your desktop theme as it changes, while the music keeps playing.
   - icon: 📻
     title: Skins
     details: Wear Spotifast's own Tall and Wide skins, or classic Winamp and Windows Media Player skins, with their playlists, equalizers, and MilkDrop inside.
@@ -59,7 +59,7 @@ features:
     link_text: Read the source
 ---
 
-<video class="hero-film image-src" controls muted loop playsinline preload="metadata" poster="/assets/images/launch-film-poster.jpg" aria-label="Spotifast in a minute: a film of the app, made with its built-in demo content" hidden>
+<video class="hero-film image-src" controls muted loop playsinline preload="metadata" poster="/assets/images/launch-film-poster.jpg" aria-label="Tumlo in a minute: a film of the app, made with its built-in demo content" hidden>
   <source src="/assets/videos/launch-film.mp4" type="video/mp4">
 </video>
 
@@ -118,12 +118,12 @@ Watch them run, with MilkDrop inside, in the 0.17 film:
 
 ## MilkDrop with more than 10,000 presets
 
-On first use, Spotifast automatically downloads the original MilkDrop 2
+On first use, Tumlo automatically downloads the original MilkDrop 2
 presets and projectM's Cream of the Crop collection. These visual designs
 react to music playing on your computer, in a resizable window or full screen.
 [See the controls and preset details](/milkdrop/).
 
-<video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Spotifast">
+<video class="milkdrop-showcase" autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop presets reacting to music in Tumlo">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
@@ -138,7 +138,7 @@ art and everything else steps aside for MilkDrop, edge to edge.
 ## WhatsApp, just as fast
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks) is
-Spotifast's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://fastframe.dev), the shared
+Tumlo's sibling: the same native interface, for WhatsApp. Both are built on [fastframe](https://fastframe.dev), the shared
 foundation for native Rust apps built with [egui](https://www.egui.rs).
 
 <style>

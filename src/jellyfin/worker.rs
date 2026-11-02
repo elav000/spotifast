@@ -105,7 +105,14 @@ impl Worker {
     fn emit(&self, generation: u64, reply: Reply) {
         if self.current(generation) {
             let reply = match (self.catalog_request, reply) {
-                (Some(request), Reply::Data { rows, cached }) => {
+                (
+                    Some(request),
+                    Reply::Data {
+                        rows,
+                        context_item,
+                        cached,
+                    },
+                ) => {
                     let Some(source) = self.source.clone() else {
                         return;
                     };
@@ -113,6 +120,7 @@ impl Worker {
                         request,
                         source,
                         rows,
+                        context_item,
                         cached,
                     }
                 }
@@ -537,7 +545,14 @@ impl Worker {
                 let path = cache_file(&self.dirs, source, view, *start);
                 let identity = format!("{}:{}:{}", source.id, source.server_id, source.user_id);
                 if let Some(rows) = crate::account_cache::read::<Rows>(&path, &identity).await {
-                    self.emit(generation, Reply::Data { rows, cached: true });
+                    self.emit(
+                        generation,
+                        Reply::Data {
+                            rows,
+                            context_item: None,
+                            cached: true,
+                        },
+                    );
                 }
                 let token = self
                     .token
@@ -547,7 +562,7 @@ impl Worker {
                 // change made while browsing the other provider.
                 let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
                     .map_err(|e| e.to_string())?;
-                let rows = match view {
+                let (rows, context_item) = match view {
                     View::Settings => return Ok(()),
                     View::Search {
                         library,
@@ -582,18 +597,37 @@ impl Worker {
                                 .map_err(|e| e.to_string())?;
                             sections.push((category, page));
                         }
-                        Rows::Search(sections)
+                        (Rows::Search(sections), None)
                     }
                     View::Catalog { query, .. } => {
-                        let page = client
-                            .query(&source.user_id, query, *start, token)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        Rows::Items {
-                            items: page.items,
-                            start: page.start_index,
-                            total: page.total_record_count,
-                        }
+                        let artist_id = match query {
+                            crate::jellyfin::catalog::Query::ArtistAlbums { artist, .. }
+                            | crate::jellyfin::catalog::Query::ArtistSongs { artist, .. } => {
+                                Some(artist.as_str())
+                            }
+                            _ => None,
+                        };
+                        let (page, context_item) = if let Some(artist_id) = artist_id {
+                            let (page, item) = tokio::join!(
+                                client.query(&source.user_id, query, *start, token),
+                                client.item(&source.user_id, artist_id, token),
+                            );
+                            (page, item.ok())
+                        } else {
+                            (
+                                client.query(&source.user_id, query, *start, token).await,
+                                None,
+                            )
+                        };
+                        let page = page.map_err(|e| e.to_string())?;
+                        (
+                            Rows::Items {
+                                items: page.items,
+                                start: page.start_index,
+                                total: page.total_record_count,
+                            },
+                            context_item,
+                        )
                     }
                     View::Libraries => {
                         let libraries = client
@@ -631,34 +665,43 @@ impl Worker {
                                     error: Some(error.to_string()),
                                 },
                             };
-                        Rows::Home {
-                            libraries,
-                            recently_added: shelf(added),
-                            recently_played: shelf(recent),
-                            frequently_played: shelf(frequent),
-                        }
+                        (
+                            Rows::Home {
+                                libraries,
+                                recently_added: shelf(added),
+                                recently_played: shelf(recent),
+                                frequently_played: shelf(frequent),
+                            },
+                            None,
+                        )
                     }
                     View::Albums { library_id, .. } => {
                         let page = client
                             .albums(&source.user_id, library_id, *start, token)
                             .await
                             .map_err(|e| e.to_string())?;
-                        Rows::Items {
-                            items: page.items,
-                            start: page.start_index,
-                            total: page.total_record_count,
-                        }
+                        (
+                            Rows::Items {
+                                items: page.items,
+                                start: page.start_index,
+                                total: page.total_record_count,
+                            },
+                            None,
+                        )
                     }
                     View::Tracks { album_id, .. } => {
                         let page = client
                             .album_tracks(&source.user_id, album_id, *start, token)
                             .await
                             .map_err(|e| e.to_string())?;
-                        Rows::Items {
-                            items: page.items,
-                            start: page.start_index,
-                            total: page.total_record_count,
-                        }
+                        (
+                            Rows::Items {
+                                items: page.items,
+                                start: page.start_index,
+                                total: page.total_record_count,
+                            },
+                            None,
+                        )
                     }
                 };
                 if !self.current(generation) {
@@ -689,6 +732,7 @@ impl Worker {
                     generation,
                     Reply::Data {
                         rows,
+                        context_item,
                         cached: false,
                     },
                 );

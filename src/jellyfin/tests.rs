@@ -136,6 +136,38 @@ async fn primary_artwork_does_not_follow_redirects() {
     assert_eq!(requests.await.unwrap().len(), 1);
 }
 
+#[tokio::test]
+async fn artist_item_request_returns_overview_and_primary_image_metadata() {
+    let (address, requests) = server(vec![(
+        200,
+        r#"{"Id":"artist1","Name":"deadmau5","Overview":"Artist biography","ImageTags":{"Primary":"artist-image"}}"#,
+    )])
+    .await;
+    let artist = client(&address)
+        .item("user1", "artist1", &token())
+        .await
+        .unwrap();
+    assert_eq!(artist.name.as_deref(), Some("deadmau5"));
+    assert_eq!(artist.details.overview.as_deref(), Some("Artist biography"));
+    assert_eq!(
+        artist
+            .image_tags
+            .as_ref()
+            .and_then(|tags| tags.get("Primary"))
+            .and_then(Option::as_deref),
+        Some("artist-image")
+    );
+
+    let requests = requests.await.unwrap();
+    let request = &requests[0];
+    let first_line = request.lines().next().unwrap();
+    assert!(first_line.starts_with("GET /jellyfin/Items/artist1?"));
+    assert!(first_line.contains("UserId=user1"));
+    assert!(first_line.contains("Fields=Overview%2CImageTags%2CArtistItems"));
+    assert!(request.contains("Token=\"private-token\""));
+    assert!(!first_line.contains("private-token"));
+}
+
 #[test]
 fn normalizes_local_addresses_and_preserves_reverse_proxy_path() {
     assert_eq!(

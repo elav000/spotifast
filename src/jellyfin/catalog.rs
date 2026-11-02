@@ -80,6 +80,22 @@ pub enum PlaybackEvent {
 }
 
 impl Client {
+    pub async fn item(&self, user: &str, id: &str, token: &Token) -> Result<Item, Error> {
+        validate_id(user)?;
+        validate_id(id)?;
+        let mut request = self.request(Method::GET, &["Items", id], Some(token))?;
+        request
+            .url_mut()
+            .query_pairs_mut()
+            .append_pair("UserId", user)
+            .append_pair("Fields", "Overview,ImageTags,ArtistItems");
+        let item: Item = self.json(request).await?;
+        if item.id != id {
+            return Err(Error::InvalidResponse);
+        }
+        Ok(item)
+    }
+
     pub async fn query(
         &self,
         user: &str,

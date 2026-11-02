@@ -2785,16 +2785,15 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                 for artist in artist_items {
                     let name = artist.name.as_deref().unwrap_or("Artist");
                     if ui.link(name).clicked() {
-                        app.actions.push(Action::Jellyfin(A::Browse {
-                            view: View::Catalog {
-                                query: Query::ArtistAlbums {
-                                    library: library.clone(),
-                                    artist: artist.id.clone(),
-                                },
-                                name: name.to_owned(),
+                        app.actions.push(Action::OpenProviderArtist {
+                            artist: crate::provider::ItemReference::Jellyfin {
+                                source: source.id.clone(),
+                                account: source.user_id.clone(),
+                                item: artist.id.clone(),
                             },
-                            start: 0,
-                        }));
+                            name: name.to_owned(),
+                            library: Some(library.clone()),
+                        });
                     }
                 }
             });
@@ -3129,6 +3128,35 @@ pub fn provider_paging(
     });
 }
 
+fn provider_artist_navigation(
+    source: &crate::jellyfin::browser::Source,
+    library: Option<&str>,
+    item: &crate::jellyfin::Item,
+) -> Vec<(String, Action)> {
+    let Some(library) = library else {
+        return Vec::new();
+    };
+    item.artist_items
+        .iter()
+        .filter_map(|artist| {
+            artist.name.as_ref().map(|name| {
+                (
+                    name.clone(),
+                    Action::OpenProviderArtist {
+                        artist: crate::provider::ItemReference::Jellyfin {
+                            source: source.id.clone(),
+                            account: source.user_id.clone(),
+                            item: artist.id.clone(),
+                        },
+                        name: name.clone(),
+                        library: Some(library.to_owned()),
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
 pub fn provider_tracks(
     app: &mut App,
     ui: &mut egui::Ui,
@@ -3189,6 +3217,19 @@ pub fn provider_tracks(
                 index: Some(start as usize + index),
             })
         };
+        let artist_library = match &query {
+            Some(crate::jellyfin::catalog::Query::ArtistSongs { library, .. }) => {
+                Some(library.clone())
+            }
+            _ => app
+                .jellyfin
+                .catalog
+                .library
+                .as_ref()
+                .map(|library| library.id.clone()),
+        };
+        let artist_navigation =
+            provider_artist_navigation(&source, artist_library.as_deref(), item);
         let mut menu = Vec::new();
         if let Some(crate::jellyfin::catalog::Query::PlaylistSongs { playlist }) = &query
             && let Some(entry) = &item.details.playlist_item_id
@@ -3252,6 +3293,7 @@ pub fn provider_tracks(
             start as usize + index,
             &widgets::ProviderRowActions {
                 navigation: Vec::new(),
+                artist_navigation,
                 provider: Provider::Jellyfin,
                 play,
                 enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
@@ -3297,6 +3339,39 @@ mod tests {
         hero: 640,
         card: 300,
     };
+
+    #[test]
+    fn jellyfin_track_artist_credits_open_the_artist_catalog() {
+        let item: crate::jellyfin::Item = serde_json::from_str(
+            r#"{"Id":"song","Name":"Song","ArtistItems":[{"Id":"artist1","Name":"Artist"}]}"#,
+        )
+        .unwrap();
+        let source = crate::jellyfin::browser::Source {
+            id: "source1".into(),
+            nickname: String::new(),
+            server_url: "http://localhost/".into(),
+            server_id: "server1".into(),
+            user_id: "account1".into(),
+            device_id: "device1".into(),
+        };
+        let navigation = provider_artist_navigation(&source, Some("library1"), &item);
+        assert_eq!(navigation.len(), 1);
+        assert_eq!(navigation[0].0, "Artist");
+        assert!(matches!(
+            &navigation[0].1,
+            Action::OpenProviderArtist {
+                artist: crate::provider::ItemReference::Jellyfin {
+                    source: source_id,
+                    account,
+                    item: artist,
+                },
+                name,
+                library: Some(library),
+            } if source_id == "source1" && account == "account1" && artist == "artist1"
+                && name == "Artist" && library == "library1"
+        ));
+        assert!(provider_artist_navigation(&source, None, &item).is_empty());
+    }
 
     fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {
         ids.iter().map(|id| (*id).to_string()).collect()

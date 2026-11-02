@@ -9,7 +9,7 @@ use super::widgets;
 use crate::api::models::pick_image;
 use crate::app::App;
 use crate::i18n::gettext;
-use crate::model::{Action, Page, RowContext};
+use crate::model::{Action, RowContext};
 use crate::prerelease::Prerelease;
 use crate::theme::{self, Icon};
 
@@ -112,7 +112,10 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
                     if theme::link(ui, &artist.name, theme::semibold(13.0), hero_text).clicked()
                         && let Some(id) = &artist.id
                     {
-                        app.actions.push(Action::Open(Page::Artist(id.clone())));
+                        app.actions.push(crate::provider::spotify_artist_action(
+                            id,
+                            artist.name.clone(),
+                        ));
                     }
                 }
                 let date = data.album.release_date.clone().or_else(|| {
@@ -380,7 +383,10 @@ pub(super) fn show(app: &mut App, ui: &mut egui::Ui, data: &Prerelease) {
                     };
                     if let Some(id) = &artist.id {
                         if theme::link(ui, &artist.name, theme::regular(13.0), color).clicked() {
-                            app.actions.push(Action::Open(Page::Artist(id.clone())));
+                            app.actions.push(crate::provider::spotify_artist_action(
+                                id,
+                                artist.name.clone(),
+                            ));
                         }
                     } else {
                         theme::text(ui, &artist.name, theme::regular(13.0), color);

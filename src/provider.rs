@@ -32,6 +32,12 @@ pub enum ItemReference {
 }
 
 impl ItemReference {
+    pub fn spotify_artist(id: &str) -> Self {
+        Self::Spotify {
+            uri: format!("spotify:artist:{id}"),
+        }
+    }
+
     pub fn provider(&self) -> Provider {
         match self {
             Self::Spotify { .. } => Provider::Spotify,
@@ -44,6 +50,22 @@ impl ItemReference {
             Self::Jellyfin { source, item, .. } => format!("jellyfin:{source}:{item}"),
         }
     }
+}
+
+pub fn artist_navigation_action(
+    reference: ItemReference,
+    name: impl Into<String>,
+    library: Option<String>,
+) -> crate::model::Action {
+    crate::model::Action::OpenProviderArtist {
+        artist: reference,
+        name: name.into(),
+        library,
+    }
+}
+
+pub fn spotify_artist_action(id: &str, name: impl Into<String>) -> crate::model::Action {
+    artist_navigation_action(ItemReference::spotify_artist(id), name, None)
 }
 
 /// Service-neutral metadata consumed by the existing track-row renderer.
@@ -332,6 +354,68 @@ impl crate::app::App {
             jellyfin::{browser::View, catalog::Kind},
             model::{Action, Page, SearchFilter},
         };
+        if let Action::OpenProviderArtist {
+            artist,
+            name,
+            library,
+        } = action
+        {
+            match artist {
+                ItemReference::Spotify { uri } => {
+                    if let Some(Page::Artist(id)) = Page::from_uri(uri) {
+                        if self.jellyfin.provider != Provider::Spotify {
+                            self.jellyfin
+                                .select(Provider::Spotify, &self.applied_jellyfin_proxy());
+                        }
+                        self.open(Page::Artist(id));
+                    }
+                }
+                ItemReference::Jellyfin {
+                    source,
+                    account,
+                    item,
+                } => {
+                    if !self
+                        .jellyfin
+                        .source
+                        .as_ref()
+                        .is_some_and(|current| current.id == *source && current.user_id == *account)
+                    {
+                        self.toast_error("Jellyfin account changed. Open the song again.");
+                        return true;
+                    }
+                    let library = library.clone().or_else(|| {
+                        self.jellyfin
+                            .catalog
+                            .library
+                            .as_ref()
+                            .map(|lib| lib.id.clone())
+                    });
+                    let Some(library) = library else {
+                        self.toast_error(
+                            "Choose a Jellyfin music library before opening this artist.",
+                        );
+                        return true;
+                    };
+                    if self.jellyfin.provider != Provider::Jellyfin {
+                        self.jellyfin
+                            .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                    }
+                    self.jellyfin.browse(
+                        View::Catalog {
+                            query: crate::jellyfin::catalog::Query::ArtistAlbums {
+                                library,
+                                artist: item.clone(),
+                            },
+                            name: name.clone(),
+                        },
+                        0,
+                        &self.applied_jellyfin_proxy(),
+                    );
+                }
+            }
+            return true;
+        }
         if let Action::AddProviderPlaylist {
             playlist:
                 ItemReference::Jellyfin {

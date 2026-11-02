@@ -429,7 +429,10 @@ fn top_result(
         }
     }
     if response.clicked() && !subtitle_clicked && page != Page::Search {
-        app.actions.push(Action::Open(page));
+        app.actions.push(match page {
+            Page::Artist(id) => crate::provider::spotify_artist_action(&id, title),
+            page => Action::Open(page),
+        });
     }
     egui::Popup::context_menu(&response)
         .frame(widgets::menu_frame(&palette))
@@ -507,8 +510,10 @@ fn artist_card(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
         }
     }
     if card.clicked {
-        app.actions
-            .push(Action::Open(Page::Artist(artist.id.clone())));
+        app.actions.push(crate::provider::spotify_artist_action(
+            &artist.id,
+            artist.name.clone(),
+        ));
     }
     egui::Popup::context_menu(&card.response)
         .id(ui.make_persistent_id(("search-artist-menu", &artist.uri)))

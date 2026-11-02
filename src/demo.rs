@@ -6512,7 +6512,7 @@ mod tests {
             view,
         );
         assert!(
-            matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "short"),
+            matches!(app.actions.as_slice(), [Action::OpenProviderArtist { artist: crate::provider::ItemReference::Spotify { uri }, .. }] if uri == "spotify:artist:short"),
             "{:?}",
             app.actions
         );
@@ -6571,7 +6571,7 @@ mod tests {
                     view,
                 );
                 assert!(
-                    matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if Some(id) == artist.id.as_ref())
+                    matches!(app.actions.as_slice(), [Action::OpenProviderArtist { artist: crate::provider::ItemReference::Spotify { uri }, .. }] if uri == &format!("spotify:artist:{}", artist.id.as_deref().unwrap_or_default()))
                 );
             }
             view_frame(
@@ -7904,7 +7904,7 @@ mod tests {
             );
             if artist_id.is_some() {
                 assert!(
-                    matches!(app.actions.as_slice(), [Action::Open(Page::Artist(id))] if id == "ween")
+                    matches!(app.actions.as_slice(), [Action::OpenProviderArtist { artist: crate::provider::ItemReference::Spotify { uri }, .. }] if uri == "spotify:artist:ween")
                 );
             } else {
                 assert!(

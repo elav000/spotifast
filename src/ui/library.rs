@@ -111,7 +111,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, page: Page) {
                         name: artist.name.clone(),
                         subtitle: artist_label.to_string(),
                         artwork: pick_image(&artist.images, card_art).map(str::to_owned),
-                        open: Action::Open(Page::Artist(id)),
+                        open: crate::provider::spotify_artist_action(&id, artist.name.clone()),
                         play: Some(Action::PlayContext {
                             uri,
                             offset_uri: None,

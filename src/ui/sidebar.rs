@@ -293,7 +293,12 @@ fn finish_entry_interaction(
             if let Some(provider) = &entry.provider {
                 app.actions.push(provider.open.clone());
             } else if let Some(page) = &entry.page {
-                app.actions.push(Action::Open(page.clone()));
+                app.actions.push(match page {
+                    Page::Artist(id) => {
+                        crate::provider::spotify_artist_action(id, entry.name.clone())
+                    }
+                    page => Action::Open(page.clone()),
+                });
             }
         }
     }

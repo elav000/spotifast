@@ -490,7 +490,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             soloist_enabled: false,
-            device_name: "Spotifast".to_string(),
+            device_name: crate::brand::PRODUCT_NAME.to_string(),
             bitrate: 320,
             normalisation: false,
             autoplay: true,

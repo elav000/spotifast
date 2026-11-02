@@ -4,7 +4,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
-app="/Applications/Spotifast.app"
+product_name="$(python3 "$root/packaging/brand.py" name)"
+app="/Applications/$product_name.app"
 build=true
 launch=true
 
@@ -22,8 +23,8 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 cd "$root"
-if pgrep -x Spotifast >/dev/null; then
-  echo "Spotifast is running. Quit it, then run this script again to replace the installed app." >&2
+if pgrep -x "$product_name" >/dev/null; then
+  echo "$product_name is running. Quit it, then run this script again to replace the installed app." >&2
   exit 1
 fi
 

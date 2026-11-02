@@ -5,9 +5,9 @@ version = "0.17.1"
 edition = "2024"
 rust-version = "1.98"
 license = "MIT"
-description = "A native Spotify client"
+description = "A native multi-provider music player"
 repository = "https://github.com/crmne/spotifast"
-keywords = ["spotify", "music", "egui", "librespot", "player"]
+keywords = ["music", "jellyfin", "spotify", "egui", "player"]
 categories = ["multimedia::audio"]
 
 [lib]

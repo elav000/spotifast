@@ -2,7 +2,21 @@
 //! for every message a catalog has not translated yet. The interface follows
 //! the operating system's language unless Settings names another one.
 
-pub use fastframe_i18n::{gettext, ngettext, pgettext};
+use std::borrow::Cow;
+
+pub use fastframe_i18n::{ngettext, pgettext};
+
+/// Translate a message and render the current product name in old catalog
+/// entries too. This keeps the product identity in `brand.toml` while letting
+/// existing translations survive a future rename.
+pub fn gettext(locale: impl fastframe_i18n::Locale, message: &'static str) -> Cow<'static, str> {
+    let translated = fastframe_i18n::gettext(locale, message);
+    if translated.contains("Spotifast") {
+        Cow::Owned(translated.replace("Spotifast", crate::brand::PRODUCT_NAME))
+    } else {
+        translated
+    }
+}
 
 include!(concat!(env!("OUT_DIR"), "/catalogs.rs"));
 
@@ -271,6 +285,18 @@ mod tests {
         assert_eq!(gettext(Locale::German, missing), missing);
         assert_eq!(gettext(Locale::English, "Home"), "Home");
         assert_eq!(Locale::default(), Locale::English);
+    }
+
+    #[test]
+    fn old_catalog_brand_names_follow_the_current_product_name() {
+        assert_eq!(
+            gettext(Locale::English, "Built with Spotifast").as_ref(),
+            "Built with Tumlo"
+        );
+        assert_eq!(
+            gettext(Locale::German, "Update Spotifast").as_ref(),
+            "Tumlo aktualisieren"
+        );
     }
 
     #[test]

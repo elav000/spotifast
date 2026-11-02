@@ -17,7 +17,7 @@ nfpm:
   name: spotifast
   maintainer: Carmine Paolino <carmine@paolino.me>
   homepage: https://github.com/crmne/spotifast
-  description: A native Spotify client
+  description: A native music player for Spotify and Jellyfin
   license: MIT
   contents:
   # A glob source makes nFPM append its basename to the destination directory.
@@ -33,11 +33,11 @@ nfpm:
     dst: "/usr/share/doc/spotifast/"
     file_info:
       mode: 420
-  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/packaging/applications/*.desktop"
+  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/packaging/applications/tumlo.desktop"
     dst: "/usr/share/applications/"
     file_info:
       mode: 420
-  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/packaging/icons/*.svg"
+  - src: "@PAYLOAD@/*-v@VERSION@-@TARGET@/packaging/icons/tumlo.svg"
     dst: "/usr/share/icons/hicolor/scalable/apps/"
     file_info:
       mode: 420

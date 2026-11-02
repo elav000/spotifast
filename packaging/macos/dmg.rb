@@ -5,20 +5,23 @@
 require "fileutils"
 require "find"
 require "tmpdir"
+root = File.expand_path("../..", __dir__)
+brand = File.read(File.join(root, "brand.toml"))
+product_name = brand.match(/^name\s*=\s*"([^"]+)"$/)[1] or abort "brand.toml is missing name"
 
 payload, output = ARGV
 abort "usage: dmg.rb PAYLOAD OUTPUT.dmg" unless payload && output
 abort "output already exists: #{output}" if File.exist?(output)
-Dir.mktmpdir("spotifast-dmg-") do |directory|
+Dir.mktmpdir("#{product_name.downcase}-dmg-") do |directory|
   FileUtils.cp_r(File.join(payload, "."), directory, preserve: true)
-  app = File.join(directory, "Spotifast.app")
-  abort "expected the signed Spotifast.app input" unless File.directory?(app)
+  app = File.join(directory, "#{product_name}.app")
+  abort "expected the signed #{product_name}.app input" unless File.directory?(app)
   File.symlink("/Applications", File.join(directory, "Applications"))
   # hdiutil's own estimate for -srcfolder can come up short and fail with
   # "No space left on device", so the working image gets a stated size.
   megabytes = Find.find(directory).sum { |path| File.lstat(path).size } / (1024 * 1024)
   size = "#{(megabytes * 3 / 2) + 64}m"
-  unless system("hdiutil", "create", "-volname", "Spotifast", "-srcfolder", directory,
+  unless system("hdiutil", "create", "-volname", product_name, "-srcfolder", directory,
     "-format", "UDZO", "-size", size, output)
     system("df", "-h")
     abort "DMG creation failed"

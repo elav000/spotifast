@@ -9,7 +9,7 @@ Application assets and native recipes stay in `packaging/`.
 Public AUR, Homebrew, DEB/RPM and release download names use Spotifast, and
 Linux packages install `spotifast` as the only executable.
 
-Linux builds provide `spotifast.desktop` and `spotifast.svg`, matching the
+Linux builds provide `tumlo.desktop` and `tumlo.svg`, matching the
 native window and MPRIS desktop-entry ID. Flatpak installs those assets under
 its full application ID and sets the window class to match.
 `python3 packaging/test-launchers.py` exercises the actual AUR and Flatpak
@@ -26,7 +26,7 @@ portable Linux release archives carry the assets with their source/binary
 payloads. Source and binary AUR recipes also accept older releases that predate
 the integration; the git recipe requires the current files. Nix installs the
 Linux desktop assets beside its binaries and packages the signed macOS
-`Spotifast.app` bundle in the same derivation. Flatpak does not install host
+`Tumlo.app` bundle in the same derivation. Flatpak does not install host
 desktop hooks.
 
 ```sh

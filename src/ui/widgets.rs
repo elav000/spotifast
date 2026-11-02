@@ -1149,9 +1149,10 @@ fn item_menu_at(
                     Some(Icon::User),
                     &gettext(locale, "Go to artist"),
                 ) {
-                    app.actions.push(Action::Open(Page::Artist(
-                        artists[0].id.clone().unwrap_or_default(),
-                    )));
+                    app.actions.push(crate::provider::spotify_artist_action(
+                        artists[0].id.as_deref().unwrap_or_default(),
+                        artists[0].name.clone(),
+                    ));
                 }
             } else if artists.len() > 1 {
                 let label = gettext(locale, "Go to artist");
@@ -1159,9 +1160,10 @@ fn item_menu_at(
                     ui.set_min_width(200.0);
                     for artist in &artists {
                         if menu_item(ui, &palette, Some(Icon::User), &artist.name) {
-                            app.actions.push(Action::Open(Page::Artist(
-                                artist.id.clone().unwrap_or_default(),
-                            )));
+                            app.actions.push(crate::provider::spotify_artist_action(
+                                artist.id.as_deref().unwrap_or_default(),
+                                artist.name.clone(),
+                            ));
                         }
                     }
                 });
@@ -1425,7 +1427,10 @@ pub(crate) fn artist_links(
         }
         if let Some(id) = &artist.id {
             if theme::link(ui, &artist.name, font.clone(), color).clicked() {
-                app.actions.push(Action::Open(Page::Artist(id.clone())));
+                app.actions.push(crate::provider::spotify_artist_action(
+                    id,
+                    artist.name.clone(),
+                ));
                 clicked = true;
             }
         } else {
@@ -1498,6 +1503,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
 /// menus, saved-song requests and Spotify drag payloads are absent in this mode.
 pub struct ProviderRowActions {
     pub navigation: Vec<(String, Action)>,
+    pub artist_navigation: Vec<(String, Action)>,
     pub provider: crate::provider::Provider,
     pub play: Action,
     pub enqueue: Option<Action>,
@@ -2017,13 +2023,30 @@ fn track_row_contents(
                     if track.explicit {
                         explicit_badge(ui, &palette);
                     }
-                    artist_links(
-                        ui,
-                        app,
-                        &track.artists,
-                        theme::regular(12.5),
-                        subtitle_color,
-                    );
+                    if let Some(actions) = actions
+                        && !actions.artist_navigation.is_empty()
+                    {
+                        for (index, (artist, action)) in
+                            actions.artist_navigation.iter().enumerate()
+                        {
+                            if index > 0 {
+                                theme::text(ui, ", ", theme::regular(12.5), subtitle_color);
+                            }
+                            if theme::link(ui, artist, theme::regular(12.5), subtitle_color)
+                                .clicked()
+                            {
+                                app.actions.push(action.clone());
+                            }
+                        }
+                    } else {
+                        artist_links(
+                            ui,
+                            app,
+                            &track.artists,
+                            theme::regular(12.5),
+                            subtitle_color,
+                        );
+                    }
                     if let Some(added) = row.added_at.filter(|a| !a.starts_with("1970-01-01"))
                         && cols.added == 0.0
                     {

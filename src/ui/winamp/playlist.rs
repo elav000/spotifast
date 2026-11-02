@@ -867,7 +867,10 @@ fn misc_menu(app: &mut App, ui: &mut egui::Ui, rows: &[Row]) {
     if let Some(artist) = &row.artist_id
         && ui.button(gettext(locale, "Artist").as_ref()).clicked()
     {
-        app.actions.push(Action::Open(Page::Artist(artist.clone())));
+        app.actions.push(crate::provider::spotify_artist_action(
+            artist,
+            artist.clone(),
+        ));
         app.actions.push(Action::ToggleWinampWindow);
     }
 }

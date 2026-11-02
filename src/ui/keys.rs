@@ -179,11 +179,15 @@ pub fn handle(app: &mut App, ctx: &egui::Context) {
     for action in actions {
         match action {
             Action::OpenUri(kind) if kind == "artist" => {
-                if let Some(id) = app
+                if let Some(artist) = app
                     .now_playing()
-                    .and_then(|now| now.artists.first().and_then(|artist| artist.id.clone()))
+                    .and_then(|now| now.artists.first().cloned())
+                    .filter(|artist| artist.id.is_some())
                 {
-                    app.actions.push(Action::Open(Page::Artist(id)));
+                    app.actions.push(crate::provider::spotify_artist_action(
+                        artist.id.as_deref().unwrap_or_default(),
+                        artist.name,
+                    ));
                 }
             }
             Action::OpenUri(kind) if kind == "album" => {

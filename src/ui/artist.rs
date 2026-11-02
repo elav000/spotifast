@@ -292,8 +292,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                             }
                         }
                         if card.clicked {
-                            app.actions
-                                .push(Action::Open(Page::Artist(artist.id.clone())));
+                            app.actions.push(crate::provider::spotify_artist_action(
+                                &artist.id,
+                                artist.name.clone(),
+                            ));
                         }
                         egui::Popup::context_menu(&card.response)
                             .id(ui.make_persistent_id(("related-artist-menu", &artist.uri)))

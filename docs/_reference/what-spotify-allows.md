@@ -4,20 +4,20 @@ description: What Spotify's Web API and librespot provide, and what neither supp
 nav_order: 3
 ---
 
-Spotifast uses Spotify's
+Tumlo uses Spotify's
 [Web API](https://developer.spotify.com/documentation/web-api) for account and
 catalogue data. It uses [librespot](https://github.com/librespot-org/librespot)
 for a few extra details and for audio playback.
 
-Features missing from both cannot be added to Spotifast. They may become
+Features missing from both cannot be added to Tumlo. They may become
 possible if Spotify adds an API or librespot adds lawful support.
 
 ## Web API
 
-Spotifast uses the Web API for:
+Tumlo uses the Web API for:
 
 - **Account:** profile details, followed artists, top artists and tracks, and
-  the last fifty plays. Spotifast keeps a longer local
+  the last fifty plays. Tumlo keeps a longer local
   [history](/using-spotifast/#recent).
 - **Library:** playlists, saved tracks, albums, shows, and episodes. It can
   also save and remove items.
@@ -40,7 +40,7 @@ five accounts, and an extension needs a registered business with hundreds of
 thousands of monthly listeners. Spotify's desktop client identity, the one
 librespot streams with, signs in to the Web API, but every request it makes
 there is answered with "too many requests" from the first one (tried
-2026-10-25). Spotifast limits heavy requests and pauses a session when
+2026-10-25). Tumlo limits heavy requests and pauses a session when
 Spotify sends a `Retry-After` response.
 [Spotify is being slow](/troubleshooting/#rate-limits) explains it for
 listeners.
@@ -57,13 +57,13 @@ signed in. See [How It Connects](/how-it-connects/).
 ## librespot session
 
 librespot signs in to Spotify and uses the same protocol as Spotify's own
-clients. Spotifast uses its session for:
+clients. Tumlo uses its session for:
 
-- **Playlist folders and order.** Spotifast can read them from Spotify's
+- **Playlist folders and order.** Tumlo can read them from Spotify's
   rootlist. librespot cannot create, rename, or move folders.
 - **Playlist permissions.** The rootlist shows when a playlist shared by
   invitation can be edited. The Web API's `collaborative` flag does not cover
-  these playlists. Spotifast cannot manage collaborators.
+  these playlists. Tumlo cannot manage collaborators.
 - **Playlists a personal app cannot read.** Title, cover, and songs of
   other people's playlists, Spotify's own among them, and of the account's
   own when there is no personal app, so they open without a Web API quota. Whether a
@@ -78,12 +78,12 @@ clients. Spotifast uses its session for:
   play, it is skipped when reached, as it would be anywhere else.
 - **Library playlists the Web API lists blank.** The library list gives
   some of Spotify's own playlists, "This Is" ones among them, no name,
-  cover, description, or songs. Spotifast reads each one's header over the
+  cover, description, or songs. Tumlo reads each one's header over the
   session once per sign-in to fill its row. Without local playback those
   rows stay blank.
 - **Removing one copy of a repeated song.** The Web API removes a song from
   a playlist by URI, every copy at once, and ignores positions. When a list
-  holds a song more than once and one copy is removed, Spotifast reads the
+  holds a song more than once and one copy is removed, Tumlo reads the
   list over the session and removes that row by index through the playlist
   service Spotify's own clients edit, so the other copies keep their place
   and dates. Without local playback it refuses that removal instead of taking
@@ -139,19 +139,19 @@ clients. Spotifast uses its session for:
   does not answer, the older buddy list stands in, which reports a song only
   after it ends.
 - **Google Cast speakers and groups.** librespot has no Cast sender, so
-  Spotifast starts Spotify's receiver on the device itself. The session then
+  Tumlo starts Spotify's receiver on the device itself. The session then
   obtains a token for that receiver, as Spotify's own apps do. See
   [how it connects](/how-it-connects/#google-cast-devices).
 
 ### Private requests
 
-Where no public API covers a feature, Spotifast may read the private
+Where no public API covers a feature, Tumlo may read the private
 endpoints Spotify's own apps use, through the librespot session. These
 requests only read; the one exception is pre-save on upcoming album pages,
 which writes only when the user presses the button. Requests to Spotify's
 client API go into librespot first: a pull request upstream, carried in
-Spotifast's librespot fork until a librespot release includes it. Pathfinder
-queries, which librespot does not make, stay in Spotifast. Spotify can change
+Tumlo's librespot fork until a librespot release includes it. Pathfinder
+queries, which librespot does not make, stay in Tumlo. Spotify can change
 any of these without notice, so a feature that uses one falls back to the Web
 API where it has an answer, and otherwise leaves out what it could not read.
 
@@ -160,7 +160,7 @@ API where it has an answer, and otherwise leaves out what it could not read.
 librespot provides:
 
 - Spotify catalogue playback at up to 320 kbps.
-- Gapless playback, normalisation, and a local audio cache. Spotifast's fork
+- Gapless playback, normalisation, and a local audio cache. Tumlo's fork
   also prepares the start of the next two songs, so a skip plays at once.
 - Spotify Connect, so another Spotify client can transfer playback to this
   computer.
@@ -182,7 +182,7 @@ librespot provides:
   refuses a `spotify:local:` entry, so such a song is queued on this
   computer's own player, and only while it plays
   ([issue #1002](https://github.com/crmne/spotifast/issues/1002)). Spotify
-  has no cover or lyrics for a local file either, so Spotifast reads them
+  has no cover or lyrics for a local file either, so Tumlo reads them
   from the file: the picture in its tags (an MP3's ID3 `APIC` frame or a
   FLAC `PICTURE` block), and the words in a `.lrc` file of the same name
   beside it or in its tags (ID3 `USLT` or a `LYRICS` comment), before
@@ -191,10 +191,10 @@ librespot provides:
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
-Spotifast uses a small librespot fork: librespot's development branch with a
+Tumlo uses a small librespot fork: librespot's development branch with a
 few patches that are also proposed upstream, such as normalisation data for the
 visualisers and an event for rejected audio keys. When Spotify refuses an
-audio key, nothing in Spotifast can fix it; see
+audio key, nothing in Tumlo can fix it; see
 [Spotify refused the audio key](/troubleshooting/#audio-key). The patches are listed in
 `Cargo.toml` and dropped as librespot merges them.
 
@@ -209,38 +209,38 @@ The Web API and librespot do not provide these features:
   needs Premium on the account that creates it.
 - **Pins shared with the Spotify app.** Spotify stores pins in its private
   `your-library` service. There is no Web API for it, and librespot does not
-  support its protocol. Spotifast's pins are local and are stored in
+  support its protocol. Tumlo's pins are local and are stored in
   `settings.json`. See [issue #31](https://github.com/crmne/spotifast/issues/31).
 - **Editing playlist folders.** librespot can only read them.
 - **Smart Shuffle, Jam, Blend, and similar Spotify features.** Spotify
-  generates these for its own clients. Spotifast only has plain shuffle.
+  generates these for its own clients. Tumlo only has plain shuffle.
   A Blend that a Spotify app already made opens like any playlist, with
-  who added each song, but Spotifast cannot start or manage one.
+  who added each song, but Tumlo cannot start or manage one.
 - **Spotify DJ.** Its special playlist context does not expose playable tracks
-  to librespot, so Spotifast leaves its card out of Made for you. See
+  to librespot, so Tumlo leaves its card out of Made for you. See
   [librespot issue #1604](https://github.com/librespot-org/librespot/issues/1604).
-- **Lossless audio.** librespot does not receive lossless streams. Spotifast
+- **Lossless audio.** librespot does not receive lossless streams. Tumlo
   will reconsider this if librespot gains lawful support, but it will not
   bypass Spotify's DRM.
 - **Soloist as the bundled player.** Spotify's Soloist works with Spotify
   Connect and has builds for Linux, Apple Silicon macOS, and x86-64 Windows.
-  Spotify explicitly says not to redistribute its binaries, so Spotifast
+  Spotify explicitly says not to redistribute its binaries, so Tumlo
   cannot bundle them. Each listener also needs their own Spotify Developer
   API key and must pair Soloist with a Spotify app; builds expire after 90
   days. Its WebSocket API covers playback control and the queue, but not the
   library, playlists, or search, and Soloist does not provide audio for
-  Spotifast's equalizer or visualisers. It remains useful as a separately
+  Tumlo's equalizer or visualisers. It remains useful as a separately
   installed Spotify Connect device. See [Spotify Soloist](https://developer.spotify.com/documentation/soloist)
   and [issue #965](https://github.com/crmne/spotifast/issues/965).
 - **Local files from Spotify's Local Files playlist.** librespot cannot play
   that playlist; add the songs to another playlist first. Local files on other
   computers or phones are not shared either: Spotify keeps only their names.
 - **Audiobooks.** librespot does not play them. Spotify lists some
-  audiobooks among saved shows; since 0.10.0, Spotifast asks the
+  audiobooks among saved shows; since 0.10.0, Tumlo asks the
   librespot session which ones and leaves them out of the Podcasts shelf.
 - **Offline listening and downloads.** Spotify's DRM and the project's scope
   rule these out.
-- **Playback speed and crossfade.** librespot supports neither. Spotifast
+- **Playback speed and crossfade.** librespot supports neither. Tumlo
   would have to add them to its own audio path.
 - **Free-account playback.** Replacing Spotify audio with another source is
   also out of scope. See the

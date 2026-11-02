@@ -1957,7 +1957,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 // the mini player opens.
                 const RANDOM: usize = usize::MAX;
                 let random = gettext(locale, "Random");
-                let mut options: Vec<(usize, &str)> = vec![(RANDOM, &random), (0, "Spotifast")];
+                let mut options: Vec<(usize, &str)> =
+                    vec![(RANDOM, &random), (0, crate::brand::PRODUCT_NAME)];
                 options.extend(
                     choices
                         .iter()
@@ -1991,7 +1992,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let label = options
                         .iter()
                         .find(|(value, _)| *value == showing)
-                        .map_or("Spotifast", |(_, label)| label);
+                        .map_or(crate::brand::PRODUCT_NAME, |(_, label)| label);
                     theme::subtle(
                         ui,
                         &palette,
@@ -2426,9 +2427,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let about = gettext(locale, "About");
-    let built_with = gettext(
+    let built_with = pgettext(
         locale,
-        "Built with Rust, egui, and librespot. Not affiliated with Spotify.",
+        "original project attribution",
+        "Built with Spotifast. Not affiliated with Spotify.",
     );
     let check_for_updates = gettext(locale, "Check for updates");
     let checking = gettext(locale, "Checking…");
@@ -2437,7 +2439,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let source_code = gettext(locale, "Source code");
     let about_rows = [
         RowText::new(
-            format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+            format!(
+                "{} {}",
+                crate::brand::PRODUCT_NAME,
+                env!("CARGO_PKG_VERSION")
+            ),
             built_with.clone(),
         ),
         RowText::new(
@@ -2454,7 +2460,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.vertical(|ui| {
                     theme::text(
                         ui,
-                        format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+                        format!(
+                            "{} {}",
+                            crate::brand::PRODUCT_NAME,
+                            env!("CARGO_PKG_VERSION")
+                        ),
                         theme::semibold(15.0),
                         palette.text,
                     );
@@ -2505,10 +2515,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             ui.add_space(14.0);
-            if widgets::credit(ui, &palette, locale) {
-                app.actions
-                    .push(Action::OpenUrl(widgets::AUTHOR_URL.to_owned()));
-            }
         });
     }
 

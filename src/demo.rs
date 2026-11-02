@@ -787,7 +787,7 @@ pub fn populate(app: &mut App) {
     app.devices = vec![
         Device {
             id: Some("local-demo".into()),
-            name: "Spotifast".into(),
+            name: "Tumlo".into(),
             is_active: false,
             is_restricted: false,
             volume_percent: Some(70),
@@ -4001,52 +4001,24 @@ mod tests {
             .collect()
     }
 
-    /// The About card ends with the author's credit, and the name opens
-    /// the author's website.
+    /// The About card no longer displays the original repository owner's
+    /// personal credit.
     #[test]
-    fn the_about_card_credits_the_author() {
-        let (ctx, mut app) = accessible_app("about-credit");
-        settings_text(&ctx, &mut app, "Rust");
+    fn the_about_card_has_no_original_owner_credit() {
+        let (ctx, mut app) = accessible_app("about-owner-credit");
+        settings_text(&ctx, &mut app, "Spotifast");
         let texts = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        assert!(
+            !texts.iter().any(|(text, _)| {
+                text.contains("Built with love by") || text.contains("Carmine Paolino")
+            }),
+            "{texts:?}"
+        );
         assert!(
             texts
                 .iter()
-                .any(|(text, _)| text.contains("Built with love by")),
+                .any(|(text, _)| text == "Built with Spotifast. Not affiliated with Spotify."),
             "{texts:?}"
-        );
-        let name = texts
-            .iter()
-            .find(|(text, _)| text == "Carmine Paolino")
-            .map(|(_, rect)| rect.center())
-            .expect("the author's name");
-        app.actions.clear();
-        view_frame(
-            &ctx,
-            &mut app,
-            vec![
-                egui::Event::PointerMoved(name),
-                egui::Event::PointerButton {
-                    pos: name,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::NONE,
-                },
-                egui::Event::PointerButton {
-                    pos: name,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::NONE,
-                },
-            ],
-            crate::ui::settings::show,
-        );
-        assert!(
-            app.actions.iter().any(|action| matches!(
-                action,
-                Action::OpenUrl(url) if url == crate::ui::widgets::AUTHOR_URL
-            )),
-            "{:?}",
-            app.actions
         );
         app.backend.shutdown();
     }
@@ -4057,7 +4029,7 @@ mod tests {
         for (query, row) in [
             ("without a cover", "Compact track list"),
             ("Ctrl+0", "Interface zoom"),
-            ("Rust", "About"),
+            ("Spotifast", "About"),
             (
                 "Downloads in the background",
                 "Download updates automatically",
@@ -7389,7 +7361,7 @@ mod tests {
                             "{:?} is cut off at {size:?} in {state:?}",
                             text.galley.job.text
                         );
-                        if text.galley.job.text == "Spotifast" {
+                        if text.galley.job.text == "Tumlo" {
                             title = Some(rect);
                         }
                     }

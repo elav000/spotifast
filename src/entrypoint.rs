@@ -271,7 +271,10 @@ fn run_control(control: Control) -> i32 {
             }
         }
         Err(error) => {
-            eprintln!("Spotifast is not running or does not support remote control: {error}");
+            eprintln!(
+                "{} is not running or does not support remote control: {error}",
+                spotifast::brand::PRODUCT_NAME
+            );
             return 1;
         }
     };
@@ -297,7 +300,7 @@ fn write_reply(out: &mut impl std::io::Write, text: &str) -> i32 {
 /// sandbox's app id, which Flatpak always sets in `FLATPAK_ID`.
 #[cfg(target_os = "linux")]
 fn desktop_entry() -> String {
-    fastframe_now_playing::desktop_entry("spotifast")
+    fastframe_now_playing::desktop_entry(spotifast::brand::PRODUCT_SLUG)
 }
 
 /// The `nowplaying` snapshot as one human-readable line.
@@ -725,7 +728,7 @@ pub(crate) fn run() -> eframe::Result<()> {
                 screen_asked: None,
             }))
         }));
-        fastframe_graphics::Graphics::new("Spotifast")
+        fastframe_graphics::Graphics::new(spotifast::brand::PRODUCT_NAME)
             .help(spotifast::window::DOWNLOAD_PAGE)
             .dialog(move |trouble| spotifast::window::no_window_dialog(locale, trouble))
             .run_native(
@@ -860,7 +863,7 @@ fn native_options(
         app_icon()
     };
     let viewport = egui::ViewportBuilder::default()
-        .with_title("Spotifast")
+        .with_title(spotifast::brand::PRODUCT_NAME)
         .with_app_id(app_id)
         .with_taskbar(true)
         .with_icon(icon);
@@ -1360,7 +1363,9 @@ impl Shell {
                 MenuCommand::Back => Action::Back,
                 MenuCommand::Forward => Action::Forward,
                 MenuCommand::OpenRepo => {
-                    ctx.open_url(egui::OpenUrl::new_tab("https://github.com/crmne/spotifast"));
+                    ctx.open_url(egui::OpenUrl::new_tab(
+                        "https://github.com/elav000/spotifast",
+                    ));
                     continue;
                 }
                 // Editing goes through egui, which owns the text field

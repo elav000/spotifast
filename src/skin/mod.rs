@@ -279,7 +279,10 @@ fn wanted(file_name: &str) -> bool {
 const BUILTIN_ARCHIVE: &[u8] = include_bytes!("../../assets/skins/spotifast.wsz");
 
 static BUILTIN: LazyLock<Arc<Skin>> = LazyLock::new(|| {
-    Arc::new(Skin::from_archive("Spotifast", BUILTIN_ARCHIVE).expect("the built-in skin reads"))
+    Arc::new(
+        Skin::from_archive(crate::brand::PRODUCT_NAME, BUILTIN_ARCHIVE)
+            .expect("the built-in skin reads"),
+    )
 });
 
 #[cfg(test)]
@@ -326,7 +329,7 @@ mod tests {
             );
         }
         assert!(skin.has_extended_digits());
-        assert_eq!(skin.name, "Spotifast");
+        assert_eq!(skin.name, crate::brand::PRODUCT_NAME);
     }
 
     #[test]

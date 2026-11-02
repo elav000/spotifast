@@ -19,8 +19,30 @@ use sha2::{Digest, Sha256};
 
 use crate::{auth::StoredToken, paths::AppDirs};
 
-const SERVICE: &str = "rocks.spotifast.Spotifast";
+const SERVICE: &str = crate::brand::CREDENTIAL_SERVICE;
+const LEGACY_SERVICE: &str = "rocks.spotifast.Spotifast";
 const TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Copy a credential to its new namespace and remove the legacy record only
+/// after the copy reads back byte-for-byte. Failed verification clears the
+/// partial destination so the legacy record remains the recoverable source.
+pub(crate) fn migrate_record(
+    secret: &[u8],
+    write_new: impl FnOnce(&[u8]) -> bool,
+    verify_new: impl FnOnce(&[u8]) -> bool,
+    clear_new: impl FnOnce(),
+    delete_old: impl FnOnce(),
+) -> bool {
+    if !write_new(secret) {
+        return false;
+    }
+    if !verify_new(secret) {
+        clear_new();
+        return false;
+    }
+    delete_old();
+    true
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -262,7 +284,7 @@ struct NativeStore {
 
 impl NativeStore {
     fn entry(&mut self, key: &str) -> Result<keyring_core::Entry, Error> {
-        self.entry_with(key, None)
+        self.entry_with(&format!("spotify:{key}"), None)
     }
 
     fn entry_with(
@@ -285,13 +307,54 @@ impl NativeStore {
             .build(SERVICE, key, modifiers)
             .map_err(|error| native_error("entry", error))
     }
+
+    fn entry_in(&mut self, service: &str, key: &str) -> Result<keyring_core::Entry, Error> {
+        if self.store.is_none() {
+            #[cfg(target_os = "linux")]
+            let store = zbus_secret_service_keyring_store::Store::new();
+            #[cfg(target_os = "macos")]
+            let store = apple_native_keyring_store::keychain::Store::new();
+            #[cfg(windows)]
+            let store = windows_native_keyring_store::Store::new();
+            self.store = Some(store.map_err(|error| native_error("open", error))?);
+        }
+        self.store
+            .as_ref()
+            .ok_or(Error::Unavailable)?
+            .build(service, key, None)
+            .map_err(|error| native_error("entry", error))
+    }
 }
 
 impl ProtectedStore for NativeStore {
     fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
         match self.entry(key)?.get_secret() {
             Ok(secret) => Ok(Some(secret)),
-            Err(keyring_core::Error::NoEntry) => Ok(None),
+            Err(keyring_core::Error::NoEntry) => {
+                // Read the old service on first use after rebranding. Copy the
+                // value into Tumlo's namespace, verify it, and only then
+                // remove the old record. If copying fails, keep using the old
+                // value so the next launch can retry without signing out.
+                let legacy = match self.entry_in(LEGACY_SERVICE, key)?.get_secret() {
+                    Ok(secret) => secret,
+                    Err(keyring_core::Error::NoEntry) => return Ok(None),
+                    Err(error) => return Err(native_error("read legacy", error)),
+                };
+                let current = self.entry(key)?;
+                let old = self.entry_in(LEGACY_SERVICE, key)?;
+                migrate_record(
+                    &legacy,
+                    |secret| current.set_secret(secret).is_ok(),
+                    |secret| current.get_secret().ok().as_deref() == Some(secret),
+                    || {
+                        let _ = current.delete_credential();
+                    },
+                    || {
+                        let _ = old.delete_credential();
+                    },
+                );
+                Ok(Some(legacy))
+            }
             Err(error) => Err(native_error("read", error)),
         }
     }
@@ -1062,6 +1125,36 @@ impl Lease {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn credential_migration_deletes_legacy_only_after_verified_copy() {
+        let cleared = std::cell::Cell::new(false);
+        let deleted = std::cell::Cell::new(false);
+        let migrated = migrate_record(
+            b"grant",
+            |_| true,
+            |_| false,
+            || cleared.set(true),
+            || deleted.set(true),
+        );
+        assert!(!migrated);
+        assert!(
+            cleared.get(),
+            "an unverified partial destination is removed"
+        );
+        assert!(!deleted.get(), "the legacy record remains recoverable");
+
+        let deleted = std::cell::Cell::new(false);
+        let migrated = migrate_record(
+            b"grant",
+            |_| true,
+            |value| value == b"grant",
+            || panic!("a verified destination must not be cleared"),
+            || deleted.set(true),
+        );
+        assert!(migrated);
+        assert!(deleted.get(), "legacy data is removed after verification");
+    }
 
     #[derive(Debug)]
     struct Platform(&'static str);

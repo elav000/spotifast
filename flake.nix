@@ -1,5 +1,5 @@
 {
-  description = "Spotify, native and fast";
+  description = "Tumlo, a native multi-provider music player";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -19,6 +19,7 @@
       ...
     }:
     let
+      brand = builtins.fromTOML (builtins.readFile ./brand.toml);
       systems = [
         "aarch64-darwin"
         "x86_64-darwin"
@@ -110,7 +111,7 @@
               );
             in
             rustPlatform.buildRustPackage rec {
-              pname = "spotifast";
+              pname = brand.slug;
               version = (pkgs.lib.importTOML ./Cargo.toml).package.version;
               src = self;
 
@@ -175,30 +176,32 @@
                     --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath runtimeLibs}
                 ''
                 + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                  rcodesign sign "$out/Applications/Spotifast.app"
+                  rcodesign sign "$out/Applications/${brand.name}.app"
                 '';
 
               postInstall =
                 pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-                  install -Dm644 packaging/applications/spotifast.desktop \
-                    $out/share/applications/spotifast.desktop
-                  install -Dm644 packaging/icons/spotifast.svg \
-                    $out/share/icons/hicolor/scalable/apps/spotifast.svg
+                  install -Dm644 packaging/applications/tumlo.desktop \
+                    $out/share/applications/tumlo.desktop
+                  install -Dm644 packaging/icons/tumlo.svg \
+                    $out/share/icons/hicolor/scalable/apps/tumlo.svg
                   install -Dm644 contrib/omarchy/spotifast.json.tpl \
                     $out/share/spotifast/omarchy/spotifast.json.tpl
                   install -Dm755 contrib/omarchy/spotifast-theme \
                     $out/share/spotifast/omarchy/spotifast-theme
                 ''
                 + pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-                  app="$out/Applications/Spotifast.app/Contents"
+                  app="$out/Applications/${brand.name}.app/Contents"
                   mkdir -p "$app/MacOS" "$app/Resources"
-                  executable=Spotifast
-                  identifier=rocks.spotifast.Spotifast
+                  executable=${brand.name}
+                  identifier=${brand.macos_bundle_id}
                   cp "$out/bin/spotifast" "$app/MacOS/$executable"
-                  icnsify packaging/macos/icon-1024.png -o "$app/Resources/spotifast.icns"
+                  icnsify packaging/macos/icon-1024.png -o "$app/Resources/${brand.slug}.icns"
                   substitute packaging/macos/Info.plist "$app/Info.plist" \
                     --replace-fail __VERSION__ "${version}" \
                     --replace-fail __BUILD__ "${pkgs.lib.head (pkgs.lib.splitString "-" version)}" \
+                    --replace-fail __PRODUCT_NAME__ "${brand.name}" \
+                    --replace-fail __ICON_NAME__ "${brand.slug}" \
                     --replace-fail __EXECUTABLE__ "$executable" \
                     --replace-fail __IDENTIFIER__ "$identifier"
                 '';

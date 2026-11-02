@@ -8,7 +8,7 @@ nav_order: 0
 
 Linux media controls use `playerctl --player=spotifast`.
 
-Spotifast follows each platform's conventions. On Linux:
+Tumlo follows each platform's conventions. On Linux:
 
 | What | Where | Safe to delete? |
 | --- | --- | --- |
@@ -39,11 +39,11 @@ where each system keeps it, not in `settings.json`:
 | Platform | Where |
 | --- | --- |
 | Linux | `~/.config/autostart/spotifast.desktop` (`$XDG_CONFIG_HOME/autostart`), which runs `spotifast`, with `--start-hidden` for the tray |
-| Flatpak | Registered through the background portal; Spotifast keeps a copy of what it asked for in `~/.var/app/rocks.spotifast.Spotifast/config/autostart/spotifast.desktop` |
-| macOS 13 and later | Login Items: Spotifast itself to open with the window, or the `rocks.spotifast.Spotifast.autostart` agent inside the app, which opens it with `--start-hidden` |
-| Windows | The `Spotifast` value under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` |
+| Flatpak | Registered through the background portal; Tumlo keeps a copy of what it asked for in `~/.var/app/rocks.spotifast.Tumlo/config/autostart/spotifast.desktop` |
+| macOS 13 and later | Login Items: Tumlo itself to open with the window, or the `rocks.spotifast.Tumlo.autostart` agent inside the app, which opens it with `--start-hidden` |
+| Windows | The `Tumlo` value under `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` |
 
-Deleting the entry turns it off. Uninstalling Spotifast does not remove the
+Deleting the entry turns it off. Uninstalling Tumlo does not remove the
 Linux or Windows entry; choose **Off** first.
 
 Clearing caches never signs you out. Sign-out from Settings covers the shared
@@ -56,7 +56,7 @@ The following credential storage is available since 0.8.0.
 
 Durable grants use **Secret Service on Linux**, **Keychain on macOS**, and
 **Credential Manager on Windows**, under the service name
-`rocks.spotifast.Spotifast`. Entries are separated by application state
+`rocks.spotifast.Tumlo`. Entries are separated by application state
 location and grant type; Web grants carry their Client ID and must verify as
 the same account. Playback and receiver activation require that account too.
 Non-secret settings and session data remain readable JSON. Native credential
@@ -72,25 +72,25 @@ used for this session, with no new plaintext fallback file.
 
 On Windows, grants are saved with Enterprise persistence, which survives a
 restart. Since 0.13.2, if Credential Manager refuses that, or keeps the grant
-only until you sign out of Windows, Spotifast saves it again with Local
+only until you sign out of Windows, Tumlo saves it again with Local
 persistence, which also survives a restart. Failures are logged with their
 Windows error code, never with the grant.
 
-Since 0.13.4, Spotifast on Windows also keeps a copy of each grant in
+Since 0.13.4, Tumlo on Windows also keeps a copy of each grant in
 `credential-storage\` in the data folder, encrypted with the Windows Data
 Protection API so that only your Windows account can read it. Every save
 writes both, and sign-out deletes both. The copy is read only when Credential
 Manager refuses the grant or no longer has it, as on machines where the
 entries disappear during a restart. Grants saved by earlier versions gain
-their copy the next time Spotifast starts.
+their copy the next time Tumlo starts.
 
 On upgrade, each legacy grant is written to the protected store and read back
 before its old file is removed. Valid grants migrate without signing in again.
 If Spotify rejects a saved refresh grant, only that grant is forgotten so the
-next launch cannot keep restoring it. If migration fails, Spotifast reports it and
+next launch cannot keep restoring it. If migration fails, Tumlo reports it and
 keeps the original so migration can be retried. That grant can still serve the
 current session. A successfully migrated grant is never replaced by a stale
-legacy copy. Librespot's reusable grant stays in memory until Spotifast saves
+legacy copy. Librespot's reusable grant stays in memory until Tumlo saves
 it through this same store. Volume and disposable audio caches are independent.
 
 Sign-out invalidates pending authorization, refresh, and playback connections,
@@ -123,13 +123,13 @@ Older proxy passwords, whether in `settings.json` or the separate state file,
 are migrated and read back before their plaintext copies are removed. If that
 fails, the originals remain available for retry. Settings changes stay in
 memory until migration succeeds, so a save cannot erase the only password or
-associate it with a different proxy address. Spotifast reports this condition.
+associate it with a different proxy address. Tumlo reports this condition.
 Newly entered passwords have no plaintext fallback. Settings store the confirmed
 proxy mode, host, port, and username, never an unapplied draft or password.
 
 Progress through a playlist is periodically cached as a contiguous prefix.
 When the playlist has not changed on Spotify, reopening it resumes from that
-prefix instead of requesting the same pages again. Spotifast validates the
+prefix instead of requesting the same pages again. Tumlo validates the
 cache against Spotify's playlist snapshot and reported song count before
 showing it. A cache with a mismatched count is replaced by live rows even if
 its snapshot matches, so stale cached songs cannot choose the playback order.
@@ -261,7 +261,7 @@ automatic requests and shows a Retry button in the reserved row space.
 Since 0.8.0, Flatpak also preserves the fallback
 state directory used when `XDG_STATE_HOME` is unset. Session state, history,
 logs, and credential revocation markers survive a full quit and relaunch under
-`~/.var/app/rocks.spotifast.Spotifast/.local/state/spotifast/`. Configuration
+`~/.var/app/rocks.spotifast.Tumlo/.local/state/spotifast/`. Configuration
 and caches remain under the app's `config/` and `cache/` directories. State
 already lost on quitting an older release cannot be recovered.
 
@@ -274,7 +274,7 @@ On macOS, settings, state, and the logs are in
 
 ### Portable copies
 
-Since 0.13.4, Spotifast started from the Windows ZIP keeps its files in a
+Since 0.13.4, Tumlo started from the Windows ZIP keeps its files in a
 `spotifast-data` folder next to `spotifast.exe`, instead of the folders
 above. It knows it is the ZIP copy by the `spotifast-portable.txt` file beside
 it.
@@ -287,13 +287,13 @@ it.
 
 The first time it starts without that folder, it copies (never moves) your
 settings and state from the folders above, so a ZIP copy you ran before keeps
-your preferences and sign-in. Caches are not copied; Spotifast fills them
-again. The installed Spotifast keeps its own files, and from then on the two
+your preferences and sign-in. Caches are not copied; Tumlo fills them
+again. The installed Tumlo keeps its own files, and from then on the two
 never share settings, history or caches. The copy is made in
 `spotifast-data.partial` and renamed when complete, so a copy interrupted by
 a crash or power cut is made again at the next start.
 
-If Spotifast cannot write next to its executable, for example in
+If Tumlo cannot write next to its executable, for example in
 `Program Files` or on read-only media, it uses the folders above and says why
 in the log. Updates replace only `spotifast.exe`, so `spotifast-data` stays as
 it is through updates and their rollback. To start a portable copy afresh,
@@ -313,7 +313,7 @@ neither Credential Manager nor the encrypted copy can give the sign-in back,
 so sign in again there.
 
 The Linux `.tar.gz` also carries a `spotifast-portable.txt`, but only so the
-updater may replace the executable. Spotifast from it keeps the folders above:
+updater may replace the executable. Tumlo from it keeps the folders above:
 set `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` to move them.
 
 The running copy keeps its single-instance files in a private directory:
@@ -324,10 +324,10 @@ Windows. A portable copy has its own, `instance\scope-portable-<id>` in the
 installed state directory, with one `<id>` per portable folder, so it runs
 beside the installed copy and other portable copies instead of handing your
 launches to them. `instance.lock` marks the running copy; the system releases it when
-Spotifast quits or crashes. `instance.sock` (Linux and macOS) is the socket
+Tumlo quits or crashes. `instance.sock` (Linux and macOS) is the socket
 a second launch and the `spotifast` command reach it through, which only your
 user can open. On Windows, `instance.key` holds the loopback port and a
-random token that every request must carry. Spotifast writes them on each
+random token that every request must carry. Tumlo writes them on each
 start; nothing in them needs keeping.
 
 ## settings.json
@@ -337,7 +337,7 @@ main fields are:
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `device_name` | `Spotifast` | Name on Spotify Connect |
+| `device_name` | `Tumlo` | Name on Spotify Connect |
 | `bitrate` | `320` | 96, 160, or 320 kbps |
 | `normalisation` | `false` | Volume normalisation |
 | `autoplay` | `true` | Keep playing similar music at the end |
@@ -350,7 +350,7 @@ main fields are:
 | `custom_theme` | `null` | Selected JSON filename from the `themes` folder |
 | `custom_theme_cache` | absent | Last accepted custom palette; preserves appearance if its file is missing or invalid |
 | `system_theme_cache` | absent | Last accepted Omarchy palette for Follow system; retained across restarts |
-| `theme_pair` | absent | The themes Follow system uses in light and dark mode: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Spotifast's own Light or Dark; it is written only once you choose one |
+| `theme_pair` | absent | The themes Follow system uses in light and dark mode: `{"light": {"filename": "Catppuccin Latte.json", "palette": {...}}, "dark": {...}}`. Each `palette` is the last accepted copy of that file's colours. A missing side, or the whole field, is Tumlo's own Light or Dark; it is written only once you choose one |
 | `accent_from_art` | `true` | Tint pages with album art, and colour the player bar visualizer with the cover's colours |
 | `player_bar_vis` | `off` | Since 0.11.0: what moves behind the player bar while a song plays on this computer: `off`, `spectrum` or `waveform` |
 | `player_bar_vis_click` | `true` | Allow clicks on empty player bar space to cycle visualizer modes |
@@ -366,7 +366,7 @@ main fields are:
 | `middle_click_autoscroll` | `false` | Linux only: middle-click a list to autoscroll it. Windows always autoscrolls and macOS never does |
 | `winamp_window` | `false` | The window is the Winamp mini player |
 | `winamp_show_taskbar` | `true` | Windows since 0.8.0, and Linux X11 sessions: show the Winamp window's taskbar button; the main window always keeps its button. Wayland and macOS ignore it |
-| `custom_titlebar` | `false` | Windows and Linux: draw Spotifast's own title bar and window buttons instead of the desktop's |
+| `custom_titlebar` | `false` | Windows and Linux: draw Tumlo's own title bar and window buttons instead of the desktop's |
 | `skin` | none | File or folder name in the skins folder; blank uses the built-in skin |
 | `random_skin` | `false` | Since 0.11.0: pick a different skin (built-in or installed) each time the mini player opens; `skin` holds the one picked |
 | `skin_scale` | by display | Screen pixels per skin pixel, 1 to 4 |
@@ -392,9 +392,9 @@ main fields are:
 | `keep_playing_in_background` | `true` | Close to tray |
 | `tray_icon` | `colour` | Linux and Windows: the tray icon in `colour`, or in `white` or `black` to match the panel or taskbar. macOS ignores it: the menu bar draws its icon black or white to match itself |
 | `mac_notch_widget` | `false` | Show interactive Now Playing widget when hovering over the MacBook notch (macOS only) |
-| `mac_show_in_dock` | `true` | macOS only: show Spotifast in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
+| `mac_show_in_dock` | `true` | macOS only: show Tumlo in the Dock and Cmd+Tab. `false` keeps it in the menu bar only; the menu-bar icon always stays |
 | `check_for_updates` | `true` | Ask GitHub once a day for a newer release |
-| `web_client_id` | none | Client ID of your own Spotify app, which Spotifast signs in with |
+| `web_client_id` | none | Client ID of your own Spotify app, which Tumlo signs in with |
 | `personal_app_nudge_at` | none | Legacy daily-reminder timestamp, retained for older releases |
 | `personal_app_intro_seen` | `false` | Whether the Premium personal-app introduction was dismissed or followed (available since 0.8.0) |
 | `slow_app_banner` | none | When the "Spotify is being slow" banner last appeared (`shown_at`) and how many times it was closed (`dismissals`; at 3 it stops). Kept by the app, not a preference |
@@ -418,9 +418,9 @@ spotifast [OPTIONS] [LINK]
 `--start-hidden` is what **Start with your computer > In the tray** runs at
 login. Without the tray, or with **Keep music playing when the window closes**
 off, the window opens anyway. A link, or a restart after an update, opens the
-window too. When Spotifast is already running, it stays as it is.
+window too. When Tumlo is already running, it stays as it is.
 
-A link goes to the running Spotifast when there is one, which then opens
+A link goes to the running Tumlo when there is one, which then opens
 the page and brings its window forward; otherwise the app starts on it. The
 desktop's handler for `spotify:` links runs exactly this.
 
@@ -451,7 +451,7 @@ update badge for checking its layout. `personal-app` shows the personal Spotify
 app introduction for a listener on a shared grant, and `slow-banner` the
 banner suggesting one when Spotify slows the shared app down. `audio-key-banner` shows the banner for a song
 whose audio key Spotify refused. `audio-outputs` opens the device picker with sample audio
-outputs to choose from, as Spotifast's own output lists them.
+outputs to choose from, as Tumlo's own output lists them.
 `signed-out` and `connecting` show the sign-in card, with the steps for
 setting up a Spotify app, before and while the session connects;
 `waiting-for-browser` shows it while the browser is open.
@@ -505,7 +505,7 @@ directory; the ordinary demo does not scan your real themes folder.
 ## Home shelves
 
 Since 0.8.0, you can hide **Made for you** and **Recommended for you**
-from Home independently. Quit Spotifast before editing `settings.json`, then
+from Home independently. Quit Tumlo before editing `settings.json`, then
 restart it. Add this field to hide both:
 
 ```json
@@ -526,11 +526,11 @@ songs for your account, which takes some listening, Home leaves the shelf out.
 
 ## Custom themes
 
-Since 0.11.0, Spotifast puts eight palettes in the `themes` folder beside
+Since 0.11.0, Tumlo puts eight palettes in the `themes` folder beside
 `settings.json` the first time it starts: Catppuccin, Catppuccin Latte,
 Nord, Ristretto, Rose Pine, Rose Pine Dawn, Rose Pine Moon and Tokyo
 Night. They are ordinary palette files: read them to see how a theme is
-written, change them, or delete the ones you do not want. Spotifast never
+written, change them, or delete the ones you do not want. Tumlo never
 rewrites them, and a deleted one stays deleted; `.installed-palettes` in
 the folder records which it has already put there.
 
@@ -550,10 +550,10 @@ Themes change colors and keep the app's existing fonts.
 
 While **Follow system** is selected, two more pickers appear below the Theme
 row: **Light mode theme** and **Dark mode theme**. Each starts with
-Spotifast's own **Light** or **Dark**, then lists the palettes whose `base`
+Tumlo's own **Light** or **Dark**, then lists the palettes whose `base`
 matches: only light palettes for light mode and only dark ones for dark
 mode, because the base also decides whether the standard controls are drawn
-light or dark, and they follow the system. Spotifast then shows one or the
+light or dark, and they follow the system. Tumlo then shows one or the
 other as your system switches between light and dark, while it stays open
 and without interrupting playback. Your choices are kept when you pick a
 single theme and come back when you choose Follow system again. On an
@@ -565,7 +565,7 @@ needed and opens it in your file
 manager, using the same button style as the Winamp skins folder.
 After adding or editing a JSON file on macOS or Windows, run
 `spotifast reload-themes` to refresh the list and the selected palette without
-restarting playback. Since 0.10.2, Spotifast on Linux notices changes to the
+restarting playback. Since 0.10.2, Tumlo on Linux notices changes to the
 themes folder by itself.
 Choosing a built-in theme clears the custom selection.
 Since 0.11.0, whenever the colours change (a theme picked here, Omarchy
@@ -608,7 +608,7 @@ subdirectories. Each file is limited to 64 KiB. Keep at most 128 JSON files and
 512 total entries in the themes folder; the saved selection is still checked
 when a folder exceeds these limits.
 
-Invalid files are skipped with a warning in the log. Spotifast remembers the
+Invalid files are skipped with a warning in the log. Tumlo remembers the
 last accepted custom palette in `settings.json`. If the selected file is
 removed or becomes invalid, that appearance stays in place, including after
 a restart, and the Theme row explains the problem. The same holds for the
@@ -636,7 +636,7 @@ and track later theme changes. An existing explicit Dark, Light or custom
 choice stays selected. Choose **Follow system** or **Omarchy** under
 **Settings → Appearance → Theme** to follow Omarchy instead.
 
-Since 0.10.2, portable archives and Cargo builds follow Omarchy too: Spotifast
+Since 0.10.2, portable archives and Cargo builds follow Omarchy too: Tumlo
 reads the palette Omarchy rendered for it, or renders the template itself from
 the current theme's colours, and picks up theme changes without the hook.
 
@@ -652,8 +652,8 @@ and a [theme-change hook](https://github.com/crmne/spotifast/blob/main/contrib/o
 Omarchy resolves its light/dark mode and colors through its
 [template system](https://omarchy.org/manual/making-your-own-theme/).
 The hook copies the result atomically into `themes/omarchy.json`, then asks a
-running Spotifast to reload it. It does not change your desktop theme or your
-Spotifast selection itself.
+running Tumlo to reload it. It does not change your desktop theme or your
+Tumlo selection itself.
 
 For portable or Cargo installations, install the two files from a checkout:
 
@@ -664,12 +664,12 @@ omarchy hook install theme-set contrib/omarchy/spotifast-theme
 ```
 
 Apply a theme through Omarchy's theme picker, then select **Omarchy** in
-Spotifast's **Settings → Appearance → Theme** once. Later Omarchy changes update
+Tumlo's **Settings → Appearance → Theme** once. Later Omarchy changes update
 that palette while music keeps playing. Turn off album-art tinting if every
 page should keep the theme's fixed colors.
 
 The hook uses Omarchy's current theme at
-`~/.local/state/omarchy/current/theme` and Spotifast's existing
+`~/.local/state/omarchy/current/theme` and Tumlo's existing
 `${XDG_CONFIG_HOME:-~/.config}/spotifast/themes` directory. The shipped hook
 is updated automatically if its contents have not been customized. A custom profile can set
 `SPOTIFAST_THEMES_DIR` in the installed hook; this example uses the native
@@ -677,7 +677,7 @@ is updated automatically if its contents have not been customized. A custom prof
 their own `spotifast.json` file. Missing or invalid palettes leave the last
 accepted appearance in place.
 
-To stop following Omarchy, choose Dark, Light or another custom theme in Spotifast.
+To stop following Omarchy, choose Dark, Light or another custom theme in Tumlo.
 For a manual installation, remove only
 `~/.config/omarchy/hooks/theme-set.d/spotifast-theme` and
 `~/.config/omarchy/themed/spotifast.json.tpl`. Other hooks remain in place.

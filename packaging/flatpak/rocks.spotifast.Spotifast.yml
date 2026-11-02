@@ -34,7 +34,7 @@ finish-args:
   # Platform storage for this application's Spotify grants.
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.kde.StatusNotifierWatcher
-  - --own-name=org.mpris.MediaPlayer2.spotifast
+  - --own-name=org.mpris.MediaPlayer2.tumlo
   # Older Flatpak versions leave XDG_STATE_HOME unset. Keep the fallback
   # state directory (session, history, logs, and credential markers) durable.
   - --persist=.local/state
@@ -50,9 +50,9 @@ modules:
       - cargo --offline fetch --manifest-path Cargo.toml --verbose
       - cargo --offline build --release --locked
       - install -Dm755 target/release/spotifast /app/bin/spotifast
-      - install -Dm644 packaging/applications/*.desktop /app/share/applications/rocks.spotifast.Spotifast.desktop
-      - sed -i 's/^Icon=.*$/Icon=rocks.spotifast.Spotifast/;s/^StartupWMClass=spotifast$/StartupWMClass=rocks.spotifast.Spotifast/' /app/share/applications/rocks.spotifast.Spotifast.desktop
-      - install -Dm644 packaging/icons/*.svg /app/share/icons/hicolor/scalable/apps/rocks.spotifast.Spotifast.svg
+      - install -Dm644 packaging/applications/tumlo.desktop /app/share/applications/rocks.spotifast.Spotifast.desktop
+      - sed -i.bak 's/^Icon=.*$/Icon=rocks.spotifast.Spotifast/' /app/share/applications/rocks.spotifast.Spotifast.desktop && rm /app/share/applications/rocks.spotifast.Spotifast.desktop.bak
+      - install -Dm644 packaging/icons/tumlo.svg /app/share/icons/hicolor/scalable/apps/rocks.spotifast.Spotifast.svg
       - install -Dm644 packaging/flatpak/rocks.spotifast.Spotifast.metainfo.xml /app/share/metainfo/rocks.spotifast.Spotifast.metainfo.xml
       - install -Dm644 LICENSE /app/share/licenses/spotifast/LICENSE
     sources:

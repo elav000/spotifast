@@ -1,12 +1,12 @@
 > **elav000 fork:** Jellyfin Home shows your music libraries plus Recently Added Music, Recently Played and Frequently Played shelves. Jellyfin search, album/artist/playlist browsing and original FLAC, WAV and MP3 playback are available without a Spotify account, with shared navigation, album views, track rows, queue panel, Shuffle and Repeat controls, cached artwork and a shared audio-cache policy with validated HTTP range caching. Choose Spotify or Jellyfin at sign-in; manage saved Jellyfin servers, accounts and nicknames in Settings. See [setup and implementation status](docs/_reference/jellyfin-fork.md). The download links below are for upstream releases, which do not include Jellyfin.
 
 <p align="center">
-  <img src="docs/assets/images/logo.svg" alt="Spotifast logo" width="88" height="88">
+  <img src="docs/assets/images/logo.svg" alt="Tumlo logo" width="88" height="88">
 </p>
 
-<h1 align="center">Spotifast</h1>
+<h1 align="center">Tumlo</h1>
 
-<p align="center"><strong>Spotify, native and fast.</strong><br>A lightweight music app for Linux, macOS, and Windows.</p>
+<p align="center"><strong>Music, native and fast.</strong><br>A lightweight player for Spotify and Jellyfin on Linux, macOS, and Windows.</p>
 
 <p align="center">
   <a href="https://spotifast.rocks/download/"><strong>Download</strong></a> ·
@@ -21,22 +21,23 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-1ed760" alt="MIT license"></a>
 </p>
 
-Spotifast is a Spotify client written in Rust with
+Tumlo is a native music player with Spotify and Jellyfin providers, written in Rust with
 [egui](https://www.egui.rs) and [fastframe](https://fastframe.dev), the
 framework behind a family of native desktop apps. It plays music through
-[librespot](https://github.com/librespot-org/librespot), typically uses
-100–250 MB of RAM, starts in well under a second, and has no browser engine.
+[librespot](https://github.com/librespot-org/librespot) for Spotify playback,
+typically uses 100–250 MB of RAM, starts in well under a second, and has no
+browser engine.
 
 The interface includes complete
 [translations for all supported languages](docs/_reference/translating.md#languages-and-coverage).
 
 **Spotify playback needs Spotify Premium.** Free accounts can browse and search, but
-cannot play Spotify music through Spotifast.
+cannot play Spotify music through Tumlo.
 
-![Spotifast Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
+![Tumlo Home with the playlist library, recommendations, queue, and player visible](docs/screenshot.png)
 
 <details>
-<summary><strong>Watch Spotifast in action</strong></summary>
+<summary><strong>Watch Tumlo in action</strong></summary>
 
 https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 
@@ -53,7 +54,7 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
 | **Spotify Connect** | Play on this computer or control playback on your other devices, including Google Cast speakers and groups. Cast devices appear as they are discovered; frequently and recently chosen outputs rise to the top. Remote volume keeps your chosen level while Spotify updates. |
 | **Queue** | Add songs to the queue, or choose **Play next** to put a song or selection first when playing on this computer. |
 | **Themes** | Choose light, dark, system appearance, or custom colours, with one theme for light mode and one for dark mode that switch with the system. On Omarchy, follow your desktop theme. |
-| **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings, and start Spotifast with your computer, with its window or in the tray. |
+| **Desktop controls** | Use keyboard shortcuts and media keys. Keep music playing from the tray when supported by your desktop and settings, and start Tumlo with your computer, with its window or in the tray. |
 | **Winamp mini player** | Use classic skins with an equalizer, playlist, and animated sound displays. |
 | **MilkDrop** | Watch music-reactive visuals in a separate window or full screen. See platform availability below. |
 
@@ -75,14 +76,14 @@ https://github.com/user-attachments/assets/a5f669ce-b3b7-4f8e-9933-976a78876c7e
    **Web API** ticked. Spotify requires Premium on the account that creates
    it. [Getting started](https://spotifast.rocks/getting-started/#make-a-spotify-app)
    has the steps.
-2. Paste its Client ID into Spotifast and choose **Sign in with Spotify**.
+2. Paste its Client ID into Tumlo and choose **Sign in with Spotify**.
    Approve access in your browser, then return to the app to see your library.
 3. To listen on this computer, open the device menu in the bottom player bar
    and choose **Set up playback here**, also available in Settings.
 4. Complete the separate playback approval in your browser. Your computer
-   appears as a Spotify Connect device named **Spotifast**.
+   appears as a Spotify Connect device named **Tumlo**.
 
-Library access and local playback have separate approvals. Spotifast remembers
+Library access and local playback have separate approvals. Tumlo remembers
 both using your computer's protected storage. See
 [Getting started](https://spotifast.rocks/getting-started/) for the full walkthrough
 and [How it connects](https://spotifast.rocks/how-it-connects/) for the details.
@@ -95,7 +96,7 @@ a playlist, and animated sound displays. Switch with **Ctrl+M**
 The spectrum analyser and oscilloscope also work in the collapsed title bar.
 
 <p align="center">
-  <img src="docs/assets/images/winamp.png" alt="Spotifast's Winamp mini player with the built-in skin, equalizer, and playlist" width="320">
+  <img src="docs/assets/images/winamp.png" alt="Tumlo's Winamp mini player with the built-in skin, equalizer, and playlist" width="320">
 </p>
 
 [Explore the mini player](https://spotifast.rocks/winamp/), including skins,
@@ -107,7 +108,7 @@ MilkDrop reacts to music playing on this computer, with more than 10,000
 presets downloaded on first use. Open it from the visualiser button,
 Settings, or the mini player's **V** menu.
 
-![MilkDrop visualiser displaying coloured concentric patterns in Spotifast](docs/assets/images/milkdrop-poster.jpg)
+![MilkDrop visualiser displaying coloured concentric patterns in Tumlo](docs/assets/images/milkdrop-poster.jpg)
 
 Included on **Linux**, **macOS**, and **Windows Intel/AMD** builds.
 It is not included in the Windows on ARM download.
@@ -140,13 +141,13 @@ cargo run --features demo -- --demo
 ```
 
 Translations live in `assets/i18n/`; see
-[Translating Spotifast](docs/_reference/translating.md). Release packaging
+[Translating Tumlo](docs/_reference/translating.md). Release packaging
 is described in [PACKAGING.md](PACKAGING.md).
 
 ## More native apps
 
 **Want WhatsApp just as fast and native?** [ZapFast](https://zapfast.rocks)
-is Spotifast's sibling. Both are built on
+is Tumlo's sibling. Both are built on
 [fastframe](https://fastframe.dev).
 
 ## Sonos playback
@@ -156,11 +157,11 @@ local playback first, then select the speaker in the device picker.
 
 ## Acknowledgements
 
-Spotifast uses [librespot](https://github.com/librespot-org/librespot),
+Tumlo uses [librespot](https://github.com/librespot-org/librespot),
 [egui](https://www.egui.rs), [fastframe](https://fastframe.dev), the [Inter](https://rsms.me/inter/)
 typeface (OFL), and [Lucide](https://lucide.dev) icons (ISC).
 
-Spotifast is an independent project and is not affiliated with Spotify.
+Tumlo is an independent project and is not affiliated with Spotify.
 Spotify is a trademark of Spotify AB.
 
 Licensed under the [MIT License](LICENSE).
@@ -170,7 +171,7 @@ Licensed under the [MIT License](LICENSE).
 <a href="https://www.star-history.com/?repos=crmne%2Fspotifast&amp;type=date">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date&amp;theme=dark">
-    <img alt="Spotifast GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
+    <img alt="Tumlo GitHub stars over time" src="https://api.star-history.com/chart?repos=crmne/spotifast&amp;type=date">
   </picture>
 </a>
 

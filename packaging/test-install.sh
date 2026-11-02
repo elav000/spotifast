@@ -56,10 +56,10 @@ docker run --rm \
       test -f /usr/share/doc/spotifast/README.md
     fi
     /checks/check-runtime-libs
-    test -s /usr/share/applications/spotifast.desktop
-    test -s /usr/share/icons/hicolor/scalable/apps/spotifast.svg
-    grep -qx "Icon=spotifast" /usr/share/applications/spotifast.desktop
-    grep -qx "StartupWMClass=spotifast" /usr/share/applications/spotifast.desktop
+    test -s /usr/share/applications/tumlo.desktop
+    test -s /usr/share/icons/hicolor/scalable/apps/tumlo.svg
+    grep -qx "Icon=tumlo" /usr/share/applications/tumlo.desktop
+    grep -qx "StartupWMClass=tumlo" /usr/share/applications/tumlo.desktop
     test -s /usr/share/spotifast/omarchy/spotifast.json.tpl
     test -x /usr/share/spotifast/omarchy/spotifast-theme
     test "$(cat /root/.config/spotifast/settings-fixture)" = preserve-existing-settings
@@ -69,8 +69,8 @@ docker run --rm \
       dnf remove -y spotifast
     fi
     test ! -e /usr/bin/spotifast
-    test ! -e /usr/share/applications/spotifast.desktop
-    test ! -e /usr/share/icons/hicolor/scalable/apps/spotifast.svg
+    test ! -e /usr/share/applications/tumlo.desktop
+    test ! -e /usr/share/icons/hicolor/scalable/apps/tumlo.svg
     test ! -e /usr/share/spotifast/omarchy/spotifast.json.tpl
     test ! -e /usr/share/spotifast/omarchy/spotifast-theme
     test "$(cat /root/.config/spotifast/settings-fixture)" = preserve-existing-settings

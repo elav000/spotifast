@@ -1,6 +1,6 @@
-title: Spotifast
+title: Tumlo
 spotifast_version: "0.14.2"
-description: A fast, lightweight Spotify app for Linux, macOS, and Windows.
+description: A fast, lightweight music player for Spotify and Jellyfin on Linux, macOS, and Windows.
 lang: en-US
 timezone: Europe/Berlin
 url: https://spotifast.rocks
@@ -30,12 +30,13 @@ defaults:
       layout: default
       image: /screenshot.png
       topics:
-        - Spotify client
+        - Spotify and Jellyfin music player
         - Rust
         - egui
         - fastframe
         - librespot
         - Spotify Connect
+        - Jellyfin
         - Linux music player
   - scope:
       type: guide
@@ -51,29 +52,28 @@ jekyll_vitepress:
     page_type: TechArticle
     image:
       path: /screenshot.png
-      alt: Spotifast showing a playlist with the queue open and a track playing
+      alt: Tumlo showing a playlist with the queue open and a track playing
     publisher:
-      type: Person
-      name: Carmine Paolino
-      url: https://paolino.me
+      type: Organization
+      name: Tumlo contributors
       same_as:
+        - https://github.com/elav000/spotifast
         - https://github.com/crmne/spotifast
   llms:
-    title: Spotifast
+    title: Tumlo
     description: >-
-      Documentation for a native Spotify client for Linux, macOS,
-      and Windows. It covers local playback, library access, and Spotify
-      Connect.
+      Documentation for Tumlo, a native music player for Spotify and Jellyfin
+      on Linux, macOS, and Windows.
     full: true
     details: >-
-      Covers installation, sign-in, everyday use, settings, and Spotify
-      connections. Source is on
+      Covers installation, sign-in, everyday use, settings, and both providers.
+      Source is on
       [GitHub](https://github.com/crmne/spotifast).
   branding:
-    site_title: Spotifast
+    site_title: Tumlo
     logo:
       default: /assets/images/logo.svg
-      alt: Spotifast
+      alt: Tumlo
   syntax:
     light_theme: github
     dark_theme: github.dark
@@ -81,9 +81,9 @@ jekyll_vitepress:
     enabled: true
     show_on_docs: false
     message: >-
-      Brought to you by <a href="https://paolino.me" target="_blank" rel="noreferrer">Carmine Paolino</a>, maker of
+      Tumlo is an independent fork of Spotifast, maintained by its contributors.
     copyright: >-
-      <span class="footer-brand-links"><a href="https://chatwithwork.com" class="footer-chatwithwork-link" target="_blank" rel="noreferrer"><img class="footer-chatwithwork-logo theme-image light" src="https://chatwithwork.com/logotype.svg" alt="Chat with Work"><img class="footer-chatwithwork-logo theme-image dark" src="https://chatwithwork.com/logotype-dark.svg" alt="Chat with Work"></a><a href="https://rubyllm.com" class="footer-rubyllm-link" target="_blank" rel="noreferrer"><img class="footer-rubyllm-logo theme-image light" src="https://rubyllm.com/assets/images/logotype.svg" alt="RubyLLM"><img class="footer-rubyllm-logo theme-image dark" src="https://rubyllm.com/assets/images/logotype_dark.svg" alt="RubyLLM"></a><a href="https://paolino.me/projects" target="_blank" rel="noreferrer" aria-label="More projects by Carmine Paolino">and more</a></span><br><span class="footer-built-with">Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Spotifast is an independent project, not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
+      <span class="footer-built-with">Copyright and license notices are included in the source and releases. Docs built with <a href="https://jekyll-vitepress.dev" target="_blank" rel="noreferrer">Jekyll VitePress</a>. Tumlo is not affiliated with or endorsed by Spotify AB. Spotify is a trademark of Spotify AB.</span>
   doc_footer:
     enabled: true
     previous_label: Previous page

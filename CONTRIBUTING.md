@@ -1,7 +1,7 @@
-# Contributing to Spotifast
+# Contributing to Tumlo
 
-Spotifast is a native Spotify client. Changes should improve the
-desktop app without adding a browser, fallback services, or another backend.
+Tumlo is a native music player with Spotify and Jellyfin providers. Changes
+should improve the desktop app without adding a browser or hosted backend.
 
 ## Before opening an issue
 
@@ -16,13 +16,13 @@ project.
 Some boundaries come from Spotify or from upstream libraries:
 
 - Local playback requires Spotify Premium because librespot requires it.
-- Spotify Lossless is not available through librespot. Spotifast will
+- Spotify Lossless is not available through librespot. Tumlo will
   reconsider it if librespot gains lawful upstream support; proposals that
   depend on bypassing Spotify's DRM are out of scope.
 - Spotify tracks must come from Spotify. Substituting audio from YouTube,
   Piped, `yt-dlp`, or another catalogue is out of scope.
-- Spotifast will not embed a browser engine, add telemetry, or introduce a
-  Spotifast-operated service.
+- Tumlo will not embed a browser engine, add telemetry, or introduce a
+  Tumlo-operated service.
 
 [What Spotify Lets a Client Do](docs/_reference/what-spotify-allows.md)
 lists what each of the three surfaces offers and the requests none of them
@@ -95,7 +95,7 @@ separate full-screen player.
 
 ### One look
 
-Spotifast has one appearance, tinted by the album's colours, in light and
+Tumlo has one appearance, tinted by the album's colours, in light and
 dark. It does not take alternative themes.
 
 ### Player bar buttons
@@ -117,7 +117,7 @@ until then they are collected, not promised.
 
 ### Other projects' Spotify apps
 
-Spotifast never signs in with another project's Spotify Client ID. Until
+Tumlo never signs in with another project's Spotify Client ID. Until
 0.14.2 it used ncspot's, which ncspot's developer had registered for ncspot
 alone on their own Spotify account; they closed it to other apps in October
 2026, as was their right. A Client ID belongs to whoever registered it and
@@ -126,15 +126,15 @@ pull request that adds someone else's Client ID or redirect path is closed.
 
 ### Windowing fixes
 
-Spotifast uses a winit fork shared with other apps, so a fix to how the
+Tumlo uses a winit fork shared with other apps, so a fix to how the
 operating system treats the window goes to winit upstream first, and the
-maintainer carries it in the fork. Spotifast does not patch window procedures
+maintainer carries it in the fork. Tumlo does not patch window procedures
 or other native window code itself.
 
 ## Pull requests
 
 Keep each pull request to one change. Unrelated fixes, even small ones, go in
-separate pull requests. Explain why it belongs in Spotifast,
+separate pull requests. Explain why it belongs in Tumlo,
 what changed, and how you tested it. Avoid unrelated formatting, refactors,
 generated prose, and large mechanical rewrites.
 
@@ -271,7 +271,7 @@ Translation changes also need `.github/scripts/update-translations.sh --check`,
 using GNU gettext tools with Rust support. Run the script without `--check` when
 translatable source strings change, and review any fuzzy or missing entries in
 the updated PO files. Normal Cargo builds compile the catalogs without gettext
-tools. See [Translating Spotifast](docs/_reference/translating.md) for language
+tools. See [Translating Tumlo](docs/_reference/translating.md) for language
 coverage and the contributor workflow.
 
 Documentation deployments take their canonical URL from the domain configured

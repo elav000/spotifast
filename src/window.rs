@@ -219,7 +219,7 @@ mod tests {
         let arm = no_window_dialog(
             english,
             &Trouble::new(
-                "Spotifast",
+                crate::brand::PRODUCT_NAME,
                 Cause::WindowsOnArm,
                 details,
                 Some(DOWNLOAD_PAGE),
@@ -235,13 +235,13 @@ mod tests {
         let x64 = no_window_dialog(
             english,
             &Trouble::new(
-                "Spotifast",
+                crate::brand::PRODUCT_NAME,
                 Cause::NoGraphicsDriver,
                 details,
                 Some(DOWNLOAD_PAGE),
             ),
         );
-        assert_eq!(x64.title, "Spotifast cannot open its window");
+        assert_eq!(x64.title, "Tumlo cannot open its window");
         assert_eq!(x64.link.as_deref(), Some(DOWNLOAD_PAGE));
         assert!(x64.body.contains("OpenGL 2.0"));
         assert!(x64.body.contains("virtual machine"));

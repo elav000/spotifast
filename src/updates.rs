@@ -14,9 +14,9 @@ use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
 
 pub const CONFIG: UpdateConfig = UpdateConfig {
     macos: MacConfig {
-        bundle_ids: &["rocks.spotifast.Spotifast"],
-        executable_names: &["Spotifast"],
-        legacy_bundle_names: &[],
+        bundle_ids: &["rocks.tumlo.Tumlo", "rocks.spotifast.Spotifast"],
+        executable_names: &["Tumlo", "Spotifast"],
+        legacy_bundle_names: &["Spotifast.app"],
     },
     // Releases publish an Ed25519 signature for checksums.txt. Require it
     // before downloading an update, using the release workflow's public key.
@@ -27,7 +27,7 @@ pub const CONFIG: UpdateConfig = UpdateConfig {
     appimage: true,
     ..UpdateConfig::new(
         "elav000/spotifast",
-        "Spotifast",
+        crate::brand::PRODUCT_NAME,
         "spotifast",
         env!("CARGO_PKG_VERSION"),
     )
@@ -47,6 +47,17 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.repository, "elav000/spotifast");
+        assert_eq!(CONFIG.app_name, crate::brand::PRODUCT_NAME);
+        assert_eq!(
+            CONFIG.slug, "spotifast",
+            "published asset names stay compatible"
+        );
+        assert!(CONFIG.macos.bundle_ids.contains(&"rocks.tumlo.Tumlo"));
+        assert!(CONFIG.macos.executable_names.contains(&"Tumlo"));
+        assert!(
+            CONFIG.macos.legacy_bundle_names.contains(&"Spotifast.app"),
+            "the new updater must recognize an existing Spotifast bundle"
+        );
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
     }
 

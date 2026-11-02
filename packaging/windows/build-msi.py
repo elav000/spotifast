@@ -165,7 +165,7 @@ def build(payload, package, version, arch, defines=()):
         for extension in EXTENSIONS:
             run(["wix", "extension", "add", "-g", extension])
         variables.update(
-            Version=numeric, Payload=payload, CustomActions=actions, LicenseRtf=rtf, Icon=HERE / "spotifast.ico",
+            Version=numeric, Payload=payload, CustomActions=actions, LicenseRtf=rtf, Icon=HERE / "tumlo.ico",
         )
         command = ["wix", "build", HERE / "spotifast.wxs", "-arch", wix_arch]
         for extension in EXTENSIONS:

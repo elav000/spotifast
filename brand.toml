@@ -1,0 +1,6 @@
+# Product identity. Keep display and platform identities together here so a
+# future rename has one reviewed source of truth.
+name = "Tumlo"
+slug = "tumlo"
+macos_bundle_id = "rocks.tumlo.Tumlo"
+credential_service = "rocks.tumlo.Tumlo.credentials"

@@ -5,11 +5,11 @@
 
     python packaging\windows\build-msi.py PAYLOAD dist\spotifast.msi 1.2.3 amd64
 
-  It needs no administrator rights: Spotifast goes to the user's own
-  Programs folder (%LOCALAPPDATA%\Programs\Spotifast) with a Start menu
+  It needs no administrator rights: Tumlo goes to the user's own
+  Programs folder (%LOCALAPPDATA%\Programs\Tumlo) with a Start menu
   shortcut, an optional desktop shortcut and the spotify: links, as the Inno
   Setup program (spotifast.iss) installed it. A running copy is closed before
-  an update replaces it, and uninstalling never leaves part of Spotifast
+  an update replaces it, and uninstalling never leaves part of Tumlo
   behind while it runs (running-copy.c). Uninstalling also removes what the
   updater staged in the folder; an update never does (update-leftovers.c).
 
@@ -26,10 +26,10 @@
 
   <!--
     Who the package is. Releases use these values; test-msi.py builds a
-    throwaway identity so its installs never touch a real Spotifast.
+    throwaway identity so its installs never touch a real Tumlo.
   -->
   <?ifndef Identity ?>
-    <?define Identity = "Spotifast" ?>
+    <?define Identity = "Tumlo" ?>
   <?endif?>
   <?ifndef LinkScheme ?>
     <?define LinkScheme = "spotify" ?>
@@ -46,11 +46,11 @@
     <?define InnoAppId = "{FCED1EA0-EBF5-4C32-BA3B-A3AD724BACC3}" ?>
   <?endif?>
   <?define InnoUninstallKey = "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(InnoAppId)_is1" ?>
-  <?define InstallerKey = "Software\$(Identity)\Installer" ?>
+  <?define InstallerKey = "Software\Spotifast\Installer" ?>
 
   <Package
     Name="$(Identity)"
-    Manufacturer="Carmine Paolino"
+    Manufacturer="Tumlo"
     Version="$(Version)"
     UpgradeCode="$(UpgradeCode)"
     Scope="perUser"
@@ -72,8 +72,8 @@
     <Launch Condition="Installed OR NOT WINDOWSBUILD OR WINDOWSBUILD &gt;= 10240"
       Message="[ProductName] needs Windows 10 or later." />
 
-    <Icon Id="spotifast.ico" SourceFile="$(Icon)" />
-    <Property Id="ARPPRODUCTICON" Value="spotifast.ico" />
+    <Icon Id="tumlo.ico" SourceFile="$(Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="tumlo.ico" />
     <Property Id="ARPURLINFOABOUT" Value="https://spotifast.rocks" />
     <Property Id="ARPHELPLINK" Value="https://github.com/crmne/spotifast/issues" />
     <Property Id="ARPURLUPDATEINFO" Value="https://spotifast.rocks/download/" />
@@ -97,7 +97,7 @@
     <StandardDirectory Id="DesktopFolder" />
 
     <!--
-      Where Spotifast goes, in order: the folder on the command line (the
+      Where Tumlo goes, in order: the folder on the command line (the
       updater passes the one the app runs from), the folder this package
       installed to before, the folder an Inno Setup install used, or the
       default. The two searches are what makes a hand-run package and an
@@ -159,7 +159,7 @@
         <File Id="SpotifastExe" Source="$(Payload)\spotifast.exe" KeyPath="no" />
         <File Id="Readme" Source="$(Payload)\README.md" KeyPath="no" />
         <File Id="License" Source="$(Payload)\LICENSE" KeyPath="no" />
-        <!-- Tells the updater a Windows installer put Spotifast here. -->
+        <!-- Tells the updater a Windows installer put Tumlo here. -->
         <File Id="InstallerMarker" Source="$(Payload)\spotifast-installer.txt" KeyPath="no" />
         <RegistryValue Root="HKCU" Key="$(InstallerKey)" Name="InstallFolder" Type="string"
           Value="[INSTALLFOLDER]" KeyPath="yes" />
@@ -182,7 +182,7 @@
       </Component>
 
       <Component Id="Links">
-        <!-- Spotify links reach Spotifast through its own class. -->
+        <!-- Spotify links reach Tumlo through its own class. -->
         <RegistryKey Root="HKCU" Key="Software\Classes\$(Identity).spotify" ForceDeleteOnUninstall="yes">
           <RegistryValue Type="string" Value="URL:Spotify link" />
           <RegistryValue Name="URL Protocol" Type="string" Value="" />
@@ -190,10 +190,10 @@
           <RegistryValue Key="shell\open\command" Type="string" Value='"[#SpotifastExe]" "%1"'
             KeyPath="yes" />
         </RegistryKey>
-        <!-- Settings > Apps > Default apps lists Spotifast for spotify: links. -->
+        <!-- Settings > Apps > Default apps lists Tumlo for spotify: links. -->
         <RegistryKey Root="HKCU" Key="Software\$(Identity)\Capabilities" ForceDeleteOnUninstall="yes">
           <RegistryValue Name="ApplicationName" Type="string" Value="$(Identity)" />
-          <RegistryValue Name="ApplicationDescription" Type="string" Value="A native Spotify client" />
+          <RegistryValue Name="ApplicationDescription" Type="string" Value="A native multi-provider music player" />
           <RegistryValue Key="URLAssociations" Name="$(LinkScheme)" Type="string"
             Value="$(Identity).spotify" />
         </RegistryKey>
@@ -209,7 +209,7 @@
       </Component>
 
       <!--
-        Spotify links (spotify:track:…) open in Spotifast, for this user only.
+        Spotify links (spotify:track:…) open in Tumlo, for this user only.
         The official client registers the same scheme when it is installed;
         whichever was set up last has the links, and Settings > Apps > Default
         apps can hand them to the other. Windows Installer never removes this
@@ -293,7 +293,7 @@
       so the staging folders must be gone by then. It always succeeds:
       leftovers it cannot remove never fail an uninstall. A rolled-back
       uninstall does not bring them back, and nothing needs them once
-      Spotifast is going.
+      Tumlo is going.
     -->
     <SetProperty Id="RemoveUpdateLeftovers" Value="[INSTALLFOLDER]" Before="RemoveUpdateLeftovers"
       Sequence="execute" Condition='REMOVE = "ALL" AND NOT UPGRADINGPRODUCTCODE' />

@@ -31,7 +31,7 @@
   #define InnoArch "x64compatible"
 #endif
 
-#define AppName "Spotifast"
+#define AppName "Tumlo"
 #define AppExeName "spotifast.exe"
 #define AppIdentity "Spotifast"
 
@@ -41,7 +41,7 @@ AppId={{FCED1EA0-EBF5-4C32-BA3B-A3AD724BACC3}
 AppName={#AppName}
 AppVersion={#Version}
 AppVerName={#AppName} {#Version}
-AppPublisher=Carmine Paolino
+AppPublisher=Tumlo
 AppCopyright=© 2026 Carmine Paolino
 AppPublisherURL=https://spotifast.rocks
 AppSupportURL=https://github.com/crmne/spotifast/issues
@@ -56,7 +56,7 @@ MinVersion=10.0
 LicenseFile=..\..\LICENSE
 OutputDir={#OutputDir}
 OutputBaseFilename=spotifast-v{#Version}-{#Arch}-pc-windows-msvc-setup
-SetupIconFile=spotifast.ico
+SetupIconFile=tumlo.ico
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -86,22 +86,22 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
 [Registry]
-; Spotify links (spotify:track:…) open in Spotifast. Registered for this
+; Spotify links (spotify:track:…) open in Tumlo. Registered for this
 ; user only, like the program itself. The official client registers the same
 ; scheme when it is installed; whichever was set up last has the links, and
-; Settings > Apps > Default apps can hand them to the other, where Spotifast
+; Settings > Apps > Default apps can hand them to the other, where Tumlo
 ; is listed through the capabilities below.
 Root: HKCU; Subkey: "Software\Classes\spotify"; ValueType: string; ValueName: ""; ValueData: "URL:Spotify link"
 Root: HKCU; Subkey: "Software\Classes\spotify"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\spotify\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"",0"
 Root: HKCU; Subkey: "Software\Classes\spotify\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""
-Root: HKCU; Subkey: "Software\Classes\Spotifast.spotify"; ValueType: string; ValueName: ""; ValueData: "URL:Spotify link"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\Spotifast.spotify"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\Spotifast.spotify\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"",0"
-Root: HKCU; Subkey: "Software\Classes\Spotifast.spotify\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\Tumlo.spotify"; ValueType: string; ValueName: ""; ValueData: "URL:Spotify link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Tumlo.spotify"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\Tumlo.spotify\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"",0"
+Root: HKCU; Subkey: "Software\Classes\Tumlo.spotify\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""
 Root: HKCU; Subkey: "Software\{#AppIdentity}\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\{#AppIdentity}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A native Spotify client"
-Root: HKCU; Subkey: "Software\{#AppIdentity}\Capabilities\URLAssociations"; ValueType: string; ValueName: "spotify"; ValueData: "Spotifast.spotify"
+Root: HKCU; Subkey: "Software\{#AppIdentity}\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "A native multi-provider music player"
+Root: HKCU; Subkey: "Software\{#AppIdentity}\Capabilities\URLAssociations"; ValueType: string; ValueName: "spotify"; ValueData: "Tumlo.spotify"
 Root: HKCU; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "{#AppIdentity}"; ValueData: "Software\{#AppIdentity}\Capabilities"; Flags: uninsdeletevalue
 
 [Run]
@@ -141,10 +141,10 @@ begin
       // A portable copy can have the same name. Never close it by name alone.
       if not VarIsNull(Path) then
         if CompareText(Path, Exe) = 0 then
-          Log('Closing installed Spotifast: result ' + IntToStr(Process.Terminate(0)));
+          Log('Closing installed Tumlo: result ' + IntToStr(Process.Terminate(0)));
     end;
   except
-    Log('Could not close installed Spotifast: ' + GetExceptionMessage);
+    Log('Could not close installed Tumlo: ' + GetExceptionMessage);
   end;
 end;
 
@@ -170,10 +170,10 @@ begin
     end;
     if UninstallSilent then
       Exit;
-    case SuppressibleTaskDialogMsgBox('Spotifast cannot be removed yet.',
-      'Its program file is in use or inaccessible. Quit Spotifast and retry, or close it here to continue.' + #13#10#13#10 +
-      'Close Spotifast ends the process immediately. Unsaved changes may be lost.',
-      mbError, MB_YESNOCANCEL, ['Retry', 'Close Spotifast'], 0, IDCANCEL) of
+    case SuppressibleTaskDialogMsgBox('Tumlo cannot be removed yet.',
+      'Its program file is in use or inaccessible. Quit Tumlo and retry, or close it here to continue.' + #13#10#13#10 +
+      'Close Tumlo ends the process immediately. Unsaved changes may be lost.',
+      mbError, MB_YESNOCANCEL, ['Retry', 'Close Tumlo'], 0, IDCANCEL) of
       IDYES: ;
       IDNO: begin
         CloseInstalledSpotifast;

@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 #[test]
 fn linux_tray_svg_avoids_filters_qt_rejects() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("packaging/icons/spotifast.svg");
-    let svg = fs::read_to_string(&path).expect("spotifast.svg");
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("packaging/icons/tumlo.svg");
+    let svg = fs::read_to_string(&path).expect("tumlo.svg");
     assert!(
         !svg.contains("feFuncA") && !svg.contains("<filter"),
         "Qt 6 rejects feFuncA inside feComponentTransfer; the tray then shows a checkerboard (#660)"

@@ -19,17 +19,33 @@ ROOT = Path(__file__).resolve().parent.parent
 def yaml(path):
     return json.loads(subprocess.check_output([
         "ruby", "-rjson", "-ryaml", "-e",
-        "puts JSON.generate(YAML.safe_load_file(ARGV.fetch(0), aliases: false))", str(path),
+        "puts JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0)), aliases: false))", str(path),
     ], text=True))
 
 
 def payload(root):
     (root / "packaging/applications").mkdir(parents=True)
     (root / "packaging/icons").mkdir(parents=True)
-    shutil.copyfile(ROOT / "packaging/applications/spotifast.desktop",
-                    root / "packaging/applications/spotifast.desktop")
-    shutil.copyfile(ROOT / "packaging/icons/spotifast.svg", root / "packaging/icons/spotifast.svg")
+    shutil.copyfile(ROOT / "packaging/applications/tumlo.desktop",
+                    root / "packaging/applications/tumlo.desktop")
+    shutil.copyfile(ROOT / "packaging/icons/tumlo.svg", root / "packaging/icons/tumlo.svg")
     (root / "target/release").mkdir(parents=True)
+    tools = root / "test-tools"
+    tools.mkdir()
+    install = tools / "install"
+    install.write_text("""#!/bin/sh
+case "$1" in
+  -D*)
+    mode=${1#-D}
+    shift
+    for destination do :; done
+    mkdir -p "$(dirname "$destination")"
+    exec /usr/bin/install "-$mode" "$@"
+    ;;
+  *) exec /usr/bin/install "$@" ;;
+esac
+""")
+    install.chmod(0o755)
     for name in ["spotifast", "target/release/spotifast"]:
         shutil.copyfile(shutil.which("true"), root / name)
     for name in ["LICENSE", "README.md"]:
@@ -41,6 +57,10 @@ def payload(root):
 
 
 class LauncherInstallTest(unittest.TestCase):
+    @staticmethod
+    def env(root):
+        return {**os.environ, "PATH": f"{root / 'test-tools'}:{os.environ['PATH']}"}
+
     def test_generated_aur_versions_start_at_the_requested_release(self):
         for package in ["spotifast", "spotifast-bin", "spotifast-git"]:
             with self.subTest(package=package), tempfile.TemporaryDirectory() as directory:
@@ -58,14 +78,14 @@ class LauncherInstallTest(unittest.TestCase):
         parser = configparser.ConfigParser(interpolation=None)
         parser.read(entries[0])
         entry = parser["Desktop Entry"]
-        self.assertEqual(entry["Name"], "Spotifast")
+        self.assertEqual(entry["Name"], "Tumlo")
         self.assertEqual(entry["Icon"], icon)
         self.assertEqual(entry["StartupWMClass"], window_class)
         self.assertEqual(entry["Exec"], "spotifast %u")
         self.assertIn("x-scheme-handler/spotify;", entry["MimeType"])
         icons = list((prefix / "share/icons/hicolor/scalable/apps").glob("*.svg"))
         self.assertEqual([p.name for p in icons], [icon + ".svg"])
-        self.assertEqual(icons[0].read_bytes(), (ROOT / "packaging/icons/spotifast.svg").read_bytes())
+        self.assertEqual(icons[0].read_bytes(), (ROOT / "packaging/icons/tumlo.svg").read_bytes())
         self.assertFalse((prefix / "bin/spotifast").is_symlink())
         self.assertTrue((prefix / "bin/spotifast").is_file())
         self.assertEqual([p.name for p in (prefix / "bin").iterdir()], ["spotifast"])
@@ -84,10 +104,10 @@ class LauncherInstallTest(unittest.TestCase):
                 template = ROOT / f"packaging/arch/{package}/PKGBUILD.in"
                 command = "source " + shlex.quote(str(template)) + "; pkgver=9.8.7; package"
                 subprocess.run(["bash", "-euc", command], check=True, cwd=root, env={
-                    **os.environ, "CARCH": "x86_64", "srcdir": str(root / "src"),
+                    **self.env(root / "src" / relative), "CARCH": "x86_64", "srcdir": str(root / "src"),
                     "pkgdir": str(root / "pkg"),
                 })
-                self.check_launcher(root / "pkg/usr", "spotifast", "spotifast", "spotifast")
+                self.check_launcher(root / "pkg/usr", "tumlo", "tumlo", "tumlo")
 
     def test_flatpak_install_commands_keep_app_id_and_icon_aligned(self):
         for manifest in ["rocks.spotifast.Spotifast.yml", "rocks.spotifast.Spotifast.bundle.yml"]:
@@ -100,8 +120,8 @@ class LauncherInstallTest(unittest.TestCase):
                 # the app suites; this fixture supplies the completed input.
                 commands_to_run = [c for c in commands if not c.startswith("cargo ")]
                 command = "\n".join(c.replace("/app/", str(root / "app") + "/") for c in commands_to_run)
-                subprocess.run(["bash", "-euc", command], check=True, cwd=root / "source")
-                self.check_launcher(root / "app", config["id"], config["id"], config["id"])
+                subprocess.run(["bash", "-euc", command], check=True, cwd=root / "source", env=self.env(root / "source"))
+                self.check_launcher(root / "app", config["id"], "tumlo", config["id"])
 
     def test_native_manifest_installs_the_launcher_and_icon(self):
         config = yaml(ROOT / "native-packages.yaml")
@@ -114,7 +134,7 @@ class LauncherInstallTest(unittest.TestCase):
                 pattern = entry["src"].replace("@PAYLOAD@/", "").replace("@VERSION@", "9.8.7").replace("@TARGET@", "linux-amd64")
                 files = list(root.glob(pattern))
                 self.assertEqual(len(files), 1)
-                self.assertEqual(files[0].stem, "spotifast")
+                self.assertEqual(files[0].stem, "tumlo")
                 self.assertTrue(entry["dst"].endswith("/"))
 
 

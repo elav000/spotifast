@@ -131,7 +131,7 @@ jobs:
           cp README.md LICENSE "dist/$name/"
           cp packaging/spotifast-portable.txt "dist/$name/"
           # Desktop integration for package builds and hand-installs.
-          cp --parents packaging/applications/spotifast.desktop packaging/icons/spotifast.svg "dist/$name/"
+          cp --parents packaging/applications/tumlo.desktop packaging/icons/tumlo.svg "dist/$name/"
           cp --parents contrib/omarchy/spotifast.json.tpl contrib/omarchy/spotifast-theme "dist/$name/"
           cd dist
           tar czf "$name.tar.gz" "$name"

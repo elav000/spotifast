@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
   <id>rocks.spotifast.Spotifast</id>
-  <name>Spotifast</name>
-  <summary>A native Spotify client</summary>
-  <developer id="me.paolino">
-    <name>Carmine Paolino</name>
+  <name>Tumlo</name>
+  <summary>A native music player for Spotify and Jellyfin</summary>
+  <developer id="rocks.tumlo">
+    <name>Tumlo contributors</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
     <p>
-      A Spotify client written in Rust with no browser engine. It starts
-      in well under a second, plays music on this computer, and controls other
-      Spotify Connect devices.
+      A native music player for Spotify and Jellyfin, written in Rust without
+      a browser engine. It starts in well under a second and plays music on
+      this computer.
     </p>
     <p>
-      Browse your library, search Spotify, edit playlists, manage the queue,
-      and view lyrics. It also has keyboard shortcuts, media-key support,
+      Browse and search each provider's music library, edit Spotify playlists,
+      manage the queue, and view lyrics. It also has keyboard shortcuts, media-key support,
       background playback, and a mini player for classic Winamp skins.
       Playback needs Spotify Premium.
     </p>

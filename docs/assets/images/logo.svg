@@ -1,12 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
   <defs>
-    <linearGradient id="rim" x1="0" y1="2" x2="0" y2="126" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#18c055"/><stop offset="1" stop-color="#0c8a3a"/></linearGradient>
-    <linearGradient id="face" x1="0" y1="8" x2="0" y2="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5cf095"/><stop offset="0.55" stop-color="#1ed760"/><stop offset="1" stop-color="#15b650"/></linearGradient>
-    <linearGradient id="edge" x1="0" y1="8" x2="0" y2="120" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d9ffe8"/><stop offset="0.5" stop-color="#7bf0aa" stop-opacity="0.35"/><stop offset="1" stop-color="#0a6e2e" stop-opacity="0.9"/></linearGradient>
-    <filter id="lift" color-interpolation-filters="sRGB" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="1.6"/><feOffset dy="1.6"/><feComponentTransfer><feFuncA type="linear" slope="0.35"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    <linearGradient id="shell" x1="0" y1="0" x2="0" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#454552"/><stop offset="1" stop-color="#17171f"/>
+    </linearGradient>
+    <linearGradient id="face" x1="20" y1="14" x2="98" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#252631"/><stop offset="1" stop-color="#111218"/>
+    </linearGradient>
+    <linearGradient id="button" x1="44" y1="39" x2="82" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42434e"/><stop offset="1" stop-color="#20212a"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="5" x2="0" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".42"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
   </defs>
-  <circle cx="64" cy="64" r="62" fill="url(#rim)"/>
-  <circle cx="64" cy="64" r="54.4" fill="url(#face)"/>
-  <circle cx="64" cy="64" r="55" fill="none" stroke="url(#edge)" stroke-width="1.2"/>
-  <path d="M44.2 43.5 A5 5 0 0 1 51.63 39.13 L88.53 59.63 A5 5 0 0 1 88.53 68.37 L51.63 88.87 A5 5 0 0 1 44.2 84.5 Z" fill="#0b0e0c" filter="url(#lift)"/>
+  <circle cx="64" cy="64" r="62" fill="url(#shell)"/>
+  <circle cx="64" cy="64" r="55" fill="url(#face)" stroke="#777783" stroke-opacity=".34" stroke-width="1.2"/>
+  <g opacity=".98">
+    <rect x="27" y="69" width="7" height="18" rx="3.5" fill="#ff4b5f"/>
+    <rect x="37" y="58" width="7" height="29" rx="3.5" fill="#ff8b3d"/>
+    <rect x="47" y="47" width="7" height="40" rx="3.5" fill="#ffd34e"/>
+    <rect x="57" y="54" width="7" height="33" rx="3.5" fill="#8be05d"/>
+    <rect x="67" y="43" width="7" height="44" rx="3.5" fill="#42d9b2"/>
+    <rect x="77" y="51" width="7" height="36" rx="3.5" fill="#4cafff"/>
+    <rect x="87" y="62" width="7" height="25" rx="3.5" fill="#a57bff"/>
+  </g>
+  <circle cx="64" cy="66" r="25" fill="#07080c" opacity=".5"/>
+  <circle cx="64" cy="64" r="24" fill="url(#button)" stroke="#9c9ca8" stroke-opacity=".58" stroke-width="1.2"/>
+  <path d="M17 64a47 47 0 0 1 94 0v-3a47 47 0 0 0-94 0z" fill="url(#shine)" opacity=".45"/>
+  <path d="M57 51.5a2.2 2.2 0 0 1 3.3-1.9l20.3 12.1a2.7 2.7 0 0 1 0 4.6L60.3 78.4a2.2 2.2 0 0 1-3.3-1.9z" fill="#f4f1fa"/>
 </svg>

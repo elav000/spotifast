@@ -15,7 +15,7 @@ and the song title are only in the plain window. Windows Media Player skins also
 it in their visualisation areas; see
 [Windows Media Player skins](/winamp/#windows-media-player-skins).
 
-<video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Spotifast" style="width: 100%; height: auto;">
+<video autoplay loop muted playsinline preload="metadata" poster="/assets/images/milkdrop-poster.jpg" aria-label="MilkDrop running in Tumlo" style="width: 100%; height: auto;">
   <source src="/assets/images/milkdrop.mp4" type="video/mp4">
 </video>
 
@@ -42,7 +42,7 @@ locked.
 Each visual design is called a **preset**. They change every ten seconds by
 default; choose a different interval in Settings.
 
-On first use, Spotifast automatically downloads the 550 MilkDrop 2 presets
+On first use, Tumlo automatically downloads the 550 MilkDrop 2 presets
 and the 9,800-preset Cream of the Crop pack. You can download either pack
 again from Settings. A built-in animation appears while the download starts.
 

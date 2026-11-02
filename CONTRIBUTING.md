@@ -1,8 +1,9 @@
-# Contributing to Spotifast
+# Contributing to Tumlo
 
-Spotifast is a native Spotify client. Changes should improve the
-desktop app without adding a browser or fallback audio services. Playback uses
-Spotify Soloist through guided setup, with librespot as the built-in alternative.
+Tumlo is a native music player with Spotify and Jellyfin providers. Changes
+should improve the desktop app without adding a browser or hosted backend.
+Spotify playback uses Spotify Soloist through guided setup, with librespot as
+the built-in alternative.
 
 ## Before opening an issue
 
@@ -22,8 +23,8 @@ Some boundaries come from Spotify or from upstream libraries:
   Spotify's DRM are out of scope.
 - Spotify tracks must come from Spotify. Substituting audio from YouTube,
   Piped, `yt-dlp`, or another catalogue is out of scope.
-- Spotifast will not embed a browser engine, add telemetry, or introduce a
-  Spotifast-operated service.
+- Tumlo will not embed a browser engine, add telemetry, or introduce a
+  Tumlo-operated service.
 
 [What Spotify Lets a Client Do](docs/_reference/what-spotify-allows.md)
 lists what each of the three surfaces offers and the requests none of them

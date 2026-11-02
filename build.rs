@@ -45,16 +45,38 @@ fn glew_library(lib: &std::path::Path) -> Option<&'static str> {
 fn main() {
     #[cfg(feature = "soloist-native-audio")]
     native_soloist_audio();
+    println!("cargo:rerun-if-changed=brand.toml");
+    let manifest = std::fs::read_to_string("brand.toml").expect("read brand.toml");
+    let field = |name: &str| -> String {
+        manifest
+            .lines()
+            .find_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                (key.trim() == name).then(|| value.trim().trim_matches('"').to_owned())
+            })
+            .unwrap_or_else(|| panic!("brand.toml is missing {name}"))
+    };
+    let name = field("name");
+    let slug = field("slug");
+    let bundle_id = field("macos_bundle_id");
+    let credential_service = field("credential_service");
+    assert!(credential_service.starts_with(&bundle_id));
+    let generated = format!(
+        "pub const PRODUCT_NAME: &str = {name:?};\npub const PRODUCT_SLUG: &str = {slug:?};\npub const MACOS_BUNDLE_ID: &str = {bundle_id:?};\npub const CREDENTIAL_SERVICE: &str = {credential_service:?};\n"
+    );
+    let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
+    std::fs::write(out.join("brand.rs"), generated).expect("write generated brand constants");
+
     fastframe_i18n::build::compile_catalogs("assets/i18n");
     #[cfg(windows)]
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        println!("cargo:rerun-if-changed=packaging/windows/spotifast.ico");
+        println!("cargo:rerun-if-changed=packaging/windows/tumlo.ico");
         let mut resource = winresource::WindowsResource::new();
         resource
-            .set_icon("packaging/windows/spotifast.ico")
-            .set("ProductName", "Spotifast")
+            .set_icon("packaging/windows/tumlo.ico")
+            .set("ProductName", &name)
             // Task Manager and the Windows mixer name the process by its description.
-            .set("FileDescription", "Spotifast");
+            .set("FileDescription", &name);
         if let Err(error) = resource.compile() {
             println!("cargo:warning=Windows resources not embedded: {error}");
         }

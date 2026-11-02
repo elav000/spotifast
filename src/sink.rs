@@ -1018,8 +1018,8 @@ const MEDIA_NAME: &str = "Spotify playback";
 /// once at startup, before any output is listed or opened.
 pub fn name_in_mixers() {
     let _ = fastframe_audio::set_app_info(fastframe_audio::AppInfo {
-        name: "Spotifast".to_owned(),
-        icon: Some("spotifast".to_owned()),
+        name: crate::brand::PRODUCT_NAME.to_owned(),
+        icon: Some(crate::brand::PRODUCT_SLUG.to_owned()),
     });
 }
 

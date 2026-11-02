@@ -1148,6 +1148,11 @@ pub enum Action {
         target: crate::provider::ItemReference,
         name: String,
     },
+    OpenProviderArtist {
+        artist: crate::provider::ItemReference,
+        name: String,
+        library: Option<String>,
+    },
     ProviderLibrary(crate::provider::LibraryAction),
     Jellyfin(crate::jellyfin::browser::BrowserAction),
     Open(Page),

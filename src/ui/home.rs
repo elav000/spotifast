@@ -296,7 +296,12 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if response.clicked() {
-                    app.actions.push(Action::Open(page.clone()));
+                    app.actions.push(match page {
+                        Page::Artist(id) => {
+                            crate::provider::spotify_artist_action(id, name.clone())
+                        }
+                        page => Action::Open(page.clone()),
+                    });
                 }
                 if !liked && let Some(uri) = uri {
                     egui::Popup::context_menu(&response)
@@ -803,8 +808,10 @@ fn top_artists(app: &mut App, ui: &mut egui::Ui) {
                     }
                 }
                 if card.clicked {
-                    app.actions
-                        .push(Action::Open(Page::Artist(artist.id.clone())));
+                    app.actions.push(crate::provider::spotify_artist_action(
+                        &artist.id,
+                        artist.name.clone(),
+                    ));
                 }
                 egui::Popup::context_menu(&card.response)
                     .id(ui.make_persistent_id(("home-top_artists-menu", &artist.uri)))

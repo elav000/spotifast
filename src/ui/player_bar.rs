@@ -555,7 +555,10 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 if response.clicked()
                     && let Some(id) = &artist.id
                 {
-                    app.actions.push(Action::Open(Page::Artist(id.clone())));
+                    app.actions.push(crate::provider::spotify_artist_action(
+                        id,
+                        artist.name.clone(),
+                    ));
                 }
                 responses.push(response);
             }

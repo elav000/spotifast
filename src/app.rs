@@ -12855,6 +12855,7 @@ impl App {
         }
         match action {
             Action::AddProviderPlaylist { .. } => {}
+            Action::OpenProviderArtist { .. } => {}
             Action::RenameProviderPlaylist { target, name } => {
                 if let crate::provider::ItemReference::Spotify { uri } = target
                     && let Some(Page::Playlist(id)) = Page::from_uri(&uri)
@@ -20168,6 +20169,48 @@ mod tests {
             !app.playlist_busy,
             "an old Jellyfin dialog cannot fall through to Spotify"
         );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn provider_artist_navigation_resolves_its_source_and_switches_catalogs() {
+        use crate::{
+            jellyfin::{browser::View, catalog::Query},
+            provider::{ItemReference, Provider},
+        };
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        app.apply(
+            Action::OpenProviderArtist {
+                artist: ItemReference::Jellyfin {
+                    source: source.id.clone(),
+                    account: source.user_id.clone(),
+                    item: "artist1".into(),
+                },
+                name: "Jellyfin Artist".into(),
+                library: Some("music1".into()),
+            },
+            &egui::Context::default(),
+        );
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Catalog {
+                query: Query::ArtistAlbums { ref library, ref artist },
+                ref name,
+            } if library == "music1" && artist == "artist1" && name == "Jellyfin Artist"
+        ));
+
+        app.apply(
+            Action::OpenProviderArtist {
+                artist: ItemReference::spotify_artist("spotify-id"),
+                name: "Spotify Artist".into(),
+                library: None,
+            },
+            &egui::Context::default(),
+        );
+        assert_eq!(app.jellyfin.provider, Provider::Spotify);
+        assert_eq!(app.page(), &Page::Artist("spotify-id".into()));
         app.backend.shutdown();
     }
 

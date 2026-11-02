@@ -204,6 +204,7 @@ pub enum Reply {
         request: u64,
         source: Source,
         rows: Rows,
+        context_item: Option<Item>,
         cached: bool,
     },
     CatalogError {
@@ -230,6 +231,7 @@ pub enum Reply {
     Connected(Source),
     Data {
         rows: Rows,
+        context_item: Option<Item>,
         cached: bool,
     },
     SignedOut,
@@ -528,12 +530,16 @@ impl Browser {
                         total,
                     },
                 cached,
+                context_item,
             } if request == self.catalog_generation.load(Ordering::SeqCst)
                 && self
                     .source
                     .as_ref()
                     .is_some_and(|current| current.same_identity(&source)) =>
             {
+                if let Some(item) = context_item {
+                    self.album = Some(item);
+                }
                 if start == 0 {
                     self.catalog.items.clear();
                 }
@@ -685,7 +691,14 @@ impl Browser {
                 self.browse(View::Libraries, 0, proxy);
                 self.load_playlists(proxy);
             }
-            Reply::Data { rows, cached } => {
+            Reply::Data {
+                rows,
+                context_item,
+                cached,
+            } => {
+                if let Some(item) = context_item {
+                    self.album = Some(item);
+                }
                 if !cached {
                     self.data_revision = self.data_revision.wrapping_add(1);
                 }
@@ -1720,6 +1733,46 @@ mod tests {
     }
 
     #[test]
+    fn artist_catalog_reply_restores_full_hero_metadata() {
+        let mut model = model();
+        let artist: Item = serde_json::from_value(serde_json::json!({
+            "Id": "artist1",
+            "Name": "deadmau5",
+            "Overview": "Artist biography",
+            "ImageTags": {"Primary": "artist-image"}
+        }))
+        .unwrap();
+        model.view = View::Catalog {
+            query: Query::ArtistAlbums {
+                library: "music1".into(),
+                artist: "artist1".into(),
+            },
+            name: "deadmau5".into(),
+        };
+        model.apply(
+            Reply::Data {
+                rows: Rows::Items {
+                    items: vec![],
+                    start: 0,
+                    total: 0,
+                },
+                context_item: Some(artist),
+                cached: false,
+            },
+            &ProxyConfig::Off,
+        );
+        let hero = model.album.as_ref().expect("artist hero item");
+        assert_eq!(hero.details.overview.as_deref(), Some("Artist biography"));
+        assert_eq!(
+            hero.image_tags
+                .as_ref()
+                .and_then(|tags| tags.get("Primary"))
+                .and_then(Option::as_deref),
+            Some("artist-image")
+        );
+    }
+
+    #[test]
     fn recent_history_pages_append_and_ignore_stale_account_replies() {
         let mut model = model();
         let source = model.source.clone().unwrap();
@@ -2014,6 +2067,7 @@ mod tests {
                         start: 0,
                         total: 2,
                     },
+                    context_item: None,
                     cached: false,
                 },
             })
@@ -2037,6 +2091,7 @@ mod tests {
                     start: 1,
                     total: 2,
                 },
+                context_item: None,
                 cached: true,
             },
             &ProxyConfig::Off,
@@ -2051,6 +2106,7 @@ mod tests {
                     start: 1,
                     total: 2,
                 },
+                context_item: None,
                 cached: false,
             },
             &ProxyConfig::Off,
@@ -2072,6 +2128,7 @@ mod tests {
                     start: 0,
                     total: 0,
                 },
+                context_item: None,
                 cached: false,
             },
             &ProxyConfig::Off,
@@ -2087,6 +2144,7 @@ mod tests {
                     start: 0,
                     total: 1,
                 },
+                context_item: None,
                 cached: false,
             },
             &ProxyConfig::Off,
@@ -2137,6 +2195,7 @@ mod tests {
                         start: 0,
                         total: 9000,
                     },
+                    context_item: None,
                     cached: false,
                 },
             })

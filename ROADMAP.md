@@ -63,6 +63,14 @@ servers and accounts, including nicknames, activation, removal and adding a
 connection without signing out of the current one. See the
 [completed milestone notes](docs/_reference/completed-milestones.md).
 
+The rebrand is complete for the app identity, artwork, README, About
+attribution and fork links. `brand.toml` is the source for the display name,
+macOS bundle ID and credential namespace; verified migration keeps existing
+Spotifast Spotify and Jellyfin credentials. Legacy package, executable and
+update asset names remain for compatibility. The fork has no GitHub releases,
+and release publishing or release metadata migration is out of scope unless
+the maintainer asks for one.
+
 ## Next implementation sequence
 
 Address the following Jellyfin sharp edges in order. These are review findings,
@@ -86,15 +94,6 @@ not permission for a broad abstraction rewrite.
    keeping Home library selection and per-collection browsing intact.
 
 ## Later work
-
-- **Rebrand the app across providers (in progress).** The selected name is
-  Tumlo. `brand.toml` centralizes its display name, slug, macOS bundle ID, and
-  credential-store namespace; the SVG and native icons use the spectrum and
-  play-button mark. Spotify and Jellyfin records now share the new credential
-  namespace and migrate from their legacy Spotifast services only after
-  verification. Finish remaining package metadata and release migration while
-  preserving user data, stable installer upgrades, license notices, and
-  upstream links.
 
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their

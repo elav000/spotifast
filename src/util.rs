@@ -229,8 +229,8 @@ pub fn tray_template_rgba(size: usize) -> Vec<u8> {
 /// The mark rasterised to pixels: the window icon, the trays and the logo
 /// drawn in the app (`theme::logo`) all use this one picture.
 ///
-/// It is the polished disc of `packaging/icons` at every size: a darker rim
-/// around a lit face.
+/// It is the polished, black-backed spectrum mark of `packaging/icons` at
+/// every size, with a small play glyph.
 pub fn app_icon_rgba(size: usize) -> Vec<u8> {
     mark_rgba(size, true)
 }
@@ -262,82 +262,145 @@ fn triangle_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32))
 }
 
 /// The mark on a 128-unit square, matching `packaging/icons/tumlo.svg`:
-/// rainbow spectrum bars beneath a raised play button on a dark disc.
+/// rainbow spectrum bars across a black square with a small play glyph.
 fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
     const GREEN: [f32; 3] = [30.0, 215.0, 96.0];
-    const BARS: [([f32; 3], f32); 7] = [
-        ([255.0, 75.0, 95.0], 69.0),
-        ([255.0, 139.0, 61.0], 58.0),
-        ([255.0, 211.0, 78.0], 47.0),
-        ([139.0, 224.0, 93.0], 54.0),
-        ([66.0, 217.0, 178.0], 43.0),
-        ([76.0, 175.0, 255.0], 51.0),
-        ([165.0, 123.0, 255.0], 62.0),
+    const BARS: [([f32; 3], f32); 11] = [
+        ([255.0, 75.0, 95.0], 60.0),
+        ([255.0, 139.0, 61.0], 52.0),
+        ([255.0, 211.0, 78.0], 40.0),
+        ([185.0, 232.0, 87.0], 45.0),
+        ([85.0, 223.0, 154.0], 25.0),
+        ([53.0, 216.0, 199.0], 8.0),
+        ([69.0, 190.0, 255.0], 25.0),
+        ([103.0, 140.0, 255.0], 45.0),
+        ([162.0, 123.0, 255.0], 40.0),
+        ([214.0, 111.0, 227.0], 52.0),
+        ([255.0, 102.0, 139.0], 60.0),
+    ];
+    const PUDDLE_TOPS: [f32; 11] = [
+        96.0, 95.5, 95.0, 94.5, 93.5, 92.0, 93.5, 94.5, 95.0, 95.5, 96.0,
     ];
     let mut rgba = vec![0u8; size * size * 4];
-    let unit = (size as f32 / 2.0 - 2.0) / 62.0;
+    let unit = (size as f32 / 2.0) / 64.0;
     let origin = size as f32 / 2.0 - 64.0 * unit;
     for y in 0..size {
         for x in 0..size {
             let u = (x as f32 + 0.5 - origin) / unit;
             let v = (y as f32 + 0.5 - origin) / unit;
             let distance = ((u - 64.0).powi(2) + (v - 64.0).powi(2)).sqrt();
-            let coverage = ((62.0 - distance) * unit + 0.5).clamp(0.0, 1.0);
+            let coverage = if polished {
+                1.0
+            } else {
+                ((64.0 - distance) * unit + 0.5).clamp(0.0, 1.0)
+            };
             if coverage <= 0.0 {
                 continue;
             }
-            let mut colour = if polished {
-                let shade = ((v - 2.0) / 124.0).clamp(0.0, 1.0);
-                mix([69.0, 69.0, 82.0], [23.0, 23.0, 31.0], shade)
-            } else {
-                GREEN
-            };
+            let mut colour = if polished { [5.0, 6.0, 9.0] } else { GREEN };
             if polished {
-                let inner = ((55.0 - distance) * unit + 0.5).clamp(0.0, 1.0);
-                let shade = ((v - 9.0) / 110.0).clamp(0.0, 1.0);
-                let face = mix([37.0, 38.0, 49.0], [17.0, 18.0, 24.0], shade);
-                colour = mix(colour, face, inner);
-
                 for (index, (bar_colour, top)) in BARS.iter().enumerate() {
-                    let left = 27.0 + index as f32 * 10.0;
-                    let right = left + 7.0;
+                    let left = index as f32 * 11.7;
+                    let right = left + 11.0;
                     let center_x = (left + right) / 2.0;
                     let half_x = (right - left) / 2.0;
-                    let center_y = (top + 87.0) / 2.0;
-                    let half_y = (87.0 - top) / 2.0;
-                    let radius = 3.5_f32.min(half_x);
+                    let center_y = (top + 110.0) / 2.0;
+                    let half_y = (110.0 - top) / 2.0;
+                    let radius = 5.5_f32.min(half_x);
                     let qx = (u - center_x).abs() - (half_x - radius);
                     let qy = (v - center_y).abs() - (half_y - radius);
                     let sd = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius;
-                    let bar_coverage = (0.5 - sd * unit).clamp(0.0, 1.0);
+                    let fade_start = PUDDLE_TOPS[index] - 2.0;
+                    let submerged = ((v - fade_start) / 7.0).clamp(0.0, 1.0);
+                    let bar_opacity = 1.0 - submerged;
+                    let bar_coverage = (0.5 - sd * unit).clamp(0.0, 1.0) * bar_opacity;
                     colour = mix(colour, *bar_colour, bar_coverage);
                 }
 
-                let button_distance = ((u - 64.0).powi(2) + (v - 64.0).powi(2)).sqrt();
-                let button = ((24.0 - button_distance) * unit + 0.5).clamp(0.0, 1.0);
-                let button_shade = ((v - 40.0) / 48.0).clamp(0.0, 1.0);
-                let button_colour = mix([66.0, 67.0, 78.0], [32.0, 33.0, 42.0], button_shade);
-                colour = mix(colour, [5.0, 6.0, 10.0], button * 0.22);
-                colour = mix(colour, button_colour, button);
-                let edge = (1.0 - (button_distance - 24.0).abs() / 0.9).clamp(0.0, 1.0);
-                colour = mix(colour, [156.0, 156.0, 168.0], edge * button * 0.58);
-                let triangle = triangle_distance((u, v), (58.0, 51.5), (58.0, 76.5), (79.0, 64.0));
-                let glyph = ((1.2 - triangle) * unit + 0.5).clamp(0.0, 1.0);
-                colour = mix(colour, [244.0, 241.0, 250.0], glyph);
+                let puddle_x = (u - 64.0) / 69.0;
+                let puddle_y = (v - 108.0) / 28.0;
+                let puddle_radius = puddle_x * puddle_x + puddle_y * puddle_y;
+                if puddle_radius < 1.0 {
+                    let position =
+                        (u / 128.0 * (BARS.len() - 1) as f32).clamp(0.0, (BARS.len() - 1) as f32);
+                    let lower = position.floor() as usize;
+                    let upper = (lower + 1).min(BARS.len() - 1);
+                    let puddle_colour = mix(BARS[lower].0, BARS[upper].0, position - lower as f32);
+                    let puddle_alpha = 0.42 * (1.0 - puddle_radius).powf(1.5);
+                    colour = mix(colour, puddle_colour, puddle_alpha);
+                }
+
+                if (0.0..=128.0).contains(&u) {
+                    let position = ((u - 5.5) / 11.7).clamp(0.0, (PUDDLE_TOPS.len() - 1) as f32);
+                    let segment = (position.floor() as usize).min(PUDDLE_TOPS.len() - 2);
+                    let fraction = position - segment as f32;
+                    let eased = fraction * fraction * (3.0 - 2.0 * fraction);
+                    let top =
+                        PUDDLE_TOPS[segment] * (1.0 - eased) + PUDDLE_TOPS[segment + 1] * eased;
+                    if v >= top && puddle_radius < 1.0 {
+                        let position = (u / 128.0 * (BARS.len() - 1) as f32)
+                            .clamp(0.0, (BARS.len() - 1) as f32);
+                        let lower = position.floor() as usize;
+                        let upper = (lower + 1).min(BARS.len() - 1);
+                        let puddle_colour =
+                            mix(BARS[lower].0, BARS[upper].0, position - lower as f32);
+                        let body_alpha = 0.78 * (1.0 - puddle_radius).powf(0.8);
+                        colour = mix(colour, puddle_colour, body_alpha);
+                    }
+                }
+
+                if puddle_radius < 1.0 {
+                    let pool_weight = (1.0 - puddle_radius).sqrt();
+                    let wave_one =
+                        114.0 - 3.5 * ((u - 14.0) * 0.13).sin() + 0.7 * ((u - 14.0) * 0.27).sin();
+                    let wave_one_coverage =
+                        ((1.9 - (v - wave_one).abs()) * unit + 0.5).clamp(0.0, 1.0) * pool_weight;
+                    let base_position =
+                        (u / 128.0 * BARS.len() as f32).clamp(0.0, BARS.len() as f32 - 0.001);
+                    let flow_one_position = (base_position + 3.0).rem_euclid(BARS.len() as f32);
+                    let flow_one_lower = flow_one_position.floor() as usize;
+                    let flow_one_upper = (flow_one_lower + 1) % BARS.len();
+                    let flow_one_colour = mix(
+                        BARS[flow_one_lower].0,
+                        BARS[flow_one_upper].0,
+                        flow_one_position.fract(),
+                    );
+                    colour = mix(colour, flow_one_colour, wave_one_coverage * 0.32);
+
+                    let wave_two = 117.0 + 2.5 * ((u - 14.0) * 0.13 + 1.5).sin();
+                    let wave_two_coverage =
+                        ((1.25 - (v - wave_two).abs()) * unit + 0.5).clamp(0.0, 1.0) * pool_weight;
+                    let flow_two_position = (base_position + 6.0).rem_euclid(BARS.len() as f32);
+                    let flow_two_lower = flow_two_position.floor() as usize;
+                    let flow_two_upper = (flow_two_lower + 1) % BARS.len();
+                    let flow_two_colour = mix(
+                        BARS[flow_two_lower].0,
+                        BARS[flow_two_upper].0,
+                        flow_two_position.fract(),
+                    );
+                    colour = mix(colour, flow_two_colour, wave_two_coverage * 0.26);
+                }
+
+                let shadow = triangle_distance((u, v), (56.5, 51.5), (56.5, 77.5), (80.0, 64.5));
+                let shadow_coverage = ((1.4 - shadow) * unit + 0.5).clamp(0.0, 1.0);
+                colour = mix(colour, [17.0, 18.0, 24.0], shadow_coverage);
+                let triangle = triangle_distance((u, v), (59.5, 55.5), (59.5, 73.5), (75.8, 64.5));
+                let glyph = ((1.0 - triangle) * unit + 0.5).clamp(0.0, 1.0);
+                colour = mix(colour, [248.0, 247.0, 250.0], glyph);
             } else {
                 let triangle = triangle_distance((u, v), (49.2, 43.5), (49.2, 84.5), (86.1, 64.0));
                 let glyph = ((5.0 - triangle) * unit + 0.5).clamp(0.0, 1.0);
                 colour = mix(colour, [0.0, 0.0, 0.0], glyph);
             }
-            let edge = (1.0 - (distance - 55.0).abs() / 1.0).clamp(0.0, 1.0);
-            if polished {
-                colour = mix(colour, [156.0, 156.0, 168.0], edge * 0.34);
-            }
             let index = (y * size + x) * 4;
             rgba[index] = colour[0].round() as u8;
             rgba[index + 1] = colour[1].round() as u8;
             rgba[index + 2] = colour[2].round() as u8;
-            rgba[index + 3] = (coverage * 255.0) as u8;
+            rgba[index + 3] = if polished {
+                255
+            } else {
+                (coverage * 255.0) as u8
+            };
         }
     }
     rgba
@@ -405,29 +468,33 @@ mod tests {
         ]
     }
 
-    /// The icon keeps the spectrum visible at small sizes and layers the
-    /// play control clearly above it.
+    /// The icon fills its frame with a black canvas, edge-to-edge spectrum
+    /// bars, a blended puddle and a clear foreground play glyph.
     #[test]
-    fn the_icon_has_a_spectrum_and_foreground_play_button() {
+    fn the_icon_has_a_full_bleed_spectrum_and_foreground_play_glyph() {
         let (large, small) = (app_icon_rgba(128), app_icon_rgba(32));
-        let shell = pixel(&large, 128, 64, 6);
-        let face = pixel(&large, 128, 64, 20);
-        assert!(
-            shell[0] > face[0],
-            "shell {shell:?} should frame face {face:?}"
-        );
-        let red_bar = pixel(&large, 128, 30, 78);
+        let background = pixel(&large, 128, 1, 1);
+        assert_eq!(background, [5, 6, 9, 255]);
+        let red_bar = pixel(&large, 128, 5, 70);
         assert!(
             red_bar[0] > red_bar[1] * 2,
             "spectrum bar missing: {red_bar:?}"
+        );
+        let broad_spectrum = pixel(&large, 128, 63, 40);
+        assert!(
+            broad_spectrum[1] > broad_spectrum[0] * 2,
+            "spectrum should remain visible behind the small play mark: {broad_spectrum:?}"
         );
         let play = pixel(&large, 128, 68, 64);
         assert!(
             play[0] > 220 && play[1] > 220,
             "play glyph missing: {play:?}"
         );
-        assert!(pixel(&small, 32, 17, 16)[0] > 180);
-        assert_eq!(pixel(&large, 128, 1, 1)[3], 0);
+        assert!(pixel(&small, 32, 1, 16)[0] > 180);
+        assert!(
+            pixel(&large, 128, 0, 64)[3] == 255,
+            "black background should reach the edges"
+        );
         let template = tray_template_rgba(44);
         assert_eq!(pixel(&template, 44, 24, 22)[3], 0);
         assert_eq!(pixel(&template, 44, 8, 22), [0, 0, 0, 255]);
@@ -438,29 +505,20 @@ mod tests {
         // #given the icon at a dock size and at a tray size
         let (large, small) = (app_icon_rgba(128), app_icon_rgba(32));
 
-        // #then both show the brighter outer disc around the dark face
-        let rim = pixel(&large, 128, 64, 6);
-        let face = pixel(&large, 128, 64, 20);
-        assert!(
-            rim[1] > face[1],
-            "rim {rim:?} should frame the dark face {face:?}"
-        );
+        // #then both have the black backing and near-touching edge bars
+        assert_eq!(pixel(&large, 128, 1, 1), [5, 6, 9, 255]);
+        assert!(pixel(&small, 32, 1, 16)[0] > 180);
         // #and its spectrum and play glyph remain visible at tray size
-        assert!(pixel(&small, 32, 17, 16)[0] > 180);
-        // #and the dark face fades toward the deeper bottom
         let low = pixel(&large, 128, 64, 108);
-        assert!(face[1] > low[1]);
+        assert!(low[1] > low[0]);
 
         // #and both carry the bright triangle, a little right of centre
         for (icon, size) in [(&large, 128), (&small, 32)] {
-            let centre = pixel(icon, size, size / 2 + size / 16, size / 2);
+            let centre = pixel(icon, size, size / 2 + size / 32, size / 2);
             assert!(centre[0] > 180, "triangle missing at {size}: {centre:?}");
         }
 
-        // #and the corners stay clear
-        assert_eq!(pixel(&large, 128, 1, 1)[3], 0);
-
-        // #and the menu-bar template is the disc with the triangle cut out
+        // #and the menu-bar template remains the disc with the triangle cut out
         let template = tray_template_rgba(44);
         assert_eq!(pixel(&template, 44, 24, 22)[3], 0);
         assert_eq!(pixel(&template, 44, 8, 22), [0, 0, 0, 255]);

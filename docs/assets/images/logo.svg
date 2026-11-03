@@ -42,6 +42,17 @@
     <mask id="barMask" maskUnits="userSpaceOnUse" x="0" y="0" width="128" height="128">
       <rect width="128" height="128" fill="url(#barFade)"/>
     </mask>
+    <linearGradient id="reflectionFade" x1="0" y1="92" x2="0" y2="110" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity="0"/>
+      <stop offset=".65" stop-color="white" stop-opacity=".26"/>
+      <stop offset="1" stop-color="white" stop-opacity=".46"/>
+    </linearGradient>
+    <mask id="reflectionMask" maskUnits="userSpaceOnUse" x="0" y="92" width="128" height="18">
+      <rect x="0" y="92" width="128" height="18" fill="url(#reflectionFade)"/>
+    </mask>
+    <filter id="reflectionBlur" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="1.1"/>
+    </filter>
   </defs>
   <rect width="128" height="128" fill="#050609"/>
   <g mask="url(#barMask)">
@@ -59,6 +70,21 @@
   </g>
   <ellipse cx="64" cy="108" rx="69" ry="28" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <path d="M0 98 C17 96 31 94 46 93 C59 92 69 92 82 93 C97 94 111 96 128 98 L128 128 H0Z" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
+  <g transform="translate(0 220) scale(1 -1)" mask="url(#reflectionMask)" opacity=".78" filter="url(#reflectionBlur)">
+    <g>
+      <rect x="0" y="60" width="11" height="50" rx="5.5" fill="#ff4b5f"/>
+      <rect x="11.7" y="52" width="11" height="58" rx="5.5" fill="#ff8b3d"/>
+      <rect x="23.4" y="40" width="11" height="70" rx="5.5" fill="#ffd34e"/>
+      <rect x="35.1" y="45" width="11" height="65" rx="5.5" fill="#b9e857"/>
+      <rect x="46.8" y="25" width="11" height="85" rx="5.5" fill="#55df9a"/>
+      <rect x="58.5" y="8" width="11" height="102" rx="5.5" fill="#35d8c7"/>
+      <rect x="70.2" y="25" width="11" height="85" rx="5.5" fill="#45beff"/>
+      <rect x="81.9" y="45" width="11" height="65" rx="5.5" fill="#678cff"/>
+      <rect x="93.6" y="40" width="11" height="70" rx="5.5" fill="#a27bff"/>
+      <rect x="105.3" y="52" width="11" height="58" rx="5.5" fill="#d66fe3"/>
+      <rect x="117" y="60" width="11" height="50" rx="5.5" fill="#ff668b"/>
+    </g>
+  </g>
   <g fill="none" mask="url(#puddleMask)">
     <path d="M0 114 C14 108 25 109 39 115 S55 122 64 114 S81 108 92 115 S111 121 128 113" stroke="url(#puddleFlow)" stroke-width="3.6" stroke-linecap="round" opacity=".58"/>
     <path d="M0 118 C13 120 24 115 38 113 S56 111 64 117 S83 121 96 114 S114 110 128 118" stroke="url(#puddleColors)" stroke-width="2.4" stroke-linecap="round" opacity=".48"/>

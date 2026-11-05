@@ -79,6 +79,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 jellyfin::show(app, ui);
             }
             keep_room_for_panels(app, ctx);
+            devices::popup(app, ctx);
             dialogs::show(app, ctx);
             update::show(app, ctx);
             toasts(app, ctx, theme::PLAYER_BAR_HEIGHT + 16.0);
@@ -99,6 +100,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
         player_bar::end_tint_session(ctx);
         login::show(app, ui, connecting);
+        devices::popup(app, ctx);
         update::show(app, ctx);
         toasts(app, ctx, 20.0);
         caption_buttons(ui, &app.palette, app.locale);

@@ -244,16 +244,18 @@ fn saved_output_name<'a>(saved: &'a str, devices: &'a [DeviceInfo]) -> &'a str {
 /// shown by name and saved by its id in `audio_device` (#963). Choosing one
 /// restarts local playback on it. Listed only when asked, so the popup
 /// opens at once; a saved device lists them once, for its name.
-fn output_picker(app: &mut App, ui: &mut egui::Ui) {
+fn output_picker(app: &mut App, ui: &mut egui::Ui, open_by_default: bool) {
     let palette = app.palette;
     let locale = app.locale;
-    let open_id = ui.make_persistent_id("audio-output-open");
-    let mut open = ui.data(|data| data.get_temp::<bool>(open_id).unwrap_or(false));
+    let open_id = ui.make_persistent_id(("audio-output-open", open_by_default));
+    let mut open = ui.data(|data| data.get_temp::<bool>(open_id).unwrap_or(open_by_default));
     super::widgets::menu_separator(ui, &palette);
     let system_default = gettext(locale, "System default").into_owned();
     let label = gettext(locale, "Audio output");
     let current = app.settings.audio_device.clone();
-    if current.is_some() && matches!(app.output_devices, crate::model::Loadable::NotLoaded) {
+    if (current.is_some() || open)
+        && matches!(app.output_devices, crate::model::Loadable::NotLoaded)
+    {
         app.actions.push(Action::ListOutputDevices);
     }
     let listed = app.output_devices.get().map_or(&[][..], Vec::as_slice);
@@ -377,6 +379,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
     if !app.show_devices {
         return;
     }
+    let jellyfin = app.player_device_control() == crate::provider::PlayerDeviceControl::AudioOutput;
     let palette = app.palette;
     let locale = app.locale;
     let button = ctx
@@ -398,14 +401,23 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     ui.add_space(6.0);
                     theme::text(
                         ui,
-                        gettext(locale, "Connect to a device").as_ref(),
+                        gettext(
+                            locale,
+                            if jellyfin {
+                                "Playback"
+                            } else {
+                                "Connect to a device"
+                            },
+                        )
+                        .as_ref(),
                         theme::bold(16.0),
                         palette.text,
                     );
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if app.devices_loading {
+                        if !jellyfin && app.devices_loading {
                             theme::spinner(ui, 16.0, palette.accent);
-                        } else if theme::icon_button(
+                        } else if !jellyfin
+                            && theme::icon_button(
                             ui,
                             Icon::Refresh,
                             15.0,
@@ -420,6 +432,10 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     });
                 });
                 ui.add_space(4.0);
+                if jellyfin {
+                    output_picker(app, ui, true);
+                    return;
+                }
                 let local_id = app.local_device_id.clone();
                 let soloist_id = app.soloist_device_id.clone();
                 // Offer one local destination once the managed player is
@@ -617,7 +633,7 @@ pub fn popup(app: &mut App, ctx: &egui::Context) {
                     },
                 );
                 if app.local_ready && !hide_builtin {
-                    output_picker(app, ui);
+                    output_picker(app, ui, false);
                 }
             });
         });

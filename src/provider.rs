@@ -18,6 +18,15 @@ pub enum MediaKind {
     Song,
 }
 
+/// The device control the shared player bar can render for the active
+/// playback provider. Spotify owns Connect routing; Jellyfin uses the host's
+/// local audio output.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PlayerDeviceControl {
+    SpotifyConnect,
+    AudioOutput,
+}
+
 /// Provider identities stay explicit even when the same view draws both catalogs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemReference {
@@ -143,6 +152,30 @@ impl ItemReference {
 }
 
 impl crate::app::App {
+    /// The provider currently selected for browsing and the player bar.
+    pub fn selected_provider(&self) -> Provider {
+        if self.jellyfin.enabled {
+            self.jellyfin.provider
+        } else {
+            Provider::Spotify
+        }
+    }
+
+    /// Now-playing presentation belongs to the selected provider until the
+    /// app supports a shared, mixed-provider queue.
+    pub fn selected_provider_now_playing(&self) -> Option<crate::app::NowPlaying> {
+        self.now_playing()
+            .filter(|now| now.provider == self.selected_provider())
+    }
+
+    /// Describes the device menu for the selected provider.
+    pub fn player_device_control(&self) -> PlayerDeviceControl {
+        match self.selected_provider() {
+            Provider::Spotify => PlayerDeviceControl::SpotifyConnect,
+            Provider::Jellyfin => PlayerDeviceControl::AudioOutput,
+        }
+    }
+
     pub fn provider_library(&self) -> Option<LibraryData> {
         use crate::{
             jellyfin::browser::{BrowserAction, View},

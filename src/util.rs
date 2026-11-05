@@ -266,17 +266,17 @@ fn triangle_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32))
 fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
     const GREEN: [f32; 3] = [30.0, 215.0, 96.0];
     const BARS: [([f32; 3], f32); 11] = [
-        ([255.0, 75.0, 95.0], 60.0),
-        ([255.0, 139.0, 61.0], 52.0),
-        ([255.0, 211.0, 78.0], 40.0),
-        ([185.0, 232.0, 87.0], 45.0),
-        ([85.0, 223.0, 154.0], 25.0),
-        ([53.0, 216.0, 199.0], 8.0),
-        ([69.0, 190.0, 255.0], 25.0),
-        ([103.0, 140.0, 255.0], 45.0),
-        ([162.0, 123.0, 255.0], 40.0),
-        ([214.0, 111.0, 227.0], 52.0),
-        ([255.0, 102.0, 139.0], 60.0),
+        ([255.0, 75.0, 95.0], 26.0),
+        ([255.0, 139.0, 61.0], 16.0),
+        ([255.0, 211.0, 78.0], 28.0),
+        ([185.0, 232.0, 87.0], 40.0),
+        ([85.0, 223.0, 154.0], 36.0),
+        ([53.0, 216.0, 199.0], 24.0),
+        ([69.0, 190.0, 255.0], 34.0),
+        ([103.0, 140.0, 255.0], 37.0),
+        ([162.0, 123.0, 255.0], 22.0),
+        ([214.0, 111.0, 227.0], 12.0),
+        ([255.0, 102.0, 139.0], 25.0),
     ];
     const PUDDLE_TOPS: [f32; 11] = [
         96.0, 95.5, 95.0, 94.5, 93.5, 92.0, 93.5, 94.5, 95.0, 95.5, 96.0,
@@ -570,6 +570,40 @@ mod tests {
         let template = tray_template_rgba(44);
         assert_eq!(pixel(&template, 44, 24, 22)[3], 0);
         assert_eq!(pixel(&template, 44, 8, 22), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn runtime_spectrum_matches_the_packaged_svg_bar_tops() {
+        let icon = app_icon_rgba(128);
+        let svg = include_str!("../packaging/icons/tumlo.svg");
+        let bars: Vec<_> = svg
+            .lines()
+            .filter(|line| line.contains("width=\"11\""))
+            .take(11)
+            .collect();
+        assert_eq!(bars.len(), 11);
+        for (index, bar) in bars.iter().enumerate() {
+            let top: usize = bar
+                .split(" y=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap()
+                .parse()
+                .unwrap();
+            let x = (index as f32 * 11.7 + 5.5) as usize;
+            assert_eq!(
+                pixel(&icon, 128, x, top - 2),
+                [5, 6, 9, 255],
+                "bar {index} extends above its SVG top"
+            );
+            assert_ne!(
+                pixel(&icon, 128, x, top + 6),
+                [5, 6, 9, 255],
+                "bar {index} is shorter than its SVG top"
+            );
+        }
     }
 
     #[test]

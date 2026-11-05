@@ -53,33 +53,33 @@
   </defs>
   <rect width="128" height="128" fill="#050609"/>
   <g mask="url(#barMask)">
-    <rect x="0" y="60" width="11" height="50" rx="5.5" fill="#ff4b5f"/>
-    <rect x="11.7" y="52" width="11" height="58" rx="5.5" fill="#ff8b3d"/>
-    <rect x="23.4" y="40" width="11" height="70" rx="5.5" fill="#ffd34e"/>
-    <rect x="35.1" y="45" width="11" height="65" rx="5.5" fill="#b9e857"/>
-    <rect x="46.8" y="25" width="11" height="85" rx="5.5" fill="#55df9a"/>
-    <rect x="58.5" y="8" width="11" height="102" rx="5.5" fill="#35d8c7"/>
-    <rect x="70.2" y="25" width="11" height="85" rx="5.5" fill="#45beff"/>
-    <rect x="81.9" y="45" width="11" height="65" rx="5.5" fill="#678cff"/>
-    <rect x="93.6" y="40" width="11" height="70" rx="5.5" fill="#a27bff"/>
-    <rect x="105.3" y="52" width="11" height="58" rx="5.5" fill="#d66fe3"/>
-    <rect x="117" y="60" width="11" height="50" rx="5.5" fill="#ff668b"/>
+    <rect x="0" y="20" width="11" height="90" rx="5.5" fill="#ff4b5f"/>
+    <rect x="11.7" y="8" width="11" height="102" rx="5.5" fill="#ff8b3d"/>
+    <rect x="23.4" y="28" width="11" height="82" rx="5.5" fill="#ffd34e"/>
+    <rect x="35.1" y="40" width="11" height="70" rx="5.5" fill="#b9e857"/>
+    <rect x="46.8" y="46" width="11" height="64" rx="5.5" fill="#55df9a"/>
+    <rect x="58.5" y="34" width="11" height="76" rx="5.5" fill="#35d8c7"/>
+    <rect x="70.2" y="44" width="11" height="66" rx="5.5" fill="#45beff"/>
+    <rect x="81.9" y="37" width="11" height="73" rx="5.5" fill="#678cff"/>
+    <rect x="93.6" y="22" width="11" height="88" rx="5.5" fill="#a27bff"/>
+    <rect x="105.3" y="12" width="11" height="98" rx="5.5" fill="#d66fe3"/>
+    <rect x="117" y="25" width="11" height="85" rx="5.5" fill="#ff668b"/>
   </g>
   <ellipse cx="64" cy="108" rx="69" ry="28" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <path d="M0 98 C17 96 31 94 46 93 C59 92 69 92 82 93 C97 94 111 96 128 98 L128 128 H0Z" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <g transform="translate(0 220) scale(1 -1)" mask="url(#reflectionMask)" opacity=".78">
     <g>
-      <rect x="0" y="60" width="11" height="50" rx="5.5" fill="#ff4b5f"/>
-      <rect x="11.7" y="52" width="11" height="58" rx="5.5" fill="#ff8b3d"/>
-      <rect x="23.4" y="40" width="11" height="70" rx="5.5" fill="#ffd34e"/>
-      <rect x="35.1" y="45" width="11" height="65" rx="5.5" fill="#b9e857"/>
-      <rect x="46.8" y="25" width="11" height="85" rx="5.5" fill="#55df9a"/>
-      <rect x="58.5" y="8" width="11" height="102" rx="5.5" fill="#35d8c7"/>
-      <rect x="70.2" y="25" width="11" height="85" rx="5.5" fill="#45beff"/>
-      <rect x="81.9" y="45" width="11" height="65" rx="5.5" fill="#678cff"/>
-      <rect x="93.6" y="40" width="11" height="70" rx="5.5" fill="#a27bff"/>
-      <rect x="105.3" y="52" width="11" height="58" rx="5.5" fill="#d66fe3"/>
-      <rect x="117" y="60" width="11" height="50" rx="5.5" fill="#ff668b"/>
+      <rect x="0" y="20" width="11" height="90" rx="5.5" fill="#ff4b5f"/>
+      <rect x="11.7" y="8" width="11" height="102" rx="5.5" fill="#ff8b3d"/>
+      <rect x="23.4" y="28" width="11" height="82" rx="5.5" fill="#ffd34e"/>
+      <rect x="35.1" y="40" width="11" height="70" rx="5.5" fill="#b9e857"/>
+      <rect x="46.8" y="46" width="11" height="64" rx="5.5" fill="#55df9a"/>
+      <rect x="58.5" y="34" width="11" height="76" rx="5.5" fill="#35d8c7"/>
+      <rect x="70.2" y="44" width="11" height="66" rx="5.5" fill="#45beff"/>
+      <rect x="81.9" y="37" width="11" height="73" rx="5.5" fill="#678cff"/>
+      <rect x="93.6" y="22" width="11" height="88" rx="5.5" fill="#a27bff"/>
+      <rect x="105.3" y="12" width="11" height="98" rx="5.5" fill="#d66fe3"/>
+      <rect x="117" y="25" width="11" height="85" rx="5.5" fill="#ff668b"/>
     </g>
   </g>
   <g fill="none" mask="url(#puddleMask)">

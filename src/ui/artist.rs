@@ -4,12 +4,11 @@ use std::sync::Arc;
 
 use crate::api::models::{Artist, PlayableItem, pick_image};
 use crate::app::App;
-use crate::i18n::{gettext, ngettext, pgettext};
+use crate::i18n::gettext;
 use crate::model::{Action, DiscographyFilter, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
-use crate::util;
 
-use super::collection::{Hero, HeroArt, hero, hero_images};
+use super::collection::{HeroArt, detail_hero, hero_images};
 use super::widgets::{self, TrackRow};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
@@ -194,18 +193,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
                         theme::subtle(ui, &palette, &gettext(locale, "Nothing in this category."));
                     } else if list.can_load_more() {
                         ui.add_space(8.0);
-                        if theme::soft_button(
+                        widgets::detail_pagination(
                             ui,
-                            &palette,
-                            None,
-                            &gettext(locale, "Load more"),
-                            false,
-                        )
-                        .clicked()
-                        {
-                            app.actions
-                                .push(Action::LoadMoreArtistAlbums(id.to_string()));
-                        }
+                            app,
+                            crate::provider::spotify_artist_pagination(id),
+                        );
                     }
                 }
                 None => widgets::grid(ui, |ui| {
@@ -324,112 +316,29 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, id: &str) {
 }
 
 fn artist_hero(app: &mut App, ui: &mut egui::Ui, artist: &Artist, preview: Option<&Artist>) {
-    let locale = app.locale;
-    let mut byline = Vec::new();
-    if let Some(followers) = &artist.followers {
-        byline.push((
-            ngettext(
-                locale,
-                // Translators: {count} is the number of people who follow an artist.
-                "{count} follower",
-                "{count} followers",
-                u32::try_from(followers.total).unwrap_or(u32::MAX),
-            )
-            .replace("{count}", &util::format_count(followers.total)),
-            None,
-        ));
-    }
-    if !artist.genres.is_empty() {
-        byline.push((
-            artist
-                .genres
-                .iter()
-                .take(3)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(", "),
-            None,
-        ));
-    }
+    let header = app.spotify_artist_header(artist);
     let images = hero_images(
         &artist.images,
         preview.map(|artist| artist.images.as_slice()),
         false,
         HeroArt::of(app),
     );
-    hero(
-        app,
-        ui,
-        Hero {
-            images,
-            liked: false,
-            kind: gettext(locale, "Artist"),
-            title: &artist.name,
-            description: None,
-            byline,
-            byline_tooltip: None,
-            avatar: None,
-            round: true,
-        },
-    );
+    detail_hero(app, ui, &header, images);
 }
 
 fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
-    let palette = app.palette;
-    let locale = app.locale;
-    let following = app.is_saved(&artist.uri).unwrap_or(false);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 18.0;
-        if app.play_pending(&artist.uri) {
-            theme::circle_spinner(
-                ui,
-                56.0,
-                palette.accent,
-                palette.on_accent,
-                &gettext(locale, "Starting…"),
-            );
-        } else if theme::circle_button(
-            ui,
-            Icon::PlayFilled,
-            56.0,
-            palette.accent,
-            palette.accent_hover,
-            palette.on_accent,
-            &gettext(locale, "Play"),
-        )
-        .clicked()
-        {
-            app.actions.push(Action::PlayContext {
-                uri: artist.uri.clone(),
-                offset_uri: None,
-                offset_index: None,
-            });
-        }
-        if theme::pill_button(
-            ui,
-            &palette,
-            &if following {
-                pgettext(locale, "artist", "Following")
-            } else {
-                pgettext(locale, "artist", "Follow")
-            },
-            false,
-        )
-        .clicked()
-        {
-            app.actions.push(Action::ToggleSaved(artist.uri.clone()));
-        }
+    let controls = app.spotify_artist_controls(artist);
+    super::collection::detail_controls(app, ui, controls, |app, ui| {
         let more = theme::icon_button(
             ui,
             Icon::Ellipsis,
             26.0,
-            palette.secondary,
-            palette.text,
-            &gettext(locale, "More"),
+            app.palette.secondary,
+            app.palette.text,
+            &gettext(app.locale, "More"),
         );
         egui::Popup::menu(&more)
-            .frame(widgets::menu_frame(&palette))
+            .frame(widgets::menu_frame(&app.palette))
             .show(|ui| widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None));
     });
-    ui.add_space(20.0);
 }

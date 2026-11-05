@@ -1,11 +1,10 @@
 //! Playback-owned presentation for the existing queue panel and page. Browsing
 //! selection never chooses which provider's queue or history the panel shows.
-use super::{ItemReference, Provider, TrackPresentation};
+use super::{ItemReference, Provider, ProviderRowActions, TrackPresentation};
 use crate::{
     api::models::PlayableItem,
     app::App,
     model::{Action, Loadable},
-    ui::widgets::ProviderRowActions,
 };
 use std::sync::Arc;
 

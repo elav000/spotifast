@@ -409,13 +409,51 @@ pub fn virtual_wrapped_cards(
 
 /// Asks for the next page when the user scrolls near the end of a list.
 pub fn load_more_when_near_end(ui: &Ui, app: &mut App, page: Page, can_load: bool) {
-    if !can_load {
-        return;
-    }
+    load_action_when_near_end(ui, app, can_load.then_some(Action::LoadMore(page)));
+}
+
+pub fn load_action_when_near_end(ui: &Ui, app: &mut App, action: Option<Action>) {
     let clip = ui.clip_rect();
     let cursor = ui.cursor().top();
-    if cursor - clip.bottom() < 900.0 {
-        app.actions.push(Action::LoadMore(page));
+    if cursor - clip.bottom() < 900.0
+        && let Some(action) = action
+    {
+        app.actions.push(action);
+    }
+}
+
+pub fn load_more_button(
+    ui: &mut Ui,
+    palette: &crate::theme::Palette,
+    locale: crate::i18n::Locale,
+) -> bool {
+    theme::soft_button(ui, palette, None, &gettext(locale, "Load more"), false).clicked()
+}
+
+pub fn detail_pagination(
+    ui: &mut Ui,
+    app: &mut App,
+    pagination: crate::provider::DetailPagination,
+) {
+    if pagination.retry {
+        if let Some(action) = pagination.next
+            && ui.button(gettext(app.locale, "Retry")).clicked()
+        {
+            app.actions.push(action);
+        }
+        return;
+    }
+    match pagination.mode {
+        crate::provider::DetailLoadMode::Scroll => {
+            load_action_when_near_end(ui, app, pagination.next)
+        }
+        crate::provider::DetailLoadMode::Button => {
+            if let Some(action) = pagination.next
+                && load_more_button(ui, &app.palette, app.locale)
+            {
+                app.actions.push(action);
+            }
+        }
     }
 }
 
@@ -1459,27 +1497,7 @@ fn columns(width: f32, row: &TrackRow<'_>) -> Columns {
     }
 }
 
-/// Provider-supplied actions for the same track-row presentation. Service
-/// menus, saved-song requests and Spotify drag payloads are absent in this mode.
-pub struct ProviderRowActions {
-    pub navigation: Vec<(String, Action)>,
-    pub artist_navigation: Vec<(String, Action)>,
-    pub provider: crate::provider::Provider,
-    pub play: Action,
-    pub enqueue: Option<Action>,
-    pub queue_label: String,
-    pub can_enqueue: bool,
-    pub queue_drag: Option<crate::model::ProviderQueueDrag>,
-    pub current: bool,
-    pub playing: bool,
-    pub loading: bool,
-    pub menu: Vec<(String, Action)>,
-    pub playlists: std::sync::Arc<Vec<(crate::provider::ItemReference, String)>>,
-    pub playlist_item: crate::provider::ItemReference,
-    pub playlist_loading: bool,
-    pub playlist_error: Option<String>,
-    pub create_playlist: Option<Action>,
-}
+pub use crate::provider::ProviderRowActions;
 
 pub fn provider_track_row(
     ui: &mut Ui,

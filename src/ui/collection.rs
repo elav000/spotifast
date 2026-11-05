@@ -29,7 +29,7 @@ pub(super) struct Hero<'a> {
     pub kind: Cow<'a, str>,
     pub title: &'a str,
     pub description: Option<String>,
-    pub byline: Vec<(String, Option<Page>)>,
+    pub byline: Vec<(String, Option<Action>)>,
     /// A tooltip for the byline entry at an index
     pub byline_tooltip: Option<(usize, String)>,
     /// The owner's picture, drawn before the byline's first entry. A hero
@@ -231,16 +231,16 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
                         Some(&art),
                     );
                 }
-                for (index, (text, page)) in hero.byline.iter().enumerate() {
+                for (index, (text, action)) in hero.byline.iter().enumerate() {
                     if index > 0 {
                         theme::text(ui, "•", theme::regular(13.5), palette.secondary);
                     }
-                    let response = match page {
-                        Some(page) => {
+                    let response = match action {
+                        Some(action) => {
                             let response =
                                 theme::link(ui, text, theme::semibold(13.5), palette.text);
                             if response.clicked() {
-                                app.actions.push(Action::Open(page.clone()));
+                                app.actions.push(action.clone());
                             }
                             response
                         }
@@ -256,6 +256,128 @@ pub(super) fn hero(app: &mut App, ui: &mut egui::Ui, hero: Hero<'_>) {
         });
     });
     ui.add_space(20.0);
+}
+
+pub(super) fn detail_hero(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    header: &crate::provider::detail::ProviderDetailHeader,
+    images: HeroImages<'_>,
+) {
+    let mut byline: Vec<_> = header
+        .artists
+        .iter()
+        .filter(|(text, _)| !text.is_empty())
+        .cloned()
+        .collect();
+    let mut tooltip = None;
+    if let Some((year, date)) = &header.year {
+        tooltip = date.as_ref().map(|date| (byline.len(), date.clone()));
+        byline.push((year.clone(), None));
+    }
+    if let Some((count, duration)) = header.songs {
+        byline.push((
+            duration.map_or_else(
+                || song_count(app.locale, count),
+                |duration| songs_and_duration(app.locale, count, duration),
+            ),
+            None,
+        ));
+    }
+    if let Some(origin) = &header.origin {
+        byline.push((origin.clone(), None));
+    }
+    hero(
+        app,
+        ui,
+        Hero {
+            images,
+            liked: false,
+            kind: Cow::Borrowed(&header.kind),
+            title: &header.title,
+            description: header.description.clone(),
+            byline,
+            byline_tooltip: tooltip,
+            avatar: None,
+            round: header.round,
+        },
+    );
+}
+
+pub(super) fn detail_controls(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    controls: crate::provider::detail::DetailControls,
+    extra: impl FnOnce(&mut App, &mut egui::Ui),
+) {
+    let palette = app.palette;
+    let compact = controls.compact;
+    ui.horizontal(|ui| {
+        if !compact {
+            ui.spacing_mut().item_spacing.x = 18.0;
+        }
+        if let Some(primary) = controls.primary {
+            detail_primary_button(app, ui, primary);
+        }
+        for button in controls.buttons {
+            let clicked = if compact {
+                ui.button(&button.label).clicked()
+            } else {
+                theme::pill_button(ui, &palette, &button.label, false).clicked()
+            };
+            if clicked {
+                app.actions.push(button.action);
+            }
+        }
+        extra(app, ui);
+    });
+    if !compact {
+        ui.add_space(20.0);
+    }
+}
+
+fn detail_primary_button(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    primary: crate::provider::detail::DetailPrimaryAction,
+) {
+    let palette = app.palette;
+    if primary.pending {
+        theme::circle_spinner(
+            ui,
+            56.0,
+            palette.accent,
+            palette.on_accent,
+            &gettext(app.locale, "Starting…"),
+        );
+        return;
+    }
+    let icon = if primary.playing {
+        Icon::PauseFilled
+    } else {
+        Icon::PlayFilled
+    };
+    let mut response = ui
+        .add_enabled_ui(primary.action.is_some(), |ui| {
+            theme::circle_button(
+                ui,
+                icon,
+                56.0,
+                palette.accent,
+                palette.accent_hover,
+                palette.on_accent,
+                &primary.label,
+            )
+        })
+        .inner;
+    if let Some(reason) = &primary.disabled_reason {
+        response = response.on_disabled_hover_text(reason);
+    }
+    if response.clicked()
+        && let Some(action) = primary.action
+    {
+        app.actions.push(action);
+    }
 }
 
 pub struct Actions<'a> {
@@ -290,76 +412,15 @@ pub fn actions_row(
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 18.0;
         if let Some(uri) = &actions.play_uri {
-            let context_here = app.playing_context_uri().as_deref() == Some(uri.as_str());
-            let now_playing_here = context_here && app.believed_playing();
-            let is_filtered = filter.as_ref().is_some_and(|f| !f.trim().is_empty());
-            // A radio is mixed afresh each time Spotify is asked, so it
-            // always plays the songs on screen.
-            let play_view = actions.view.is_some()
-                && (!app.playing_context_shuffle()
-                    || is_filtered
-                    || actions.save_radio.is_some()
-                    || actions.plays_shown_rows);
-            let can_start = actions.view.as_ref().is_none_or(|uris| !uris.is_empty());
-            let icon = if now_playing_here {
-                Icon::PauseFilled
-            } else {
-                Icon::PlayFilled
-            };
-            if app.play_pending(uri) {
-                theme::circle_spinner(
-                    ui,
-                    56.0,
-                    palette.accent,
-                    palette.on_accent,
-                    &gettext(locale, "Starting…"),
-                );
-            } else if ui
-                .add_enabled_ui(context_here || can_start, |ui| {
-                    theme::circle_button(
-                        ui,
-                        icon,
-                        56.0,
-                        palette.accent,
-                        palette.accent_hover,
-                        palette.on_accent,
-                        &if now_playing_here {
-                            gettext(locale, "Pause")
-                        } else {
-                            gettext(locale, "Play")
-                        },
-                    )
-                })
-                .inner
-                .on_disabled_hover_text(gettext(locale, "No playable songs in this view").as_ref())
-                .clicked()
-            {
-                // The context this page belongs to resumes where it was,
-                // paused or playing; only another context starts over.
-                if context_here {
-                    app.actions.push(Action::TogglePlay);
-                } else if let Some(uris) = actions.view.clone()
-                    && play_view
-                {
-                    app.actions.push(Action::PlayFromRow {
-                        context: RowContext::View {
-                            uris: Arc::clone(&uris),
-                            context_uri: uri.clone(),
-                            // Header playback needs no edit rights; row
-                            // menus carry theirs via the table conversion.
-                            editable_playlist: None,
-                        },
-                        uri: String::new(),
-                        index: 0,
-                    });
-                } else {
-                    app.actions.push(Action::PlayContext {
-                        uri: uri.clone(),
-                        offset_uri: None,
-                        offset_index: None,
-                    });
-                }
-            }
+            let filtered = filter.as_ref().is_some_and(|text| !text.trim().is_empty());
+            let primary = app.spotify_context_primary(
+                uri,
+                actions.view.clone(),
+                filtered,
+                actions.save_radio.is_some(),
+                actions.plays_shown_rows,
+            );
+            detail_primary_button(app, ui, primary);
             let shuffle = app.playing_context_shuffle();
             if theme::icon_button(
                 ui,
@@ -2135,7 +2196,7 @@ fn playlist_hero<'a>(
     ui: &mut egui::Ui,
     playlist: &'a Playlist,
     images: HeroImages<'a>,
-    byline: Vec<(String, Option<Page>)>,
+    byline: Vec<(String, Option<Action>)>,
     collaborative: bool,
 ) {
     // The slot always shows: the official app draws the placeholder circle
@@ -2262,57 +2323,14 @@ fn album_hero(
     tracks: &PagedList<crate::api::models::Track>,
     preview: Option<&Album>,
 ) {
-    let mut byline: Vec<(String, Option<Page>)> = album
-        .artists
-        .iter()
-        .map(|artist| (artist.name.clone(), artist.id.clone().map(Page::Artist)))
-        .collect();
-    let mut byline_tooltip = None;
-    if let Some(year) = album.year() {
-        // Populate tooltip: If we know the full release
-        // date, YYYY-MM-DD (10 chars/bytes), show formatted date,
-        // otherwise just show year.
-        let date = album
-            .release_date
-            .as_deref()
-            .filter(|date| date.len() >= 10)
-            .unwrap_or(year);
-        byline_tooltip = Some((byline.len(), util::format_date(app.locale, date)));
-        byline.push((year.to_string(), None));
-    }
-    let count = album.total_tracks.unwrap_or(tracks.items.len() as u32);
-    let duration: u64 = tracks
-        .items
-        .iter()
-        .map(|track| track.duration_ms as u64)
-        .sum();
-    let count_text = if tracks.is_complete() {
-        songs_and_duration(app.locale, count, duration)
-    } else {
-        song_count(app.locale, count)
-    };
-    byline.push((count_text, None));
+    let header = app.spotify_album_header(album, tracks);
     let images = hero_images(
         &album.images,
         preview.map(|album| album.images.as_slice()),
         true,
         HeroArt::of(app),
     );
-    hero(
-        app,
-        ui,
-        Hero {
-            images,
-            liked: false,
-            kind: app.album_kind_label(album),
-            title: &album.name,
-            description: None,
-            byline,
-            byline_tooltip,
-            avatar: None,
-            round: false,
-        },
-    );
+    detail_hero(app, ui, &header, images);
 }
 
 fn liked_row(saved: &crate::api::models::SavedTrack) -> TableItem {
@@ -2656,266 +2674,28 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
         View::Albums { name, .. } | View::Tracks { name, .. } | View::Catalog { name, .. } => name,
         _ => "Library",
     };
-    let item = app.jellyfin.album.clone().or_else(|| {
-        if matches!(view, View::Tracks { .. }) {
-            match &rows {
-                Some(Rows::Items { items, .. }) => items.first().cloned(),
-                _ => None,
-            }
-        } else {
-            None
-        }
-    });
-    if view.context_id().is_some() {
-        let artwork = item
-            .as_ref()
-            .and_then(|item| crate::jellyfin::artwork::Reference::for_item(&source, item))
-            .map(|art| art.uri());
-        let artist = matches!(
-            view,
-            View::Catalog {
-                query: Query::ArtistAlbums { .. } | Query::ArtistSongs { .. },
-                ..
-            }
-        );
-        let kind = if artist {
-            "Artist"
-        } else if matches!(
-            view,
-            View::Catalog {
-                query: Query::PlaylistSongs { .. },
-                ..
-            }
-        ) {
-            "Playlist"
-        } else {
-            "Album"
+    if let Some(header) = app.provider_detail_header() {
+        let images = HeroImages {
+            image: header.artwork.as_deref(),
+            ..Default::default()
         };
-        let artist_items = item
-            .as_ref()
-            .map(|item| item.artist_items.as_slice())
-            .filter(|artists| !artists.is_empty())
-            .or_else(|| {
-                rows.as_ref().and_then(|rows| match rows {
-                    Rows::Items { items, .. } => items
-                        .iter()
-                        .find(|item| !item.artist_items.is_empty())
-                        .map(|item| item.artist_items.as_slice()),
-                    _ => None,
-                })
-            });
-        let artist_names = if matches!(view, View::Tracks { .. }) && artist_items.is_some() {
-            String::new()
-        } else {
-            item.as_ref()
-                .map(|item| item.artists.join(", "))
-                .unwrap_or_default()
-        };
-        let mut byline: Vec<(String, Option<Page>)> = vec![(artist_names, None)];
-        if matches!(view, View::Tracks { .. }) {
-            if let Some(year) = item.as_ref().and_then(|item| {
-                item.details
-                    .production_year
-                    .filter(|year| *year > 0)
-                    .or_else(|| {
-                        item.details
-                            .premiere_date
-                            .as_deref()
-                            .and_then(|date| date.get(..4))
-                            .and_then(|year| year.parse::<u32>().ok())
-                            .filter(|year| *year > 0)
-                    })
-            }) {
-                byline.push((year.to_string(), None));
-            }
-            if let Some(Rows::Items {
-                items,
-                start: 0,
-                total,
-            }) = &rows
-            {
-                let count = if items.len() == *total as usize {
-                    let duration = items
-                        .iter()
-                        .try_fold(0_u64, |total, item| total.checked_add(item.duration_ms()?));
-                    duration.map_or_else(
-                        || song_count(app.locale, *total),
-                        |duration| songs_and_duration(app.locale, *total, duration),
-                    )
-                } else {
-                    song_count(app.locale, *total)
-                };
-                byline.push((count, None));
-            }
-        }
-        byline.push(("Jellyfin".into(), None));
-        byline.retain(|(text, _)| !text.is_empty());
-        hero(
-            app,
-            ui,
-            Hero {
-                images: HeroImages {
-                    image: artwork.as_deref(),
-                    ..Default::default()
-                },
-                liked: false,
-                kind: kind.into(),
-                title,
-                description: item.as_ref().and_then(|item| item.details.overview.clone()),
-                byline,
-                byline_tooltip: None,
-                avatar: None,
-                round: artist,
-            },
-        );
-        // Audio items carry artist names for display and linked ArtistItems
-        // for navigation. Keep the existing byline appearance while making
-        // those names open the matching Jellyfin artist page.
-        if matches!(view, View::Tracks { .. })
-            && let Some(artist_items) = artist_items
-        {
-            let library = app
-                .jellyfin
-                .catalog
-                .library
-                .as_ref()
-                .map(|library| library.id.clone())
-                .unwrap_or_default();
-            ui.horizontal_wrapped(|ui| {
-                for artist in artist_items {
-                    let name = artist.name.as_deref().unwrap_or("Artist");
-                    if ui.link(name).clicked() {
-                        app.actions.push(Action::OpenProviderArtist {
-                            artist: crate::provider::ItemReference::Jellyfin {
-                                source: source.id.clone(),
-                                account: source.user_id.clone(),
-                                item: artist.id.clone(),
-                            },
-                            name: name.to_owned(),
-                            library: Some(library.clone()),
-                        });
-                    }
-                }
-            });
-        }
+        detail_hero(app, ui, &header, images);
     } else {
         theme::text(ui, title, theme::bold(28.0), app.palette.text);
         ui.add_space(14.0);
     }
-    ui.horizontal(|ui| {
-        if view.is_tracks()
-            && let Some(Rows::Items {
-                items, start: 0, ..
-            }) = &rows
-        {
-            ui.add_enabled_ui(!items.is_empty(), |ui| {
-                if theme::circle_button(
-                    ui,
-                    Icon::PlayFilled,
-                    56.0,
-                    app.palette.accent,
-                    app.palette.accent_hover,
-                    app.palette.on_accent,
-                    if matches!(view, View::Tracks { .. }) {
-                        "Play album"
-                    } else {
-                        "Play"
-                    },
-                )
-                .clicked()
-                    && let Some(first) = items.first()
-                {
-                    let action = if matches!(view, View::Tracks { .. }) {
-                        A::Play(first.id.clone())
-                    } else {
-                        A::PlayItem {
-                            source: source.clone(),
-                            item: Box::new(first.clone()),
-                            context: view.context_id().unwrap_or("tracks").into(),
-                            query: view.track_query().cloned(),
-                            index: Some(0),
-                        }
-                    };
-                    app.actions.push(Action::Jellyfin(action));
-                }
-            });
-        }
-        if let View::Catalog {
-            query: Query::ArtistAlbums { library, artist },
-            name,
-        } = &view
-            && theme::circle_button(
-                ui,
-                Icon::PlayFilled,
-                56.0,
-                app.palette.accent,
-                app.palette.accent_hover,
-                app.palette.on_accent,
-                "Play artist",
-            )
-            .clicked()
-        {
-            app.actions
-                .push(Action::Jellyfin(A::PlayAlbum(View::Catalog {
-                    query: Query::ArtistSongs {
-                        library: library.clone(),
-                        artist: artist.clone(),
-                    },
-                    name: name.clone(),
-                })));
-        }
-        if let View::Catalog {
-            query: Query::ArtistAlbums { library, artist },
-            name,
-        } = &view
-            && ui.button("Songs").clicked()
-        {
-            app.actions.push(Action::Jellyfin(A::Browse {
-                view: View::Catalog {
-                    query: Query::ArtistSongs {
-                        library: library.clone(),
-                        artist: artist.clone(),
-                    },
-                    name: name.clone(),
-                },
-                start: 0,
-            }));
-        }
-        if let View::Catalog {
-            query: Query::PlaylistSongs { playlist },
-            name,
-        } = &view
-        {
-            if ui.button("Rename").clicked() {
-                app.actions.push(Action::ShowDialog(Dialog::RenamePlaylist {
-                    target: crate::provider::ItemReference::Jellyfin {
-                        source: source.id.clone(),
-                        account: source.user_id.clone(),
-                        item: playlist.clone(),
-                    },
-                    name: name.clone(),
+    if let Some(controls) = app.provider_detail_controls() {
+        detail_controls(app, ui, controls, |_, _| {});
+    } else {
+        ui.horizontal(|ui| {
+            if ui.button("Refresh").clicked() {
+                app.actions.push(Action::Jellyfin(A::Browse {
+                    view: view.clone(),
+                    start: app.jellyfin.start,
                 }));
             }
-            if item
-                .as_ref()
-                .is_none_or(|item| item.details.can_delete != Some(false))
-                && ui.button("Delete playlist").clicked()
-            {
-                app.actions
-                    .push(Action::ShowDialog(Dialog::ConfirmDeletePlaylist {
-                        id: playlist.clone(),
-                        name: name.clone(),
-                        owned: true,
-                    }));
-            }
-        }
-        if ui.button("Refresh").clicked() {
-            app.actions.push(Action::Jellyfin(A::Browse {
-                view: view.clone(),
-                start: app.jellyfin.start,
-            }));
-        }
-    });
+        });
+    }
     if !matches!(view, View::Libraries) {
         ui.add_space(12.0);
         let mut filter = app.jellyfin.filter.clone();
@@ -2992,14 +2772,13 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
             total,
         }) => {
             if view.is_tracks() {
-                provider_tracks(
-                    app,
-                    ui,
+                let tracks = app.provider_detail_tracks(
                     &items,
                     start,
                     view.track_query().cloned(),
                     view.context_id().unwrap_or("tracks"),
                 );
+                provider_tracks(app, ui, &tracks);
             } else {
                 let kind = match &view {
                     View::Catalog {
@@ -3015,7 +2794,11 @@ pub fn provider(app: &mut App, ui: &mut egui::Ui) {
                     .collect();
                 super::library::item_grid(app, ui, &cards);
             }
-            provider_paging(app, ui, view, start, items.len(), total);
+            if let Some(pagination) = app.provider_detail_pagination() {
+                widgets::detail_pagination(ui, app, pagination);
+            } else {
+                provider_paging(app, ui, view, start, items.len(), total);
+            }
         }
         _ => {}
     }
@@ -3128,203 +2911,13 @@ pub fn provider_paging(
     });
 }
 
-fn provider_artist_navigation(
-    source: &crate::jellyfin::browser::Source,
-    library: Option<&str>,
-    item: &crate::jellyfin::Item,
-) -> Vec<(String, Action)> {
-    let Some(library) = library else {
-        return Vec::new();
-    };
-    item.artist_items
-        .iter()
-        .filter_map(|artist| {
-            artist.name.as_ref().map(|name| {
-                (
-                    name.clone(),
-                    Action::OpenProviderArtist {
-                        artist: crate::provider::ItemReference::Jellyfin {
-                            source: source.id.clone(),
-                            account: source.user_id.clone(),
-                            item: artist.id.clone(),
-                        },
-                        name: name.clone(),
-                        library: Some(library.to_owned()),
-                    },
-                )
-            })
-        })
-        .collect()
-}
-
-pub fn provider_tracks(
+pub(crate) fn provider_tracks(
     app: &mut App,
     ui: &mut egui::Ui,
-    items: &[crate::jellyfin::Item],
-    start: u32,
-    query: Option<crate::jellyfin::catalog::Query>,
-    context: &str,
+    tracks: &[crate::provider::detail::ProviderDetailTrack],
 ) {
-    use crate::{
-        jellyfin::browser::BrowserAction as A,
-        provider::{ItemReference, Provider, TrackPresentation},
-    };
-    let Some(source) = app.jellyfin.source.clone() else {
-        return;
-    };
-    let state = app.jellyfin_player.snapshot();
-    let playlists = Arc::new(
-        app.jellyfin
-            .playlists
-            .iter()
-            .map(|playlist| {
-                (
-                    ItemReference::Jellyfin {
-                        source: source.id.clone(),
-                        account: source.user_id.clone(),
-                        item: playlist.id.clone(),
-                    },
-                    playlist.name.clone().unwrap_or_else(|| "Untitled".into()),
-                )
-            })
-            .collect::<Vec<_>>(),
-    );
-
-    let filter = app.jellyfin.filter.clone();
-    for (index, item) in items
-        .iter()
-        .enumerate()
-        .filter(|(_, item)| catalog_matches(item, &filter))
-    {
-        let title = item.name.clone().unwrap_or_else(|| "Untitled".into());
-        let current = app.jellyfin_player.controls_output()
-            && state.source_id.as_deref() == Some(&source.id)
-            && state.item.as_ref().is_some_and(|current| {
-                current.id == item.id
-                    && current.details.playlist_item_id == item.details.playlist_item_id
-            });
-        let play = if matches!(
-            app.jellyfin.view,
-            crate::jellyfin::browser::View::Tracks { .. }
-        ) {
-            Action::Jellyfin(A::Play(item.id.clone()))
-        } else {
-            Action::Jellyfin(A::PlayItem {
-                source: source.clone(),
-                item: Box::new(item.clone()),
-                context: context.into(),
-                query: query.clone(),
-                index: Some(start as usize + index),
-            })
-        };
-        let artist_library = match &query {
-            Some(crate::jellyfin::catalog::Query::ArtistSongs { library, .. }) => {
-                Some(library.clone())
-            }
-            _ => app
-                .jellyfin
-                .catalog
-                .library
-                .as_ref()
-                .map(|library| library.id.clone()),
-        };
-        let artist_navigation =
-            provider_artist_navigation(&source, artist_library.as_deref(), item);
-        let mut menu = Vec::new();
-        if let Some(crate::jellyfin::catalog::Query::PlaylistSongs { playlist }) = &query
-            && let Some(entry) = &item.details.playlist_item_id
-        {
-            menu.push((
-                "Remove from this playlist".into(),
-                Action::Jellyfin(A::Edit {
-                    source: source.clone(),
-                    edit: crate::jellyfin::browser::PlaylistEdit::Remove {
-                        id: playlist.clone(),
-                        entries: vec![entry.clone()],
-                    },
-                }),
-            ));
-            if start as usize + index > 0 {
-                menu.push((
-                    "Move up".into(),
-                    Action::Jellyfin(A::Edit {
-                        source: source.clone(),
-                        edit: crate::jellyfin::browser::PlaylistEdit::Move {
-                            id: playlist.clone(),
-                            entry: entry.clone(),
-                            index: start + index as u32 - 1,
-                        },
-                    }),
-                ));
-            }
-            if index + 1 < items.len()
-                || matches!(&app.jellyfin.rows, Some(crate::jellyfin::browser::Rows::Items { total, .. }) if start as usize + index + 1 < *total as usize)
-            {
-                menu.push((
-                    "Move down".into(),
-                    Action::Jellyfin(A::Edit {
-                        source: source.clone(),
-                        edit: crate::jellyfin::browser::PlaylistEdit::Move {
-                            id: playlist.clone(),
-                            entry: entry.clone(),
-                            index: start + index as u32 + 1,
-                        },
-                    }),
-                ));
-            }
-        }
-        widgets::provider_track_row(
-            ui,
-            app,
-            &TrackPresentation {
-                reference: ItemReference::Jellyfin {
-                    source: source.id.clone(),
-                    account: source.user_id.clone(),
-                    item: item.id.clone(),
-                },
-                title: title.clone(),
-                artists: item.artists.clone(),
-                album: item.album.clone().unwrap_or_default(),
-                artwork: crate::jellyfin::artwork::Reference::for_item(&source, item)
-                    .map(|art| art.uri()),
-                duration_ms: item.duration_ms().unwrap_or_default(),
-                number: item.index_number,
-            },
-            start as usize + index,
-            &widgets::ProviderRowActions {
-                navigation: Vec::new(),
-                artist_navigation,
-                provider: Provider::Jellyfin,
-                play,
-                enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
-                queue_label: format!("Add {title} to Jellyfin queue"),
-                can_enqueue: state.item.is_some() && state.source_id.as_deref() == Some(&source.id),
-                queue_drag: (state.source_id.as_deref() == Some(&source.id)).then(|| {
-                    crate::model::ProviderQueueDrag {
-                        source: source.clone(),
-                        item: item.clone(),
-                        origin: None,
-                    }
-                }),
-                current,
-                playing: state.playing,
-                loading: state.loading,
-                menu,
-                playlists: playlists.clone(),
-                playlist_loading: app.jellyfin.playlists_loading,
-                playlist_error: app.jellyfin.playlists_error.clone(),
-                playlist_item: ItemReference::Jellyfin {
-                    source: source.id.clone(),
-                    account: source.user_id.clone(),
-                    item: item.id.clone(),
-                },
-                create_playlist: Some(Action::ShowDialog(Dialog::CreatePlaylist {
-                    name: String::new(),
-                    public: false,
-                    add_uris: vec![item.id.clone()],
-                })),
-            },
-        );
+    for row in tracks {
+        widgets::provider_track_row(ui, app, &row.track, row.index, &row.actions);
     }
 }
 
@@ -3354,7 +2947,8 @@ mod tests {
             user_id: "account1".into(),
             device_id: "device1".into(),
         };
-        let navigation = provider_artist_navigation(&source, Some("library1"), &item);
+        let navigation =
+            crate::provider::detail::provider_artist_navigation(&source, Some("library1"), &item);
         assert_eq!(navigation.len(), 1);
         assert_eq!(navigation[0].0, "Artist");
         assert!(matches!(
@@ -3370,7 +2964,9 @@ mod tests {
             } if source_id == "source1" && account == "account1" && artist == "artist1"
                 && name == "Artist" && library == "library1"
         ));
-        assert!(provider_artist_navigation(&source, None, &item).is_empty());
+        assert!(
+            crate::provider::detail::provider_artist_navigation(&source, None, &item).is_empty()
+        );
     }
 
     fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {

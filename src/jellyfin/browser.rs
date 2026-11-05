@@ -65,6 +65,16 @@ pub enum View {
 }
 
 impl View {
+    pub fn is_detail(&self) -> bool {
+        matches!(
+            self,
+            Self::Tracks { .. }
+                | Self::Catalog {
+                    query: Query::ArtistAlbums { .. } | Query::ArtistSongs { .. },
+                    ..
+                }
+        )
+    }
     pub fn context_id(&self) -> Option<&str> {
         match self {
             Self::Tracks { album_id, .. } => Some(album_id),
@@ -279,6 +289,7 @@ pub struct Browser {
     pub cached: bool,
     pub error: Option<String>,
     pub start: u32,
+    detail_page_start: Option<u32>,
     pub filter: String,
     pub reporter: super::reporting::Reporter,
     pub report_error: Option<String>,
@@ -351,6 +362,7 @@ impl Browser {
             cached: false,
             error: None,
             start: 0,
+            detail_page_start: None,
             filter: String::new(),
             reporter: super::reporting::Reporter::default(),
             report_error: None,
@@ -692,10 +704,47 @@ impl Browser {
                 self.load_playlists(proxy);
             }
             Reply::Data {
-                rows,
+                mut rows,
                 context_item,
                 cached,
             } => {
+                if let Some(expected) = self.detail_page_start {
+                    if let (
+                        Some(Rows::Items {
+                            items: current,
+                            start: 0,
+                            ..
+                        }),
+                        Rows::Items {
+                            items,
+                            start,
+                            total,
+                        },
+                    ) = (&self.rows, &mut rows)
+                        && *start == expected
+                        && current.len() >= expected as usize
+                        && (!items.is_empty() || expected >= *total)
+                    {
+                        let mut combined = current[..expected as usize].to_vec();
+                        combined.append(items);
+                        rows = Rows::Items {
+                            items: combined,
+                            start: 0,
+                            total: *total,
+                        };
+                    } else {
+                        if cached {
+                            return;
+                        }
+                        self.detail_page_start = None;
+                        self.busy = false;
+                        self.error = Some("Jellyfin returned an unexpected page.".into());
+                        return;
+                    }
+                    if !cached {
+                        self.detail_page_start = None;
+                    }
+                }
                 if let Some(item) = context_item {
                     self.album = Some(item);
                 }
@@ -728,6 +777,7 @@ impl Browser {
                 self.busy = false;
             }
             Reply::Error(error) => {
+                self.detail_page_start = None;
                 self.play_album = None;
                 self.error = Some(error);
                 self.busy = false;
@@ -1034,6 +1084,8 @@ impl Browser {
     }
 
     fn load_view(&mut self, view: View, start: u32, proxy: &ProxyConfig) {
+        let start = if view.is_detail() { 0 } else { start };
+        self.detail_page_start = None;
         self.play_album = None;
         if let View::Search { kind, .. } = &view {
             self.search_kind = *kind;
@@ -1104,6 +1156,33 @@ impl Browser {
         }
     }
 
+    fn load_more_detail(&mut self, view: View, expected: u32, proxy: &ProxyConfig) {
+        if self.busy || self.view != view || !view.is_detail() {
+            return;
+        }
+        let Some(Rows::Items {
+            items,
+            start: 0,
+            total,
+        }) = &self.rows
+        else {
+            return;
+        };
+        if items.len() != expected as usize || expected >= *total {
+            return;
+        }
+        self.advance();
+        self.detail_page_start = Some(expected);
+        self.busy = true;
+        self.send(
+            proxy,
+            Command::Browse {
+                view,
+                start: expected,
+            },
+        );
+    }
+
     fn clear_challenge(&mut self) {
         self.code = None;
         self.poll_at = None;
@@ -1111,6 +1190,7 @@ impl Browser {
     }
     fn advance(&mut self) {
         self.generation.fetch_add(1, Ordering::SeqCst);
+        self.detail_page_start = None;
         self.error = None;
         self.clear_challenge();
     }
@@ -1147,6 +1227,10 @@ pub enum BrowserAction {
     Browse {
         view: View,
         start: u32,
+    },
+    LoadMoreDetail {
+        view: View,
+        expected: u32,
     },
     LoadRecent {
         reload: bool,
@@ -1441,6 +1525,10 @@ impl crate::app::App {
                 self.jellyfin
                     .browse(view, start, &self.applied_jellyfin_proxy())
             }
+            BrowserAction::LoadMoreDetail { view, expected } => {
+                self.jellyfin
+                    .load_more_detail(view, expected, &self.applied_jellyfin_proxy())
+            }
             BrowserAction::LoadRecent { reload } => self
                 .jellyfin
                 .load_recent(reload, &self.applied_jellyfin_proxy()),
@@ -1730,6 +1818,72 @@ mod tests {
         let mut model = Browser::new(dirs, Waker::default(), false);
         model.demo("jellyfin-albums");
         model
+    }
+
+    #[test]
+    fn detail_batches_append_and_live_data_replaces_the_cached_batch() {
+        let mut model = model();
+        model.demo("jellyfin-tracks");
+        let view = model.view.clone();
+        let item = |id: &str| -> Item {
+            serde_json::from_value(serde_json::json!({"Id": id, "Name": id})).unwrap()
+        };
+        model.rows = Some(Rows::Items {
+            items: vec![item("first")],
+            start: 0,
+            total: 2,
+        });
+        model.load_more_detail(view.clone(), 1, &ProxyConfig::Off);
+        assert!(model.busy);
+        model.apply(
+            Reply::Data {
+                rows: Rows::Items {
+                    items: vec![],
+                    start: 1,
+                    total: 2,
+                },
+                context_item: None,
+                cached: true,
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(
+            model.busy,
+            "an incomplete cached page must wait for the live reply"
+        );
+        for (cached, id) in [(true, "cached"), (false, "live")] {
+            model.apply(
+                Reply::Data {
+                    rows: Rows::Items {
+                        items: vec![item(id)],
+                        start: 1,
+                        total: 2,
+                    },
+                    context_item: None,
+                    cached,
+                },
+                &ProxyConfig::Off,
+            );
+        }
+        let Some(Rows::Items {
+            items,
+            start,
+            total,
+        }) = &model.rows
+        else {
+            panic!("missing rows")
+        };
+        assert_eq!((*start, *total), (0, 2));
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "live"]
+        );
+        assert!(!model.busy);
+        model.load_more_detail(view, 1, &ProxyConfig::Off);
+        assert!(!model.busy, "a stale action must not fetch another page");
     }
 
     #[test]

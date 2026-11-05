@@ -681,8 +681,8 @@ won't let this computer play this song right now, see
 
 ## Choosing the audio output
 
-**Audio output**, at the bottom of the device picker, chooses where music
-played on this computer goes: the system's default output, or a sound card,
+**Audio output** chooses where Spotify or Jellyfin music played on this
+computer goes: the system's default output, or a sound card,
 headset, HDMI output, or virtual device such as VoiceMeeter. Click it to list
 this computer's outputs, then pick one; local playback restarts on it at the
 same place in the song. **System default** follows the system again, and moves
@@ -690,6 +690,9 @@ with it when the default output changes. The choice is saved as `audio_device`
 in `settings.json`, by the device's own id, so it survives renames and
 reordering. While a saved output is unplugged, music plays through the system
 default, and the output stays listed so you can see and change the choice.
+During Spotify playback it is at the bottom of the device picker. During
+Jellyfin playback, the player bar's device button opens the audio output menu
+directly.
 
 On Linux, Tumlo plays through PipeWire when it is running, otherwise
 through a PulseAudio server, and otherwise straight to ALSA. The picker lists

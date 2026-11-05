@@ -2711,7 +2711,7 @@ impl App {
         if !self.settings.accent_from_art {
             return None;
         }
-        let now = self.now_playing()?;
+        let now = self.selected_provider_now_playing()?;
         let url = now.art_small.or(now.art_url)?;
         self.accents.get(&url).copied()
     }
@@ -2721,7 +2721,7 @@ impl App {
         if !self.settings.accent_from_art {
             return None;
         }
-        let now = self.now_playing()?;
+        let now = self.selected_provider_now_playing()?;
         let url = now.art_small.or(now.art_url)?;
         self.art_palettes.get(&url).map(Vec::as_slice)
     }
@@ -12893,7 +12893,6 @@ impl App {
             | Action::SetRepeat(_)
             | Action::CycleRepeat
             | Action::ToggleSaved(_)
-            | Action::ToggleDevicesPopup
             | Action::ToggleLyricsPanel
                 if self.jellyfin_player.controls_output() => {}
             Action::Open(page) => self.open(page),
@@ -13827,7 +13826,10 @@ impl App {
             }
             Action::ToggleDevicesPopup => {
                 self.show_devices = !self.show_devices;
-                if self.show_devices {
+                let device_control = self.player_device_control();
+                if self.show_devices
+                    && device_control == crate::provider::PlayerDeviceControl::SpotifyConnect
+                {
                     self.refresh_devices();
                     // Receivers waiting on the network are invisible to the
                     // Web API, so look for them ourselves.

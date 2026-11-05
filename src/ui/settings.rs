@@ -2688,10 +2688,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     }
 
     let about = gettext(locale, "About");
-    let built_with = gettext(
-        locale,
-        "Built with Rust, egui, and librespot. Not affiliated with Spotify.",
-    );
+    let built_with = gettext(locale, "Built with {project}. Not affiliated with Spotify.")
+        .replace("{project}", "Spotifast");
     let check_for_updates = gettext(locale, "Check for updates");
     let checking = gettext(locale, "Checking…");
     let keyboard_shortcuts = gettext(locale, "Keyboard shortcuts");
@@ -2699,7 +2697,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let source_code = gettext(locale, "Source code");
     let about_rows = [
         RowText::new(
-            format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+            format!(
+                "{} {}",
+                crate::brand::PRODUCT_NAME,
+                env!("CARGO_PKG_VERSION")
+            ),
             built_with.clone(),
         ),
         RowText::new(
@@ -2716,16 +2718,15 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.vertical(|ui| {
                     theme::text(
                         ui,
-                        format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+                        format!(
+                            "{} {}",
+                            crate::brand::PRODUCT_NAME,
+                            env!("CARGO_PKG_VERSION")
+                        ),
                         theme::semibold(15.0),
                         palette.text,
                     );
-                    theme::text(
-                        ui,
-                        built_with.as_ref(),
-                        theme::regular(13.0),
-                        palette.secondary,
-                    );
+                    theme::text(ui, &built_with, theme::regular(13.0), palette.secondary);
                 });
             });
             ui.add_space(8.0);
@@ -2766,11 +2767,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         .open_url(egui::OpenUrl::new_tab(env!("CARGO_PKG_REPOSITORY")));
                 }
             });
-            ui.add_space(14.0);
-            if widgets::credit(ui, &palette, locale) {
-                app.actions
-                    .push(Action::OpenUrl(widgets::AUTHOR_URL.to_owned()));
-            }
         });
     }
 

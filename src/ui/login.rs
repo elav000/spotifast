@@ -740,11 +740,8 @@ fn big_button_painted(ui: &mut egui::Ui, app: &App, label: &str, readable: bool)
             palette.accent
         };
         ui.painter().rect_filled(rect, 23.0, fill);
-        ui.painter().galley(
-            rect.center() - galley.size() / 2.0,
-            galley,
-            color,
-        );
+        ui.painter()
+            .galley(rect.center() - galley.size() / 2.0, galley, color);
         theme::focus_ring(ui, &response);
         clicked = response.clicked();
     });

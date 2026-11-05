@@ -788,7 +788,7 @@ pub fn populate(app: &mut App) {
     app.devices = vec![
         Device {
             id: Some("local-demo".into()),
-            name: "Spotifast".into(),
+            name: crate::brand::PRODUCT_NAME.into(),
             is_active: false,
             is_restricted: false,
             volume_percent: Some(70),
@@ -3950,7 +3950,7 @@ mod tests {
             let button = accessible_node(
                 &tree,
                 if setup {
-                    "Register Spotifast"
+                    "Register Tumlo"
                 } else {
                     "Close banner"
                 },
@@ -4036,11 +4036,7 @@ mod tests {
             let tree = accessible_frame(&ctx, &mut app, vec![]);
             let button = accessible_node(
                 &tree,
-                if setup {
-                    "Register Spotifast"
-                } else {
-                    "Not now"
-                },
+                if setup { "Register Tumlo" } else { "Not now" },
                 Role::Button,
             );
             accessible_frame(
@@ -4330,7 +4326,7 @@ mod tests {
         app.dialog = Some(Dialog::PersonalAppIntro);
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        let setup = accessible_node(&tree, "Register Spotifast", Role::Button);
+        let setup = accessible_node(&tree, "Register Tumlo", Role::Button);
         accessible_frame(
             &ctx,
             &mut app,
@@ -4539,7 +4535,7 @@ mod tests {
     #[test]
     fn the_about_card_has_no_original_owner_credit() {
         let (ctx, mut app) = accessible_app("about-owner-credit");
-        settings_text(&ctx, &mut app, "Spotifast");
+        settings_text(&ctx, &mut app, "Not affiliated");
         let texts = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
         assert!(
             !texts.iter().any(|(text, _)| {
@@ -4562,7 +4558,7 @@ mod tests {
         for (query, row) in [
             ("without a cover", "Compact track list"),
             ("Ctrl+0", "Interface zoom"),
-            ("Rust", "About"),
+            ("Not affiliated", "About"),
             (
                 "Downloads in the background",
                 "Download updates automatically",
@@ -4603,13 +4599,13 @@ mod tests {
 
         app.settings.web_client_id = None;
         app.web_app = None;
-        let text = settings_text(&ctx, &mut app, "Spotifast registered");
+        let text = settings_text(&ctx, &mut app, "Tumlo registered");
         assert!(!text.iter().any(|text| text == "Account"));
         assert!(text.iter().any(|text| text.starts_with("No settings for")));
         app.settings.web_client_id = Some("test-client".into());
         app.web_app = Some("test-client".into());
-        let text = settings_text(&ctx, &mut app, "Spotifast registered");
-        assert!(text.iter().any(|text| text == "Spotifast registered"));
+        let text = settings_text(&ctx, &mut app, "Tumlo registered");
+        assert!(text.iter().any(|text| text == "Tumlo registered"));
         app.backend.shutdown();
     }
 
@@ -4619,17 +4615,17 @@ mod tests {
         app.settings.web_client_id = None;
         app.web_app = None;
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Register Spotifast"));
+        assert!(text.iter().any(|text| text == "Register Tumlo"));
 
         app.settings.web_client_id = Some("test-client".into());
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Register Spotifast"));
+        assert!(text.iter().any(|text| text == "Register Tumlo"));
         assert!(text.iter().any(|text| text == "Authorize your Client ID"));
 
         app.web_app = Some("test-client".into());
         let text = settings_text(&ctx, &mut app, "Account");
-        assert!(text.iter().any(|text| text == "Spotifast registered"));
-        assert!(!text.iter().any(|text| text == "Register Spotifast"));
+        assert!(text.iter().any(|text| text == "Tumlo registered"));
+        assert!(!text.iter().any(|text| text == "Register Tumlo"));
         assert!(!text.iter().any(|text| text == "Setup guide"));
         app.backend.shutdown();
     }
@@ -8587,7 +8583,7 @@ mod tests {
                             "{:?} is cut off at {size:?} in {state:?}",
                             text.galley.job.text
                         );
-                        if text.galley.job.text == "Spotifast" {
+                        if text.galley.job.text == crate::brand::PRODUCT_NAME {
                             title = Some(rect);
                         }
                     }
@@ -9723,7 +9719,7 @@ mod tests {
         accessible_node(&tree, "This computer", Role::Button);
         accessible_node(&tree, "Spotifast Soloist (12345678)", Role::Button);
         assert!(!tree.nodes.iter().any(|(_, n)| n.label().is_some_and(|s| {
-            s.starts_with("Playing on") || s == "Spotifast (this computer)" || s == "Audio output"
+            s.starts_with("Playing on") || s == "Tumlo (this computer)" || s == "Audio output"
         })));
         assert!(app.targets_own_soloist());
         assert!(
@@ -9753,7 +9749,7 @@ mod tests {
         app.apply(Action::SetSoloist(false), &ctx);
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
-        accessible_node(&tree, "Spotifast (this computer)", Role::Button);
+        accessible_node(&tree, "Tumlo (this computer)", Role::Button);
         accessible_node(&tree, "Audio output", Role::Button);
         app.backend.shutdown();
     }
@@ -14591,7 +14587,7 @@ mod tests {
         app.jellyfin.demo("jellyfin-tracks");
         let account = accessible_node(
             &accessible_frame(&ctx, &mut app, vec![]),
-            "Account",
+            "Music server",
             Role::Button,
         );
         accessible_frame(
@@ -14682,7 +14678,7 @@ mod tests {
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let painted = view_frame(&ctx, &mut app, vec![], crate::ui::show);
         assert!(painted.iter().any(|(text, _)| text == &error));
-        accessible_node(&tree, "Account", egui::accesskit::Role::Button);
+        accessible_node(&tree, "Music server", egui::accesskit::Role::Button);
         app.backend.shutdown();
     }
 

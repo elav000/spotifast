@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::api::models::{Artist, PlayableItem, pick_image};
 use crate::app::App;
-use crate::i18n::{Locale, gettext, ngettext, pgettext};
+use crate::i18n::{Locale, gettext, ngettext};
 use crate::model::{Action, DiscographyFilter, Loadable, Page, RowContext};
 use crate::theme::{self, Icon};
 
@@ -473,7 +473,7 @@ fn artist_byline(
                 "{count} monthly listeners",
                 u32::try_from(listeners).unwrap_or(u32::MAX),
             )
-            .replace("{count}", &util::format_count(listeners)),
+            .replace("{count}", &crate::util::format_count(listeners)),
             None,
         ));
     }
@@ -486,7 +486,7 @@ fn artist_byline(
                 "{count} followers",
                 u32::try_from(followers.total).unwrap_or(u32::MAX),
             )
-            .replace("{count}", &util::format_count(followers.total)),
+            .replace("{count}", &crate::util::format_count(followers.total)),
             None,
         ));
     }

@@ -3042,9 +3042,7 @@ impl App {
             if self.offline
                 && !matches!(
                     &event,
-                    Event::Accent { .. }
-                        | Event::AudioCacheCleared(_)
-                        | Event::ArtCacheCleared(_)
+                    Event::Accent { .. } | Event::AudioCacheCleared(_) | Event::ArtCacheCleared(_)
                 )
                 && (self.update_source.is_github()
                     || !matches!(

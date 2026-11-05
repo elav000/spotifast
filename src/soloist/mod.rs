@@ -1279,6 +1279,7 @@ mod tests {
             crate::settings::ProxyConfig::Off,
             crate::vis::AudioTap::new(),
             crate::eq::shared(),
+            std::sync::Arc::new(crate::playback_output::LocalOutput::default()),
         );
         let handle = Handle::start(Config {
             dirs,

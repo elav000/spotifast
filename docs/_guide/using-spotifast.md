@@ -262,6 +262,12 @@ The Settings page has its own search field under the title. Type to narrow
 the page to matching rows; sections without matches disappear. Clear the
 field to see everything again.
 
+## Browsing artist and album pages
+
+Album tracks and an artist's songs load more as you scroll. Artist album
+lists offer **Load more** when more albums are available. Jellyfin library
+and search results retain page controls for browsing their separate pages.
+
 ## Keyboard and screen readers
 
 Right-click a search, filter, settings or playlist-editing text field for

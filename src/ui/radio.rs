@@ -7,7 +7,7 @@ use crate::api::models::{PlayableItem, Track};
 use crate::app::App;
 use crate::backend::LocalPlayback;
 use crate::i18n::{Locale, gettext};
-use crate::model::{Loadable, Page, RowContext};
+use crate::model::{Action, Loadable, Page, RowContext};
 use crate::theme::Icon;
 use crate::util;
 
@@ -58,7 +58,10 @@ pub fn radio(app: &mut App, ui: &mut egui::Ui, seed: &str) {
 
     let mut byline = Vec::new();
     if let Some(seed_page) = seed_page {
-        byline.push((based_on(locale, seed).into_owned(), Some(seed_page)));
+        byline.push((
+            based_on(locale, seed).into_owned(),
+            Some(Action::Open(seed_page)),
+        ));
     }
     let mut description = None;
     if let Ok(Some((count, duration, artists))) = &state {

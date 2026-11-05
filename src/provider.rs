@@ -27,6 +27,25 @@ pub enum PlayerDeviceControl {
     AudioOutput,
 }
 
+pub enum DetailLoadMode {
+    Scroll,
+    Button,
+}
+
+pub struct DetailPagination {
+    pub mode: DetailLoadMode,
+    pub next: Option<crate::model::Action>,
+    pub retry: bool,
+}
+
+pub fn spotify_artist_pagination(id: &str) -> DetailPagination {
+    DetailPagination {
+        mode: DetailLoadMode::Button,
+        next: Some(crate::model::Action::LoadMoreArtistAlbums(id.to_owned())),
+        retry: false,
+    }
+}
+
 /// Provider identities stay explicit even when the same view draws both catalogs.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ItemReference {
@@ -152,6 +171,40 @@ impl ItemReference {
 }
 
 impl crate::app::App {
+    /// Pagination capability for the selected provider's detail view.
+    pub fn provider_detail_pagination(&self) -> Option<DetailPagination> {
+        use crate::jellyfin::browser::{BrowserAction, Rows};
+        let view = &self.jellyfin.view;
+        if !self.jellyfin_selected() || !view.is_detail() {
+            return None;
+        }
+        let mode = if view.is_tracks() {
+            DetailLoadMode::Scroll
+        } else {
+            DetailLoadMode::Button
+        };
+        let next = match &self.jellyfin.rows {
+            Some(Rows::Items {
+                items,
+                start: 0,
+                total,
+            }) if !self.jellyfin.busy && !items.is_empty() && (items.len() as u32) < *total => {
+                Some(crate::model::Action::Jellyfin(
+                    BrowserAction::LoadMoreDetail {
+                        view: view.clone(),
+                        expected: items.len() as u32,
+                    },
+                ))
+            }
+            _ => None,
+        };
+        Some(DetailPagination {
+            mode,
+            next,
+            retry: self.jellyfin.error.is_some(),
+        })
+    }
+
     /// The provider currently selected for browsing and the player bar.
     pub fn selected_provider(&self) -> Provider {
         if self.jellyfin.enabled {
@@ -667,4 +720,6 @@ impl crate::app::App {
     }
 }
 
+pub(crate) mod detail;
+pub use detail::ProviderRowActions;
 pub mod queue;

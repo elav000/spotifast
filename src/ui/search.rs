@@ -837,9 +837,7 @@ fn provider(app: &mut App, ui: &mut egui::Ui) {
         theme::section_title(ui, &app.palette, label);
         ui.add_space(8.0);
         if category == Kind::Song {
-            super::collection::provider_tracks(
-                app,
-                ui,
+            let tracks = app.provider_detail_tracks(
                 &page.items,
                 page.start_index,
                 Some(Query::Search {
@@ -849,6 +847,7 @@ fn provider(app: &mut App, ui: &mut egui::Ui) {
                 }),
                 "search",
             );
+            super::collection::provider_tracks(app, ui, &tracks);
         } else {
             let cards: Vec<_> = page
                 .items

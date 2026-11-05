@@ -14007,6 +14007,95 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_detail_pages_use_shared_loading_controls() {
+        use crate::jellyfin::browser::Rows;
+        let (ctx, mut app) = accessible_app("jellyfin-detail-loading");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-artist");
+        if let Some(Rows::Items { items, total, .. }) = &mut app.jellyfin.rows {
+            *total = items.len() as u32 + 1;
+        } else {
+            panic!("artist fixture has no items");
+        }
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| node.label())
+            .collect();
+        assert!(labels.contains(&"Load more"), "{labels:?}");
+        assert!(!labels.contains(&"Previous page"));
+        assert!(!labels.contains(&"Next page"));
+
+        app.jellyfin.demo("jellyfin-tracks");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let labels: Vec<_> = tree
+            .nodes
+            .iter()
+            .filter_map(|(_, node)| node.label())
+            .collect();
+        assert!(!labels.contains(&"Previous page"));
+        assert!(!labels.contains(&"Next page"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn detail_controls_keep_provider_actions_and_history_playback() {
+        use crate::jellyfin::browser::BrowserAction as A;
+        let (_ctx, mut app) = accessible_app("provider-detail-controls");
+        let spotify = app.spotify_artist_controls(&artist(0));
+        assert!(matches!(
+            spotify.primary.unwrap().action,
+            Some(Action::PlayContext { .. })
+        ));
+        app.jellyfin.demo("jellyfin-artist");
+        let jellyfin = app.provider_detail_controls().unwrap();
+        assert!(matches!(
+            jellyfin.primary.unwrap().action,
+            Some(Action::Jellyfin(A::PlayAlbum(_)))
+        ));
+        assert!(
+            jellyfin
+                .buttons
+                .iter()
+                .any(|button| button.label == "Songs")
+        );
+        app.jellyfin.demo("jellyfin-history");
+        let history = app.provider_detail_controls().unwrap();
+        assert!(history.compact);
+        assert!(matches!(
+            history.primary.unwrap().action,
+            Some(Action::Jellyfin(A::PlayItem { .. }))
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_album_hero_artist_link_uses_provider_navigation() {
+        use crate::jellyfin::{browser::View, catalog::Query};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-album-artist-hero");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-tracks");
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let artist = accessible_node(&tree, "Bonobo", Role::Link);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(artist, AccessibleAction::Click, None)],
+        );
+        assert!(
+            matches!(&app.jellyfin.view, View::Catalog { query: Query::ArtistAlbums { artist, .. }, .. } if artist == "artist1")
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn saving_the_spotify_queue_while_browsing_jellyfin_keeps_its_provider() {
         let (ctx, mut app) = accessible_app("spotify-queue-save-provider");
         app.jellyfin.demo("jellyfin-tracks");
@@ -14643,7 +14732,7 @@ mod tests {
     }
 
     #[test]
-    fn jellyfin_now_playing_title_opens_its_album_in_the_jellyfin_catalog() {
+    fn jellyfin_now_playing_title_follows_the_selected_provider() {
         use crate::{jellyfin::browser::BrowserAction as A, provider::Provider};
         use egui::accesskit::{Action as Click, Role};
         let (ctx, mut app) = accessible_app("jellyfin-now-playing-album");
@@ -14652,6 +14741,16 @@ mod tests {
         app.jellyfin_player.demo_ready(0, true);
         app.jellyfin.provider = Provider::Spotify;
 
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert!(
+            !tree
+                .nodes
+                .iter()
+                .any(|(_, node)| node.label() == Some("Rosewood") && node.role() == Role::Link)
+        );
+        assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
+        app.jellyfin.provider = Provider::Jellyfin;
+        accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let title = accessible_node(&tree, "Rosewood", Role::Link);
         accessible_frame(

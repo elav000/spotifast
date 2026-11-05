@@ -50,9 +50,6 @@
     <mask id="reflectionMask" maskUnits="userSpaceOnUse" x="0" y="92" width="128" height="18">
       <rect x="0" y="92" width="128" height="18" fill="url(#reflectionFade)"/>
     </mask>
-    <filter id="reflectionBlur" x="-10%" y="-10%" width="120%" height="120%">
-      <feGaussianBlur stdDeviation="1.1"/>
-    </filter>
   </defs>
   <rect width="128" height="128" fill="#050609"/>
   <g mask="url(#barMask)">
@@ -70,7 +67,7 @@
   </g>
   <ellipse cx="64" cy="108" rx="69" ry="28" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <path d="M0 98 C17 96 31 94 46 93 C59 92 69 92 82 93 C97 94 111 96 128 98 L128 128 H0Z" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
-  <g transform="translate(0 220) scale(1 -1)" mask="url(#reflectionMask)" opacity=".78" filter="url(#reflectionBlur)">
+  <g transform="translate(0 220) scale(1 -1)" mask="url(#reflectionMask)" opacity=".78">
     <g>
       <rect x="0" y="60" width="11" height="50" rx="5.5" fill="#ff4b5f"/>
       <rect x="11.7" y="52" width="11" height="58" rx="5.5" fill="#ff8b3d"/>

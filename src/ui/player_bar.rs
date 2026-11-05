@@ -57,7 +57,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            let now = app.now_playing();
+            let now = app.selected_provider_now_playing();
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {
@@ -1033,32 +1033,41 @@ fn extras(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, transport_
         ));
     }
     ui.add_space(4.0);
-    let spotify = now.is_none_or(|now| now.provider == crate::provider::Provider::Spotify);
-    if spotify {
-        let remote = now.is_some_and(|now| !now.local);
-        // Playing elsewhere, the button shows that device's own icon.
-        let icon = now
-            .filter(|now| !now.local)
+    let device_control = app.player_device_control();
+    let jellyfin = device_control == crate::provider::PlayerDeviceControl::AudioOutput;
+    let spotify = device_control == crate::provider::PlayerDeviceControl::SpotifyConnect;
+    let remote = device_control == crate::provider::PlayerDeviceControl::SpotifyConnect
+        && now.is_some_and(|now| !now.local);
+    // Playing elsewhere, the button shows that device's own icon.
+    let icon = if jellyfin {
+        Icon::AudioLines
+    } else {
+        now.filter(|now| !now.local)
             .and_then(|now| now.device_kind.as_deref())
-            .map_or(Icon::Speaker, super::devices::device_icon);
-        let devices = theme::icon_button(
-            ui,
-            icon,
-            18.0,
-            if remote {
-                palette.accent
-            } else {
-                palette.secondary
-            },
-            palette.text,
-            &gettext(app.locale, "Connect to a device"),
-        );
-        ui.ctx().data_mut(|data| {
-            data.insert_temp(egui::Id::new(super::devices::BUTTON_RECT_ID), devices.rect)
-        });
-        if devices.clicked() {
-            app.actions.push(Action::ToggleDevicesPopup);
-        }
+            .map_or(Icon::Speaker, super::devices::device_icon)
+    };
+    let label = if jellyfin {
+        gettext(app.locale, "Audio output")
+    } else {
+        gettext(app.locale, "Connect to a device")
+    };
+    let devices = theme::icon_button(
+        ui,
+        icon,
+        18.0,
+        if remote {
+            palette.accent
+        } else {
+            palette.secondary
+        },
+        palette.text,
+        &label,
+    );
+    ui.ctx().data_mut(|data| {
+        data.insert_temp(egui::Id::new(super::devices::BUTTON_RECT_ID), devices.rect)
+    });
+    if devices.clicked() {
+        app.actions.push(Action::ToggleDevicesPopup);
     }
     let queue_open = app.show_queue_panel || matches!(app.page(), Page::Queue);
     let queue_button = theme::icon_button(

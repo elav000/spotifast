@@ -11375,6 +11375,43 @@ mod tests {
     /// by name, and writes the chosen one's id to `audio_device`; System
     /// default clears it (#963).
     #[test]
+    fn jellyfin_player_bar_opens_the_audio_output_picker() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("jellyfin-audio-output");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin_player.demo_ready(0, true);
+        app.output_devices = Loadable::Loaded(demo_outputs());
+
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        let button = accessible_node(&tree, "Audio output", Role::Button);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(button, AccessibleAction::Click, None)],
+        );
+        assert!(app.show_devices, "the player-bar action opens the picker");
+        let mut labels = Vec::new();
+        for _ in 0..4 {
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            labels.extend(
+                tree.nodes
+                    .iter()
+                    .filter_map(|(_, node)| node.label().map(str::to_owned)),
+            );
+        }
+        assert!(
+            labels.iter().any(|label| label == "System default"),
+            "{labels:?}"
+        );
+        assert!(
+            labels.iter().any(|label| label == &demo_outputs()[0].name),
+            "{labels:?}"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn the_device_popup_chooses_this_computers_audio_output() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("audio-outputs");

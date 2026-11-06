@@ -76,24 +76,30 @@ the maintainer asks for one.
 Address the following Jellyfin sharp edges in order. These are review findings,
 not permission for a broad abstraction rewrite.
 
-1. **Keep account actions responsive during slow catalog reads.** The Jellyfin
-   worker processes requests serially, so a slow multi-category search can delay
-   sign-out, server activation and playback reports. Isolate/cancel long reads
-   without reordering account mutations.
-2. **Keep playlist edits optimistic through refresh.** A successful Remove or
+1. **Keep playlist edits optimistic through refresh.** A successful Remove or
    Move can reload pre-edit cached rows before the live response. Invalidate or
    bypass the affected cached view after a successful edit, and cover the
    optimistic rows in a regression test.
-3. **Preserve playback context across server switches.** If server A is playing
+2. **Preserve playback context across server switches.** If server A is playing
    while the catalog switches to B, A's footer/queue context navigation and
    artwork must continue using A's source/account, or clearly decline the
    action. Do not silently query B with A's item ID.
-4. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
+3. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
    search only the selected collection, while playlists are user-scoped across
    collections. Default to All collections and allow narrowing to one, while
    keeping Home library selection and per-collection browsing intact.
 
 ## Later work
+
+- **Finish provider-owned page orchestration.** The shared cards, track rows,
+  detail heroes, controls, queue presentation and device capability are in
+  place, but the application shell still branches on Jellyfin view state.
+  Move central-page routing, global search state and playback-context
+  navigation behind provider presentation/actions. Then make queue drag/edit
+  capabilities and playlist dialogs explicitly provider-owned instead of
+  checking Jellyfin source state. Keep provider setup and account management
+  service-specific. Deliver these extractions through bounded user-facing
+  fixes, not a parallel UI or a broad rewrite.
 
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their

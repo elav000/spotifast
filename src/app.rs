@@ -1792,7 +1792,8 @@ impl App {
     }
 
     pub fn show_soloist_onboarding(&self) -> bool {
-        self.soloist_onboarding != crate::settings::SoloistOnboarding::Complete
+        self.selected_provider().supports_soloist()
+            && self.soloist_onboarding != crate::settings::SoloistOnboarding::Complete
             && crate::soloist::install::supported()
             && self.is_connected()
             && self.user.as_ref().is_some_and(|user| {
@@ -2051,9 +2052,31 @@ impl App {
     /// verified against the signed-in account. Never fall through to the
     /// built-in player while the chosen player is starting or needs help.
     pub fn soloist_waiting(&self) -> bool {
-        self.settings.soloist_enabled
+        self.selected_provider().supports_soloist()
+            && self.settings.soloist_enabled
             && !(matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
                 && self.soloist_device_id.is_some())
+    }
+
+    /// Start a configured Spotify player when Spotify becomes active. Jellyfin
+    /// leaves Soloist dormant, including its retries and error presentation.
+    pub(crate) fn wake_soloist_for_selected_provider(&mut self) {
+        if !self.selected_provider().supports_soloist()
+            || !self.settings.soloist_enabled
+            || !matches!(
+                self.soloist_status,
+                crate::soloist::Status::Off | crate::soloist::Status::Failed(_)
+            )
+        {
+            return;
+        }
+        self.soloist_retry_at = None;
+        self.soloist_status = crate::soloist::Status::Starting;
+        self.soloist_status_at = Instant::now();
+        self.backend.send(Command::Soloist {
+            enabled: true,
+            key: None,
+        });
     }
 
     pub fn soloist_wait_message(&self) -> Cow<'static, str> {
@@ -2894,6 +2917,10 @@ impl App {
     pub(crate) fn prepare_jellyfin_playback(&mut self) {
         self.jellyfin_player
             .set_volume(volume_to_percent(self.settings.volume));
+        self.pause_spotify_playback();
+    }
+
+    fn pause_spotify_playback(&mut self) {
         self.supersede_play_search();
         self.queued_play = None;
         self.intent_track = None;
@@ -2902,13 +2929,41 @@ impl App {
         if self.local.is_active() {
             self.backend.player(PlayerCommand::Pause);
         }
-        if let Some(remote) = self.remote_fresh().filter(|remote| remote.state.is_playing) {
-            let device_id = remote
-                .state
-                .device
-                .as_ref()
-                .and_then(|device| device.id.clone());
+        if let Some(device_id) = self.spotify_remote_pause_device() {
             self.remote(RemoteAction::Pause, device_id);
+        }
+    }
+
+    fn spotify_remote_pause_device(&self) -> Option<Option<String>> {
+        if self.targets_own_soloist() {
+            return Some(self.soloist_device_id.clone());
+        }
+        self.remote_fresh()
+            .filter(|remote| remote.state.is_playing)
+            .map(|remote| {
+                remote
+                    .state
+                    .device
+                    .as_ref()
+                    .and_then(|device| device.id.clone())
+            })
+    }
+
+    pub(crate) fn stop_outgoing_provider(&mut self, next: crate::provider::Provider) {
+        let current = self.selected_provider();
+        if current == next {
+            return;
+        }
+        match current {
+            crate::provider::Provider::Spotify => self.pause_spotify_playback(),
+            crate::provider::Provider::Jellyfin => {
+                self.jellyfin.report_playback(
+                    &self.jellyfin_player.snapshot(),
+                    false,
+                    &self.applied_jellyfin_proxy(),
+                );
+                self.jellyfin_player.stop();
+            }
         }
     }
 
@@ -3445,7 +3500,8 @@ impl App {
                 }
             }
             Update::UpdateReady(version) => self.soloist_update = Some(version),
-            Update::UpdateFailed => self.toast_error(gettext(self.locale, "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed.")),
+            Update::UpdateFailed if self.selected_provider().supports_soloist() => self.toast_error(gettext(self.locale, "Soloist could not download its renewal. It will retry tomorrow; the current build is still installed.")),
+            Update::UpdateFailed => {}
         }
     }
 
@@ -3483,6 +3539,9 @@ impl App {
     }
 
     fn retry_soloist_when_due(&mut self, ctx: &egui::Context) {
+        if !self.selected_provider().supports_soloist() {
+            return;
+        }
         let Some(at) = self.soloist_retry_at else {
             return;
         };
@@ -3565,13 +3624,7 @@ impl App {
         match &status {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
-                if self.settings.soloist_enabled {
-                    self.soloist_status_at = Instant::now();
-                    self.backend.send(Command::Soloist {
-                        enabled: true,
-                        key: None,
-                    });
-                }
+                self.wake_soloist_for_selected_provider();
                 self.reset_data();
                 // `Me` follows and reads the cache, even for the same
                 // account signing in again.
@@ -3619,7 +3672,9 @@ impl App {
             }
             AuthStatus::Failed(message) => {
                 self.sign_in_url = None;
-                self.toast_error(message.clone());
+                if self.selected_provider().uses_spotify_connection() {
+                    self.toast_error(message.clone());
+                }
             }
             // The sign-in screen explains it; a toast would say it twice.
             AuthStatus::Refused(_) => self.sign_in_url = None,
@@ -3690,18 +3745,22 @@ impl App {
                     self.clear_play_pending();
                     self.intent_track = None;
                 }
-                self.toast_error(
-                    // Translators: {error} is an error message from the playback engine.
-                    if self.settings.soloist_enabled {
-                        gettext(self.locale, "Spotify connection: {error}")
-                    } else {
-                        gettext(self.locale, "Local playback: {error}")
-                    }
-                    .replace("{error}", message),
-                );
+                if self.selected_provider().uses_spotify_connection() {
+                    self.toast_error(
+                        // Translators: {error} is an error message from the playback engine.
+                        if self.settings.soloist_enabled {
+                            gettext(self.locale, "Spotify connection: {error}")
+                        } else {
+                            gettext(self.locale, "Local playback: {error}")
+                        }
+                        .replace("{error}", message),
+                    );
+                }
             }
             LocalPlayback::Authorizing => {
-                if !matches!(self.local_playback, LocalPlayback::Authorizing) {
+                if self.selected_provider().uses_spotify_connection()
+                    && !matches!(self.local_playback, LocalPlayback::Authorizing)
+                {
                     self.toast(if self.settings.soloist_enabled {
                         gettext(self.locale, "Opening your browser to connect Spotify")
                     } else {
@@ -24248,6 +24307,86 @@ mod tests {
         assert_eq!(
             SessionState::load(&app.dirs.session_file()).soloist_onboarding,
             SoloistOnboarding::Complete
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_keeps_soloist_dormant_until_spotify_is_selected() {
+        use crate::{provider::Provider, settings::SoloistOnboarding, soloist::Status};
+
+        let mut app = test_app("soloist-provider-boundary");
+        let ctx = egui::Context::default();
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.user = Some(crate::api::models::User {
+            product: Some("premium".into()),
+            ..Default::default()
+        });
+        app.settings.soloist_enabled = true;
+        app.soloist_onboarding = SoloistOnboarding::Welcome;
+        app.soloist_status = Status::Failed(crate::soloist::Failure::Stopped);
+        app.soloist_retry_at = Some(Instant::now());
+        app.jellyfin.enabled = true;
+        app.jellyfin.provider = Provider::Jellyfin;
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Play(
+            "track0".into(),
+        ));
+        assert!(app.jellyfin_player.snapshot().item.is_some());
+
+        assert!(!app.soloist_waiting());
+        assert!(!app.show_soloist_onboarding());
+        assert_eq!(app.soloist_view(), SoloistView::App);
+        app.retry_soloist_when_due(&ctx);
+        assert!(app.soloist_retry_at.is_some());
+        assert!(matches!(app.soloist_status, Status::Failed(_)));
+        let toasts = app.toasts.len();
+        app.handle_playback(LocalPlayback::Failed("offline".into()));
+        app.handle_auth(AuthStatus::Failed("Spotify is offline".into()));
+        assert_eq!(app.toasts.len(), toasts);
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+
+        app.select_provider(Provider::Spotify);
+        assert!(app.soloist_waiting());
+        assert_eq!(
+            app.show_soloist_onboarding(),
+            crate::soloist::install::supported()
+        );
+        assert!(app.soloist_retry_at.is_none());
+        assert!(matches!(app.soloist_status, Status::Starting));
+        assert!(app.jellyfin_player.snapshot().item.is_none());
+        app.handle_playback(LocalPlayback::Failed("offline".into()));
+        assert_eq!(app.toasts.len(), toasts + 1);
+
+        app.soloist_device_id = Some("soloist".into());
+        app.selected_device = app.soloist_device_id.clone();
+        assert_eq!(
+            app.spotify_remote_pause_device(),
+            Some(Some("soloist".into()))
+        );
+        app.select_provider(Provider::Jellyfin);
+
+        app.select_provider(Provider::Spotify);
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:playing".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.backend.take_player_commands();
+        app.select_provider(Provider::Jellyfin);
+        assert!(
+            app.backend
+                .take_player_commands()
+                .contains(&PlayerCommand::Pause)
         );
         app.backend.shutdown();
     }

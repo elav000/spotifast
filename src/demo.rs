@@ -14622,8 +14622,9 @@ mod tests {
         );
         assert_eq!(app.jellyfin_player.snapshot().tracks, queue);
         app.apply(Action::Jellyfin(A::Select(Provider::Spotify)), &ctx);
-        assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
+        assert!(app.jellyfin_player.snapshot().item.is_none());
         app.apply(Action::Jellyfin(A::Select(Provider::Jellyfin)), &ctx);
+        app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
         app.jellyfin_player.demo_ready(0, true);
         app.show_queue_panel = true;
         accessible_frame(&ctx, &mut app, vec![]);

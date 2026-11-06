@@ -9,6 +9,18 @@ pub enum Provider {
     Jellyfin,
 }
 
+impl Provider {
+    /// Spotify connection and playback state belongs only to Spotify's view.
+    pub fn uses_spotify_connection(self) -> bool {
+        matches!(self, Self::Spotify)
+    }
+
+    /// Soloist is a Spotify playback engine, not a shared player capability.
+    pub fn supports_soloist(self) -> bool {
+        self.uses_spotify_connection()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MediaKind {
     #[default]
@@ -212,6 +224,13 @@ impl crate::app::App {
         } else {
             Provider::Spotify
         }
+    }
+
+    pub(crate) fn select_provider(&mut self, provider: Provider) {
+        self.stop_outgoing_provider(provider);
+        self.jellyfin
+            .select(provider, &self.applied_jellyfin_proxy());
+        self.wake_soloist_for_selected_provider();
     }
 
     /// Now-playing presentation belongs to the selected provider until the
@@ -450,8 +469,7 @@ impl crate::app::App {
                 ItemReference::Spotify { uri } => {
                     if let Some(Page::Artist(id)) = Page::from_uri(uri) {
                         if self.jellyfin.provider != Provider::Spotify {
-                            self.jellyfin
-                                .select(Provider::Spotify, &self.applied_jellyfin_proxy());
+                            self.select_provider(Provider::Spotify);
                         }
                         self.open(Page::Artist(id));
                     }
@@ -484,8 +502,7 @@ impl crate::app::App {
                         return true;
                     };
                     if self.jellyfin.provider != Provider::Jellyfin {
-                        self.jellyfin
-                            .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                        self.select_provider(Provider::Jellyfin);
                     }
                     self.jellyfin.browse(
                         View::Catalog {

@@ -76,15 +76,11 @@ the maintainer asks for one.
 Address the following Jellyfin sharp edges in order. These are review findings,
 not permission for a broad abstraction rewrite.
 
-1. **Keep playlist edits optimistic through refresh.** A successful Remove or
-   Move can reload pre-edit cached rows before the live response. Invalidate or
-   bypass the affected cached view after a successful edit, and cover the
-   optimistic rows in a regression test.
-2. **Preserve playback context across server switches.** If server A is playing
+1. **Preserve playback context across server switches.** If server A is playing
    while the catalog switches to B, A's footer/queue context navigation and
    artwork must continue using A's source/account, or clearly decline the
    action. Do not silently query B with A's item ID.
-3. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
+2. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
    search only the selected collection, while playlists are user-scoped across
    collections. Default to All collections and allow narrowing to one, while
    keeping Home library selection and per-collection browsing intact.

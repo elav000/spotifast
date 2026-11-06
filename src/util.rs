@@ -262,20 +262,20 @@ fn triangle_distance(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32))
 }
 
 /// The mark on a 128-unit square, matching `packaging/icons/tumlo.svg`:
-/// rainbow spectrum bars across a black square with a small play glyph.
+/// segmented rainbow spectrum bars across a black square with a small play glyph.
 fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
     const GREEN: [f32; 3] = [30.0, 215.0, 96.0];
     const BARS: [([f32; 3], f32); 11] = [
-        ([255.0, 75.0, 95.0], 26.0),
-        ([255.0, 139.0, 61.0], 16.0),
-        ([255.0, 211.0, 78.0], 28.0),
-        ([185.0, 232.0, 87.0], 40.0),
-        ([85.0, 223.0, 154.0], 36.0),
-        ([53.0, 216.0, 199.0], 24.0),
-        ([69.0, 190.0, 255.0], 34.0),
-        ([103.0, 140.0, 255.0], 37.0),
-        ([162.0, 123.0, 255.0], 22.0),
-        ([214.0, 111.0, 227.0], 12.0),
+        ([255.0, 75.0, 95.0], 25.0),
+        ([255.0, 139.0, 61.0], 17.0),
+        ([255.0, 211.0, 78.0], 25.0),
+        ([185.0, 232.0, 87.0], 41.0),
+        ([85.0, 223.0, 154.0], 33.0),
+        ([53.0, 216.0, 199.0], 25.0),
+        ([69.0, 190.0, 255.0], 33.0),
+        ([103.0, 140.0, 255.0], 33.0),
+        ([162.0, 123.0, 255.0], 25.0),
+        ([214.0, 111.0, 227.0], 9.0),
         ([255.0, 102.0, 139.0], 25.0),
     ];
     const PUDDLE_TOPS: [f32; 11] = [
@@ -306,14 +306,18 @@ fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
                     let half_x = (right - left) / 2.0;
                     let center_y = (top + 110.0) / 2.0;
                     let half_y = (110.0 - top) / 2.0;
-                    let radius = 5.5_f32.min(half_x);
+                    let radius = 0.0;
                     let qx = (u - center_x).abs() - (half_x - radius);
                     let qy = (v - center_y).abs() - (half_y - radius);
                     let sd = qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - radius;
                     let fade_start = PUDDLE_TOPS[index] - 2.0;
                     let submerged = ((v - fade_start) / 7.0).clamp(0.0, 1.0);
                     let bar_opacity = 1.0 - submerged;
-                    let bar_coverage = (0.5 - sd * unit).clamp(0.0, 1.0) * bar_opacity;
+                    let segment_phase = (v - 18.0).rem_euclid(8.0);
+                    let segment_line_distance = segment_phase.min(8.0 - segment_phase);
+                    let segment_gap = ((1.0 - segment_line_distance) * unit + 0.5).clamp(0.0, 1.0);
+                    let bar_coverage =
+                        (0.5 - sd * unit).clamp(0.0, 1.0) * bar_opacity * (1.0 - segment_gap);
                     colour = mix(colour, *bar_colour, bar_coverage);
                 }
 
@@ -349,6 +353,29 @@ fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
                     }
                 }
 
+                let reflection_alpha = if (92.0..=112.0).contains(&v) {
+                    if v < 102.0 {
+                        0.62 - (v - 92.0) / 10.0 * 0.34
+                    } else {
+                        0.28 * (1.0 - (v - 102.0) / 10.0)
+                    }
+                } else {
+                    0.0
+                };
+                let reflected_shadow =
+                    triangle_distance((u, v), (53.5, 110.875), (53.5, 88.375), (82.5, 99.625));
+                let reflected_shadow_coverage = ((1.4 - reflected_shadow) * unit + 0.5)
+                    .clamp(0.0, 1.0)
+                    * reflection_alpha
+                    * 0.72;
+                colour = mix(colour, [17.0, 18.0, 24.0], reflected_shadow_coverage);
+                let reflected_triangle =
+                    triangle_distance((u, v), (57.0, 107.875), (57.0, 91.375), (79.0, 99.625));
+                let reflected_glyph = ((1.0 - reflected_triangle) * unit + 0.5).clamp(0.0, 1.0)
+                    * reflection_alpha
+                    * 0.72;
+                colour = mix(colour, [248.0, 247.0, 250.0], reflected_glyph);
+
                 if puddle_radius < 1.0 {
                     let pool_weight = (1.0 - puddle_radius).sqrt();
                     let wave_one =
@@ -381,10 +408,10 @@ fn mark_rgba(size: usize, polished: bool) -> Vec<u8> {
                     colour = mix(colour, flow_two_colour, wave_two_coverage * 0.26);
                 }
 
-                let shadow = triangle_distance((u, v), (56.5, 51.5), (56.5, 77.5), (80.0, 64.5));
+                let shadow = triangle_distance((u, v), (53.5, 49.5), (53.5, 79.5), (82.5, 64.5));
                 let shadow_coverage = ((1.4 - shadow) * unit + 0.5).clamp(0.0, 1.0);
                 colour = mix(colour, [17.0, 18.0, 24.0], shadow_coverage);
-                let triangle = triangle_distance((u, v), (59.5, 55.5), (59.5, 73.5), (75.8, 64.5));
+                let triangle = triangle_distance((u, v), (57.0, 53.5), (57.0, 75.5), (79.0, 64.5));
                 let glyph = ((1.0 - triangle) * unit + 0.5).clamp(0.0, 1.0);
                 colour = mix(colour, [248.0, 247.0, 250.0], glyph);
             } else {
@@ -540,8 +567,8 @@ mod tests {
         ]
     }
 
-    /// The icon fills its frame with a black canvas, edge-to-edge spectrum
-    /// bars, a blended puddle and a clear foreground play glyph.
+    /// The icon fills its frame with a black canvas, segmented edge-to-edge
+    /// spectrum bars, a blended puddle and a clear foreground play glyph.
     #[test]
     fn the_icon_has_a_full_bleed_spectrum_and_foreground_play_glyph() {
         let (large, small) = (app_icon_rgba(128), app_icon_rgba(32));
@@ -557,12 +584,22 @@ mod tests {
             broad_spectrum[1] > broad_spectrum[0] * 2,
             "spectrum should remain visible behind the small play mark: {broad_spectrum:?}"
         );
+        assert_eq!(
+            pixel(&large, 128, 63, 42),
+            background,
+            "the spectrum bars should have dark horizontal segment gaps"
+        );
         let play = pixel(&large, 128, 68, 64);
         assert!(
             play[0] > 220 && play[1] > 220,
             "play glyph missing: {play:?}"
         );
-        assert!(pixel(&small, 32, 1, 16)[0] > 180);
+        assert!(pixel(&small, 32, 1, 17)[0] > 180);
+        let reflected_play = pixel(&large, 128, 66, 100);
+        assert!(
+            reflected_play[0] > 80 && reflected_play[1] > 150 && reflected_play[2] > 150,
+            "play reflection missing from the puddle: {reflected_play:?}"
+        );
         assert!(
             pixel(&large, 128, 0, 64)[3] == 255,
             "black background should reach the edges"
@@ -598,10 +635,9 @@ mod tests {
                 [5, 6, 9, 255],
                 "bar {index} extends above its SVG top"
             );
-            assert_ne!(
-                pixel(&icon, 128, x, top + 6),
-                [5, 6, 9, 255],
-                "bar {index} is shorter than its SVG top"
+            assert!(
+                (top..top + 10).any(|y| pixel(&icon, 128, x, y) != [5, 6, 9, 255]),
+                "bar {index} is shorter than its SVG top or has no lit segment"
             );
         }
     }
@@ -613,7 +649,7 @@ mod tests {
 
         // #then both have the black backing and near-touching edge bars
         assert_eq!(pixel(&large, 128, 1, 1), [5, 6, 9, 255]);
-        assert!(pixel(&small, 32, 1, 16)[0] > 180);
+        assert!(pixel(&small, 32, 1, 17)[0] > 180);
         // #and its spectrum and play glyph remain visible at tray size
         let low = pixel(&large, 128, 64, 108);
         assert!(low[1] > low[0]);

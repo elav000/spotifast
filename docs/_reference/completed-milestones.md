@@ -63,6 +63,11 @@ history below is not a list of tasks to repeat.
   per-item played state rather than a play-occurrence log, so each song appears
   once. The currently playing item is shown at the top; Previous remains the
   local controller's bounded cursor history.
+- Catalog reads run on two cancellable lanes, one for the visible page and one
+  for the sidebar library. A newer read replaces only the stale read in its
+  lane, while sign-out, connection and server-account changes cancel both.
+  Ordered account mutations, playlist work and playback reports remain on the
+  account worker, so a slow multi-category search cannot delay them.
 
 ## Upstream integration
 

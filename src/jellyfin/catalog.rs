@@ -191,49 +191,50 @@ impl Client {
             vec!["Items"]
         };
         let mut request = self.request(Method::GET, &segments, Some(token))?;
-        let mut params = request.url_mut().query_pairs_mut();
-        params
-            .append_pair("UserId", user)
-            .append_pair("StartIndex", &start.to_string())
-            .append_pair("Limit", "100")
-            .append_pair("EnableTotalRecordCount", "true")
-            .append_pair("EnableUserData", "true")
-            .append_pair(
-                "Fields",
-                "Artists,ArtistItems,AlbumId,MediaStreams,MediaSources,Overview,DateCreated,ProductionYear,PremiereDate",
-            );
-        if playlist.is_none() {
+        {
+            let mut params = request.url_mut().query_pairs_mut();
             params
-                .append_pair("Recursive", "true")
-                .append_pair("SortBy", if history { "DatePlayed" } else { sort })
+                .append_pair("UserId", user)
+                .append_pair("StartIndex", &start.to_string())
+                .append_pair("Limit", "100")
+                .append_pair("EnableTotalRecordCount", "true")
+                .append_pair("EnableUserData", "true")
                 .append_pair(
-                    "SortOrder",
-                    if history || descending {
-                        "Descending"
-                    } else {
-                        "Ascending"
-                    },
+                    "Fields",
+                    "Artists,ArtistItems,AlbumId,MediaStreams,MediaSources,Overview,DateCreated,ProductionYear,PremiereDate",
                 );
-            if !artist_path {
-                params.append_pair("IncludeItemTypes", kind.item_type());
-            }
-            // Server playlists are user-scoped, not children of a music library.
-            if kind != Kind::Playlist
-                && let Some(parent) = parent
-            {
-                params.append_pair("ParentId", parent);
-            }
-            if let Some(artist) = artist {
-                params.append_pair("ArtistIds", artist);
-            }
-            if let Some(term) = search {
-                params.append_pair("SearchTerm", term);
-            }
-            if is_played {
-                params.append_pair("Filters", "IsPlayed");
+            if playlist.is_none() {
+                params
+                    .append_pair("Recursive", "true")
+                    .append_pair("SortBy", if history { "DatePlayed" } else { sort })
+                    .append_pair(
+                        "SortOrder",
+                        if history || descending {
+                            "Descending"
+                        } else {
+                            "Ascending"
+                        },
+                    );
+                if !artist_path {
+                    params.append_pair("IncludeItemTypes", kind.item_type());
+                }
+                // Server playlists are user-scoped, not children of a music library.
+                if kind != Kind::Playlist
+                    && let Some(parent) = parent
+                {
+                    params.append_pair("ParentId", parent);
+                }
+                if let Some(artist) = artist {
+                    params.append_pair("ArtistIds", artist);
+                }
+                if let Some(term) = search {
+                    params.append_pair("SearchTerm", term);
+                }
+                if is_played {
+                    params.append_pair("Filters", "IsPlayed");
+                }
             }
         }
-        drop(params);
         let page: Page<Item> = self.json(request).await?;
         if page.start_index != start
             || page.items.len() > 100

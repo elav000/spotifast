@@ -34,6 +34,15 @@ pub fn spawn(
             let Ok(runtime) = runtime else {
                 return;
             };
+            let catalog_runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .thread_name("spotifast-jellyfin-catalog")
+                .enable_all()
+                .build();
+            let Ok(catalog_runtime) = catalog_runtime else {
+                return;
+            };
+            let mut catalog_tasks: [Option<tokio::task::JoinHandle<()>>; 2] = [None, None];
             let mut worker = Worker {
                 dirs,
                 events,
@@ -65,6 +74,32 @@ pub fn spawn(
                 {
                     continue;
                 }
+                if cancels_catalog(&job.command) {
+                    for task in &mut catalog_tasks {
+                        if let Some(task) = task.take() {
+                            task.abort();
+                        }
+                    }
+                }
+                if let Some(lane) = catalog_lane(&job.command, job.catalog_request) {
+                    let Command::Browse { view, start } = &job.command else {
+                        unreachable!("only browse commands use a catalog lane");
+                    };
+                    if let Some(previous) = catalog_tasks[lane.index()].take() {
+                        previous.abort();
+                    }
+                    match worker.catalog_task(&job, view.clone(), *start) {
+                        Ok(task) => {
+                            catalog_tasks[lane.index()] = Some(catalog_runtime.spawn(async move {
+                                if let Err(error) = run_catalog(&task).await {
+                                    task.emit(Reply::Error(error));
+                                }
+                            }));
+                        }
+                        Err(error) => worker.emit(job.generation, Reply::Error(error)),
+                    }
+                    continue;
+                }
                 if let Err(error) = runtime.block_on(worker.run(&job)) {
                     worker.emit(job.generation, Reply::Error(error));
                 }
@@ -72,6 +107,98 @@ pub fn spawn(
         })
         .expect("unable to start the Jellyfin backend");
     tx
+}
+
+fn catalog_lane(command: &Command, request: Option<u64>) -> Option<CatalogLane> {
+    matches!(command, Command::Browse { .. }).then(|| CatalogLane::for_request(request))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CatalogLane {
+    View,
+    Library,
+}
+
+impl CatalogLane {
+    fn for_request(request: Option<u64>) -> Self {
+        if request.is_some() {
+            Self::Library
+        } else {
+            Self::View
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Self::View => 0,
+            Self::Library => 1,
+        }
+    }
+}
+
+fn cancels_catalog(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Restore
+            | Command::Begin(_)
+            | Command::Cancel
+            | Command::ActivateServer(_)
+            | Command::RemoveServer(_)
+            | Command::SignOut
+    )
+}
+
+struct CatalogTask {
+    dirs: AppDirs,
+    events: mpsc::Sender<Event>,
+    generation_counter: Arc<AtomicU64>,
+    catalog_generation: Arc<AtomicU64>,
+    generation: u64,
+    catalog_request: Option<u64>,
+    waker: Waker,
+    source: Source,
+    token: Token,
+    proxy: crate::settings::ProxyConfig,
+    view: View,
+    start: u32,
+}
+
+impl CatalogTask {
+    fn current(&self) -> bool {
+        self.catalog_request.map_or_else(
+            || self.generation_counter.load(Ordering::SeqCst) == self.generation,
+            |request| self.catalog_generation.load(Ordering::SeqCst) == request,
+        )
+    }
+
+    fn emit(&self, reply: Reply) {
+        if !self.current() {
+            return;
+        }
+        let reply = match (self.catalog_request, reply) {
+            (
+                Some(request),
+                Reply::Data {
+                    rows,
+                    context_item,
+                    cached,
+                },
+            ) => Reply::Catalog {
+                request,
+                source: self.source.clone(),
+                rows,
+                context_item,
+                cached,
+            },
+            (Some(request), Reply::Error(error)) => Reply::CatalogError { request, error },
+            (_, reply) => reply,
+        };
+        let _ = self.events.send(Event {
+            generation: self.generation,
+            reply,
+        });
+        self.waker.wake();
+    }
 }
 
 struct Worker {
@@ -131,6 +258,27 @@ impl Worker {
             let _ = self.events.send(Event { generation, reply });
             self.waker.wake();
         }
+    }
+    fn catalog_task(&self, job: &Job, view: View, start: u32) -> Result<CatalogTask, String> {
+        let source = self.source.clone().ok_or("Connect to a server first.")?;
+        let token = self
+            .token
+            .as_ref()
+            .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
+        Ok(CatalogTask {
+            dirs: self.dirs.clone(),
+            events: self.events.clone(),
+            generation_counter: self.generation.clone(),
+            catalog_generation: self.catalog_generation.clone(),
+            generation: job.generation,
+            catalog_request: job.catalog_request,
+            waker: self.waker.clone(),
+            source,
+            token: Token(token.0.clone()),
+            proxy: job.proxy.clone(),
+            view,
+            start,
+        })
     }
     fn account_file(&self) -> PathBuf {
         self.dirs.state.join("jellyfin-account.json")
@@ -541,203 +689,7 @@ impl Worker {
                 );
                 self.emit(generation, Reply::Connected(source));
             }
-            Command::Browse { view, start } => {
-                let source = self.source.as_ref().ok_or("Connect to a server first.")?;
-                let path = cache_file(&self.dirs, source, view, *start);
-                let identity = format!("{}:{}:{}", source.id, source.server_id, source.user_id);
-                if let Some(rows) = crate::account_cache::read::<Rows>(&path, &identity).await {
-                    self.emit(
-                        generation,
-                        Reply::Data {
-                            rows,
-                            context_item: None,
-                            cached: true,
-                        },
-                    );
-                }
-                let token = self
-                    .token
-                    .as_ref()
-                    .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
-                // Every operation uses the latest proxy policy, including a
-                // change made while browsing the other provider.
-                let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
-                    .map_err(|e| e.to_string())?;
-                let (rows, context_item) = match view {
-                    View::Settings => return Ok(()),
-                    View::Search {
-                        library,
-                        term,
-                        kind,
-                    } => {
-                        let mut sections = Vec::new();
-                        for category in [
-                            crate::jellyfin::catalog::Kind::Song,
-                            crate::jellyfin::catalog::Kind::Artist,
-                            crate::jellyfin::catalog::Kind::Album,
-                            crate::jellyfin::catalog::Kind::Playlist,
-                        ] {
-                            if kind.is_some_and(|kind| kind != category) {
-                                continue;
-                            }
-                            if !self.current(generation) {
-                                return Ok(());
-                            }
-                            let page = client
-                                .query(
-                                    &source.user_id,
-                                    &crate::jellyfin::catalog::Query::Search {
-                                        library: library.clone(),
-                                        term: term.clone(),
-                                        kind: category,
-                                    },
-                                    *start,
-                                    token,
-                                )
-                                .await
-                                .map_err(|e| e.to_string())?;
-                            sections.push((category, page));
-                        }
-                        (Rows::Search(sections), None)
-                    }
-                    View::Catalog { query, .. } => {
-                        let artist_id = match query {
-                            crate::jellyfin::catalog::Query::ArtistAlbums { artist, .. }
-                            | crate::jellyfin::catalog::Query::ArtistSongs { artist, .. } => {
-                                Some(artist.as_str())
-                            }
-                            _ => None,
-                        };
-                        let (page, context_item) = if let Some(artist_id) = artist_id {
-                            let (page, item) = tokio::join!(
-                                client.query(&source.user_id, query, *start, token),
-                                client.item(&source.user_id, artist_id, token),
-                            );
-                            (page, item.ok())
-                        } else {
-                            (
-                                client.query(&source.user_id, query, *start, token).await,
-                                None,
-                            )
-                        };
-                        let page = page.map_err(|e| e.to_string())?;
-                        (
-                            Rows::Items {
-                                items: page.items,
-                                start: page.start_index,
-                                total: page.total_record_count,
-                            },
-                            context_item,
-                        )
-                    }
-                    View::Libraries => {
-                        let libraries = client
-                            .music_libraries(&source.user_id, token)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        let (added, recent, frequent) = tokio::join!(
-                            client.query(
-                                &source.user_id,
-                                &crate::jellyfin::catalog::Query::RecentlyAdded,
-                                0,
-                                token,
-                            ),
-                            client.query(
-                                &source.user_id,
-                                &crate::jellyfin::catalog::Query::Recent,
-                                0,
-                                token,
-                            ),
-                            client.query(
-                                &source.user_id,
-                                &crate::jellyfin::catalog::Query::FrequentlyPlayed,
-                                0,
-                                token,
-                            ),
-                        );
-                        let shelf =
-                            |result: Result<crate::jellyfin::Page<Item>, Error>| match result {
-                                Ok(page) => crate::jellyfin::browser::HomeShelf {
-                                    items: page.items,
-                                    error: None,
-                                },
-                                Err(error) => crate::jellyfin::browser::HomeShelf {
-                                    items: Vec::new(),
-                                    error: Some(error.to_string()),
-                                },
-                            };
-                        (
-                            Rows::Home {
-                                libraries,
-                                recently_added: shelf(added),
-                                recently_played: shelf(recent),
-                                frequently_played: shelf(frequent),
-                            },
-                            None,
-                        )
-                    }
-                    View::Albums { library_id, .. } => {
-                        let page = client
-                            .albums(&source.user_id, library_id, *start, token)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        (
-                            Rows::Items {
-                                items: page.items,
-                                start: page.start_index,
-                                total: page.total_record_count,
-                            },
-                            None,
-                        )
-                    }
-                    View::Tracks { album_id, .. } => {
-                        let page = client
-                            .album_tracks(&source.user_id, album_id, *start, token)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        (
-                            Rows::Items {
-                                items: page.items,
-                                start: page.start_index,
-                                total: page.total_record_count,
-                            },
-                            None,
-                        )
-                    }
-                };
-                if !self.current(generation) {
-                    return Ok(());
-                }
-                // Cache failure must not hide a successful live response.
-                let cache_home = match &rows {
-                    Rows::Home {
-                        recently_added,
-                        recently_played,
-                        frequently_played,
-                        ..
-                    } => {
-                        recently_added.error.is_none()
-                            && recently_played.error.is_none()
-                            && frequently_played.error.is_none()
-                    }
-                    _ => true,
-                };
-                if cache_home {
-                    let _ = crate::account_cache::write(
-                        &path,
-                        &crate::account_cache::Cache::new(identity, rows.clone()),
-                    )
-                    .await;
-                }
-                self.emit(
-                    generation,
-                    Reply::Data {
-                        rows,
-                        context_item,
-                        cached: false,
-                    },
-                );
-            }
+            Command::Browse { .. } => unreachable!("catalog reads use the cancellable runtime"),
             Command::Recent {
                 source,
                 request,
@@ -821,6 +773,206 @@ impl Worker {
         }
         Ok(())
     }
+}
+
+async fn run_catalog(task: &CatalogTask) -> Result<(), String> {
+    if !task.current() || matches!(task.view, View::Settings) {
+        return Ok(());
+    }
+    let source = &task.source;
+    let path = cache_file(&task.dirs, source, &task.view, task.start);
+    let identity = format!("{}:{}:{}", source.id, source.server_id, source.user_id);
+    if let Some(rows) = crate::account_cache::read::<Rows>(&path, &identity).await {
+        task.emit(Reply::Data {
+            rows,
+            context_item: None,
+            cached: true,
+        });
+    }
+    if !task.current() {
+        return Ok(());
+    }
+    // Every operation uses the proxy policy captured when this read was
+    // requested, including a change made while browsing the other provider.
+    let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
+        .map_err(|error| error.to_string())?;
+    let token = &task.token;
+    let (rows, context_item) = match &task.view {
+        View::Settings => return Ok(()),
+        View::Search {
+            library,
+            term,
+            kind,
+        } => {
+            let mut sections = Vec::new();
+            for category in [
+                crate::jellyfin::catalog::Kind::Song,
+                crate::jellyfin::catalog::Kind::Artist,
+                crate::jellyfin::catalog::Kind::Album,
+                crate::jellyfin::catalog::Kind::Playlist,
+            ] {
+                if kind.is_some_and(|kind| kind != category) {
+                    continue;
+                }
+                if !task.current() {
+                    return Ok(());
+                }
+                let page = client
+                    .query(
+                        &source.user_id,
+                        &crate::jellyfin::catalog::Query::Search {
+                            library: library.clone(),
+                            term: term.clone(),
+                            kind: category,
+                        },
+                        task.start,
+                        token,
+                    )
+                    .await
+                    .map_err(|error| error.to_string())?;
+                sections.push((category, page));
+            }
+            (Rows::Search(sections), None)
+        }
+        View::Catalog { query, .. } => {
+            let artist_id = match query {
+                crate::jellyfin::catalog::Query::ArtistAlbums { artist, .. }
+                | crate::jellyfin::catalog::Query::ArtistSongs { artist, .. } => {
+                    Some(artist.as_str())
+                }
+                _ => None,
+            };
+            let (page, context_item) = if let Some(artist_id) = artist_id {
+                let (page, item) = tokio::join!(
+                    client.query(&source.user_id, query, task.start, token),
+                    client.item(&source.user_id, artist_id, token),
+                );
+                (page, item.ok())
+            } else {
+                (
+                    client
+                        .query(&source.user_id, query, task.start, token)
+                        .await,
+                    None,
+                )
+            };
+            let page = page.map_err(|error| error.to_string())?;
+            (
+                Rows::Items {
+                    items: page.items,
+                    start: page.start_index,
+                    total: page.total_record_count,
+                },
+                context_item,
+            )
+        }
+        View::Libraries => {
+            let libraries = client
+                .music_libraries(&source.user_id, token)
+                .await
+                .map_err(|error| error.to_string())?;
+            if !task.current() {
+                return Ok(());
+            }
+            let (added, recent, frequent) = tokio::join!(
+                client.query(
+                    &source.user_id,
+                    &crate::jellyfin::catalog::Query::RecentlyAdded,
+                    0,
+                    token,
+                ),
+                client.query(
+                    &source.user_id,
+                    &crate::jellyfin::catalog::Query::Recent,
+                    0,
+                    token,
+                ),
+                client.query(
+                    &source.user_id,
+                    &crate::jellyfin::catalog::Query::FrequentlyPlayed,
+                    0,
+                    token,
+                ),
+            );
+            let shelf = |result: Result<crate::jellyfin::Page<Item>, Error>| match result {
+                Ok(page) => crate::jellyfin::browser::HomeShelf {
+                    items: page.items,
+                    error: None,
+                },
+                Err(error) => crate::jellyfin::browser::HomeShelf {
+                    items: Vec::new(),
+                    error: Some(error.to_string()),
+                },
+            };
+            (
+                Rows::Home {
+                    libraries,
+                    recently_added: shelf(added),
+                    recently_played: shelf(recent),
+                    frequently_played: shelf(frequent),
+                },
+                None,
+            )
+        }
+        View::Albums { library_id, .. } => {
+            let page = client
+                .albums(&source.user_id, library_id, task.start, token)
+                .await
+                .map_err(|error| error.to_string())?;
+            (
+                Rows::Items {
+                    items: page.items,
+                    start: page.start_index,
+                    total: page.total_record_count,
+                },
+                None,
+            )
+        }
+        View::Tracks { album_id, .. } => {
+            let page = client
+                .album_tracks(&source.user_id, album_id, task.start, token)
+                .await
+                .map_err(|error| error.to_string())?;
+            (
+                Rows::Items {
+                    items: page.items,
+                    start: page.start_index,
+                    total: page.total_record_count,
+                },
+                None,
+            )
+        }
+    };
+    if !task.current() {
+        return Ok(());
+    }
+    // Cache failure must not hide a successful live response.
+    let cache_home = match &rows {
+        Rows::Home {
+            recently_added,
+            recently_played,
+            frequently_played,
+            ..
+        } => {
+            recently_added.error.is_none()
+                && recently_played.error.is_none()
+                && frequently_played.error.is_none()
+        }
+        _ => true,
+    };
+    if cache_home {
+        let _ = crate::account_cache::write(
+            &path,
+            &crate::account_cache::Cache::new(identity, rows.clone()),
+        )
+        .await;
+    }
+    task.emit(Reply::Data {
+        rows,
+        context_item,
+        cached: false,
+    });
+    Ok(())
 }
 
 pub fn cache_file(dirs: &AppDirs, source: &Source, view: &View, start: u32) -> PathBuf {
@@ -1044,6 +1196,27 @@ mod tests {
             user_id: "user1".into(),
             device_id: "device1".into(),
         }
+    }
+
+    #[test]
+    fn catalog_reads_have_independent_cancellation_lanes() {
+        let browse = Command::Browse {
+            view: View::Libraries,
+            start: 0,
+        };
+        assert_eq!(catalog_lane(&browse, None), Some(CatalogLane::View));
+        assert_eq!(catalog_lane(&browse, Some(7)), Some(CatalogLane::Library));
+        assert_eq!(catalog_lane(&Command::SignOut, None), None);
+        assert_ne!(CatalogLane::View.index(), CatalogLane::Library.index());
+
+        assert!(cancels_catalog(&Command::SignOut));
+        assert!(cancels_catalog(&Command::ActivateServer("other".into())));
+        assert!(cancels_catalog(&Command::RemoveServer("other".into())));
+        assert!(cancels_catalog(&Command::Begin(
+            "https://music.example".into()
+        )));
+        assert!(!cancels_catalog(&Command::RenameServer(source())));
+        assert!(!cancels_catalog(&Command::Select(Provider::Spotify)));
     }
 
     #[test]

@@ -460,6 +460,17 @@ impl Worker {
                 edit,
             } => {
                 let result = self.edit_playlist(source, edit, &job.proxy).await;
+                if result.is_ok() {
+                    // A playlist edit can move rows across page boundaries, so
+                    // no cached page for this account remains authoritative.
+                    // Finish invalidation before the browser starts its
+                    // confirmation refresh.
+                    let _ = tokio::fs::remove_dir_all(
+                        self.dirs.cache.join("jellyfin").join(&source.id),
+                    )
+                    .await;
+                    self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+                }
                 let _ = self.events.send(Event {
                     generation,
                     reply: Reply::Edited {

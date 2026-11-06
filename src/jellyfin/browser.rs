@@ -287,6 +287,7 @@ pub struct Browser {
     pub data_revision: u64,
     pub busy: bool,
     pub cached: bool,
+    cache_bypass_generation: Option<u64>,
     pub error: Option<String>,
     pub start: u32,
     detail_page_start: Option<u32>,
@@ -360,6 +361,7 @@ impl Browser {
             data_revision: 0,
             busy: false,
             cached: false,
+            cache_bypass_generation: None,
             error: None,
             start: 0,
             detail_page_start: None,
@@ -507,6 +509,8 @@ impl Browser {
                             self.browse(View::Libraries, 0, proxy);
                         } else if unchanged {
                             self.load_view(self.view.clone(), self.start, proxy);
+                            self.cache_bypass_generation =
+                                Some(self.generation.load(Ordering::SeqCst));
                         }
                         self.edit_previous = None;
                         self.edit_rows = None;
@@ -708,6 +712,14 @@ impl Browser {
                 context_item,
                 cached,
             } => {
+                if cached
+                    && self.cache_bypass_generation == Some(self.generation.load(Ordering::SeqCst))
+                {
+                    return;
+                }
+                if !cached {
+                    self.cache_bypass_generation = None;
+                }
                 if let Some(expected) = self.detail_page_start {
                     if let (
                         Some(Rows::Items {
@@ -777,6 +789,7 @@ impl Browser {
                 self.busy = false;
             }
             Reply::Error(error) => {
+                self.cache_bypass_generation = None;
                 self.detail_page_start = None;
                 self.play_album = None;
                 self.error = Some(error);
@@ -1189,6 +1202,7 @@ impl Browser {
         self.expires = None;
     }
     fn advance(&mut self) {
+        self.cache_bypass_generation = None;
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.detail_page_start = None;
         self.error = None;
@@ -2184,6 +2198,103 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert_eq!(model.view, View::Settings);
+    }
+
+    #[test]
+    fn successful_playlist_edits_keep_optimistic_rows_through_cached_refreshes() {
+        fn rows(model: &Browser) -> Vec<Item> {
+            match &model.rows {
+                Some(Rows::Items { items, .. }) => items.clone(),
+                _ => panic!("playlist rows"),
+            }
+        }
+
+        fn confirm(model: &mut Browser, source: Source, stale: Vec<Item>, expected: Vec<Item>) {
+            model.apply(
+                Reply::Edited {
+                    source,
+                    request: model.edit_request,
+                    result: Ok(None),
+                },
+                &ProxyConfig::Off,
+            );
+            assert_eq!(rows(model), expected);
+            assert!(model.busy);
+            model.apply(
+                Reply::Data {
+                    rows: Rows::Items {
+                        total: stale.len() as u32,
+                        items: stale,
+                        start: 0,
+                    },
+                    context_item: None,
+                    cached: true,
+                },
+                &ProxyConfig::Off,
+            );
+            assert_eq!(rows(model), expected, "cached rows must not undo the edit");
+            assert!(model.busy, "the live confirmation is still pending");
+            model.apply(
+                Reply::Data {
+                    rows: Rows::Items {
+                        total: expected.len() as u32,
+                        items: expected.clone(),
+                        start: 0,
+                    },
+                    context_item: None,
+                    cached: false,
+                },
+                &ProxyConfig::Off,
+            );
+            assert_eq!(rows(model), expected);
+            assert!(!model.busy);
+        }
+
+        let mut removed = model();
+        removed.demo("jellyfin-playlist");
+        let source = removed.source.clone().unwrap();
+        let original = rows(&removed);
+        removed.edit(
+            source.clone(),
+            PlaylistEdit::Remove {
+                id: "playlist1".into(),
+                entries: vec!["entry1".into()],
+            },
+            &ProxyConfig::Off,
+        );
+        let optimistic = rows(&removed);
+        assert_eq!(optimistic.len(), original.len() - 1);
+        confirm(&mut removed, source, original, optimistic);
+
+        let mut moved = model();
+        moved.demo("jellyfin-playlist");
+        let source = moved.source.clone().unwrap();
+        let original = rows(&moved);
+        moved.edit(
+            source.clone(),
+            PlaylistEdit::Move {
+                id: "playlist1".into(),
+                entry: "entry0".into(),
+                index: 2,
+            },
+            &ProxyConfig::Off,
+        );
+        let optimistic = rows(&moved);
+        assert_eq!(
+            optimistic
+                .iter()
+                .map(|item| item.details.playlist_item_id.as_deref())
+                .collect::<Vec<_>>(),
+            [
+                Some("entry1"),
+                Some("entry2"),
+                Some("entry0"),
+                Some("entry3"),
+                Some("entry4"),
+                Some("entry5")
+            ]
+        );
+        confirm(&mut moved, source, original, optimistic);
     }
 
     #[test]

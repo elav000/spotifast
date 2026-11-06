@@ -68,6 +68,10 @@ history below is not a list of tasks to repeat.
   lane, while sign-out, connection and server-account changes cancel both.
   Ordered account mutations, playlist work and playback reports remain on the
   account worker, so a slow multi-category search cannot delay them.
+- Successful playlist edits invalidate the account's cached catalog pages
+  before the confirmation refresh. Remove and Move keep their optimistic rows
+  visible while that refresh ignores any pre-edit cached reply and waits for
+  live Jellyfin data; failed edits still restore the previous occurrences.
 
 ## Upstream integration
 

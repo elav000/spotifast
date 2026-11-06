@@ -50,45 +50,58 @@
     <mask id="reflectionMask" maskUnits="userSpaceOnUse" x="0" y="92" width="128" height="18">
       <rect x="0" y="92" width="128" height="18" fill="url(#reflectionFade)"/>
     </mask>
+    <linearGradient id="playReflectionFade" x1="0" y1="92" x2="0" y2="112" gradientUnits="userSpaceOnUse">
+      <stop stop-color="white" stop-opacity=".62"/>
+      <stop offset=".5" stop-color="white" stop-opacity=".28"/>
+      <stop offset="1" stop-color="white" stop-opacity="0"/>
+    </linearGradient>
+    <mask id="playReflectionMask" maskUnits="userSpaceOnUse" x="0" y="90" width="128" height="24">
+      <rect x="0" y="90" width="128" height="24" fill="url(#playReflectionFade)"/>
+    </mask>
     <filter id="reflectionBlur" x="-10%" y="-10%" width="120%" height="120%">
       <feGaussianBlur stdDeviation="1.1"/>
     </filter>
   </defs>
   <rect width="128" height="128" fill="#050609"/>
   <g mask="url(#barMask)">
-    <rect x="0" y="26" width="11" height="84" rx="5.5" fill="#ff4b5f"/>
-    <rect x="11.7" y="16" width="11" height="94" rx="5.5" fill="#ff8b3d"/>
-    <rect x="23.4" y="28" width="11" height="82" rx="5.5" fill="#ffd34e"/>
-    <rect x="35.1" y="40" width="11" height="70" rx="5.5" fill="#b9e857"/>
-    <rect x="46.8" y="36" width="11" height="74" rx="5.5" fill="#55df9a"/>
-    <rect x="58.5" y="24" width="11" height="86" rx="5.5" fill="#35d8c7"/>
-    <rect x="70.2" y="34" width="11" height="76" rx="5.5" fill="#45beff"/>
-    <rect x="81.9" y="37" width="11" height="73" rx="5.5" fill="#678cff"/>
-    <rect x="93.6" y="22" width="11" height="88" rx="5.5" fill="#a27bff"/>
-    <rect x="105.3" y="12" width="11" height="98" rx="5.5" fill="#d66fe3"/>
-    <rect x="117" y="25" width="11" height="85" rx="5.5" fill="#ff668b"/>
+    <rect x="0" y="25" width="11" height="85" fill="#ff4b5f"/>
+    <rect x="11.7" y="17" width="11" height="93" fill="#ff8b3d"/>
+    <rect x="23.4" y="25" width="11" height="85" fill="#ffd34e"/>
+    <rect x="35.1" y="41" width="11" height="69" fill="#b9e857"/>
+    <rect x="46.8" y="33" width="11" height="77" fill="#55df9a"/>
+    <rect x="58.5" y="25" width="11" height="85" fill="#35d8c7"/>
+    <rect x="70.2" y="33" width="11" height="77" fill="#45beff"/>
+    <rect x="81.9" y="33" width="11" height="77" fill="#678cff"/>
+    <rect x="93.6" y="25" width="11" height="85" fill="#a27bff"/>
+    <rect x="105.3" y="9" width="11" height="101" fill="#d66fe3"/>
+    <rect x="117" y="25" width="11" height="85" fill="#ff668b"/>
+    <path d="M0 10H128M0 18H128M0 26H128M0 34H128M0 42H128M0 50H128M0 58H128M0 66H128M0 74H128M0 82H128M0 90H128M0 98H128" stroke="#050609" stroke-width="2"/>
   </g>
   <ellipse cx="64" cy="108" rx="69" ry="28" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <path d="M0 98 C17 96 31 94 46 93 C59 92 69 92 82 93 C97 94 111 96 128 98 L128 128 H0Z" fill="url(#puddleColors)" mask="url(#puddleMask)"/>
   <g transform="translate(0 220) scale(1 -1)" mask="url(#reflectionMask)" opacity=".78" filter="url(#reflectionBlur)">
     <g>
-      <rect x="0" y="26" width="11" height="84" rx="5.5" fill="#ff4b5f"/>
-      <rect x="11.7" y="16" width="11" height="94" rx="5.5" fill="#ff8b3d"/>
-      <rect x="23.4" y="28" width="11" height="82" rx="5.5" fill="#ffd34e"/>
-      <rect x="35.1" y="40" width="11" height="70" rx="5.5" fill="#b9e857"/>
-      <rect x="46.8" y="36" width="11" height="74" rx="5.5" fill="#55df9a"/>
-      <rect x="58.5" y="24" width="11" height="86" rx="5.5" fill="#35d8c7"/>
-      <rect x="70.2" y="34" width="11" height="76" rx="5.5" fill="#45beff"/>
-      <rect x="81.9" y="37" width="11" height="73" rx="5.5" fill="#678cff"/>
-      <rect x="93.6" y="22" width="11" height="88" rx="5.5" fill="#a27bff"/>
-      <rect x="105.3" y="12" width="11" height="98" rx="5.5" fill="#d66fe3"/>
-      <rect x="117" y="25" width="11" height="85" rx="5.5" fill="#ff668b"/>
+      <rect x="0" y="25" width="11" height="85" fill="#ff4b5f"/>
+      <rect x="11.7" y="17" width="11" height="93" fill="#ff8b3d"/>
+      <rect x="23.4" y="25" width="11" height="85" fill="#ffd34e"/>
+      <rect x="35.1" y="41" width="11" height="69" fill="#b9e857"/>
+      <rect x="46.8" y="33" width="11" height="77" fill="#55df9a"/>
+      <rect x="58.5" y="25" width="11" height="85" fill="#35d8c7"/>
+      <rect x="70.2" y="33" width="11" height="77" fill="#45beff"/>
+      <rect x="81.9" y="33" width="11" height="77" fill="#678cff"/>
+      <rect x="93.6" y="25" width="11" height="85" fill="#a27bff"/>
+      <rect x="105.3" y="9" width="11" height="101" fill="#d66fe3"/>
+      <rect x="117" y="25" width="11" height="85" fill="#ff668b"/>
     </g>
+  </g>
+  <g mask="url(#playReflectionMask)" opacity=".72" filter="url(#reflectionBlur)">
+    <path d="M53.5 110.875 82.5 99.625 53.5 88.375Z" fill="#111218"/>
+    <path d="M57 107.875 79 99.625 57 91.375Z" fill="#f8f7fa"/>
   </g>
   <g fill="none" mask="url(#puddleMask)">
     <path d="M0 114 C14 108 25 109 39 115 S55 122 64 114 S81 108 92 115 S111 121 128 113" stroke="url(#puddleFlow)" stroke-width="3.6" stroke-linecap="round" opacity=".58"/>
     <path d="M0 118 C13 120 24 115 38 113 S56 111 64 117 S83 121 96 114 S114 110 128 118" stroke="url(#puddleColors)" stroke-width="2.4" stroke-linecap="round" opacity=".48"/>
   </g>
-  <path d="M56.5 51.5 80 64.5 56.5 77.5Z" fill="#111218"/>
-  <path d="M59.5 55.5 75.8 64.5 59.5 73.5Z" fill="#f8f7fa"/>
+  <path d="M53.5 49.5 82.5 64.5 53.5 79.5Z" fill="#111218"/>
+  <path d="M57 53.5 79 64.5 57 75.5Z" fill="#f8f7fa"/>
 </svg>

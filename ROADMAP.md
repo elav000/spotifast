@@ -9,8 +9,9 @@ Accepted work and completed live validation are recorded in the
 
 - Feed existing Tumlo views and infrastructure through provider data and
   capabilities. Do not create parallel Jellyfin panels when an adapter will do.
-- Keep Spotify and Jellyfin catalogs separate for now. Switching the provider
-  being browsed must not change playback or retarget queue actions.
+- Keep Spotify and Jellyfin catalogs separate for now. Switching providers or
+  active Jellyfin server/accounts stops the outgoing transport and clears its
+  queue; queue actions must never be retargeted across that boundary.
 - Use the term **Combined provider** for future catalog composition. This is a
   later feature, potentially including Plex, not the current separate-catalog UI.
 - Entries retain provider/source/account/item identity. Do not invent Spotify
@@ -76,11 +77,7 @@ the maintainer asks for one.
 Address the following Jellyfin sharp edges in order. These are review findings,
 not permission for a broad abstraction rewrite.
 
-1. **Preserve playback context across server switches.** If server A is playing
-   while the catalog switches to B, A's footer/queue context navigation and
-   artwork must continue using A's source/account, or clearly decline the
-   action. Do not silently query B with A's item ID.
-2. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
+1. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
    search only the selected collection, while playlists are user-scoped across
    collections. Default to All collections and allow narrowing to one, while
    keeping Home library selection and per-collection browsing intact.

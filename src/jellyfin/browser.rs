@@ -1355,9 +1355,19 @@ impl crate::app::App {
                 self.jellyfin
                     .rename_server(id, nickname, &self.applied_jellyfin_proxy())
             }
-            BrowserAction::ActivateServer(id) => self
-                .jellyfin
-                .activate_server(id, &self.applied_jellyfin_proxy()),
+            BrowserAction::ActivateServer(id) => {
+                let switching = self
+                    .jellyfin
+                    .source
+                    .as_ref()
+                    .is_some_and(|source| source.id != id)
+                    && self.jellyfin.servers.iter().any(|source| source.id == id);
+                if switching {
+                    self.stop_jellyfin_playback();
+                }
+                self.jellyfin
+                    .activate_server(id, &self.applied_jellyfin_proxy());
+            }
             BrowserAction::RemoveServer(id) => {
                 if self
                     .jellyfin
@@ -1365,12 +1375,7 @@ impl crate::app::App {
                     .as_ref()
                     .is_some_and(|source| source.id == id)
                 {
-                    self.jellyfin.report_playback(
-                        &self.jellyfin_player.snapshot(),
-                        false,
-                        &self.applied_jellyfin_proxy(),
-                    );
-                    self.jellyfin_player.stop();
+                    self.stop_jellyfin_playback();
                 }
                 self.jellyfin
                     .remove_server(id, &self.applied_jellyfin_proxy());
@@ -1381,12 +1386,7 @@ impl crate::app::App {
             }
             BrowserAction::Cancel => self.jellyfin.cancel(&self.applied_jellyfin_proxy()),
             BrowserAction::SignOut => {
-                self.jellyfin.report_playback(
-                    &self.jellyfin_player.snapshot(),
-                    false,
-                    &self.applied_jellyfin_proxy(),
-                );
-                self.jellyfin_player.stop();
+                self.stop_jellyfin_playback();
                 self.jellyfin.sign_out(&self.applied_jellyfin_proxy());
             }
             BrowserAction::PlayItem {

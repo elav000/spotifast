@@ -2977,14 +2977,33 @@ impl App {
         }
         match current {
             crate::provider::Provider::Spotify => self.pause_spotify_playback(),
-            crate::provider::Provider::Jellyfin => {
-                self.jellyfin.report_playback(
-                    &self.jellyfin_player.snapshot(),
-                    false,
-                    &self.applied_jellyfin_proxy(),
-                );
-                self.jellyfin_player.stop();
-            }
+            crate::provider::Provider::Jellyfin => self.stop_jellyfin_playback(),
+        }
+    }
+
+    pub(crate) fn stop_jellyfin_playback(&mut self) {
+        self.jellyfin.report_playback(
+            &self.jellyfin_player.snapshot(),
+            false,
+            &self.applied_jellyfin_proxy(),
+        );
+        self.jellyfin_player.stop();
+    }
+
+    fn stop_jellyfin_playback_for_inactive_source(&mut self) {
+        let snapshot = self.jellyfin_player.snapshot();
+        let active = self
+            .jellyfin
+            .source
+            .as_ref()
+            .map(|source| source.id.as_str());
+        if snapshot
+            .source_id
+            .as_deref()
+            .zip(active)
+            .is_some_and(|(playback_source, active_source)| playback_source != active_source)
+        {
+            self.stop_jellyfin_playback();
         }
     }
 
@@ -3004,6 +3023,7 @@ impl App {
         let events = self.backend.poll();
         self.handle_backend_events(events);
         self.jellyfin.poll(&self.applied_proxy);
+        self.stop_jellyfin_playback_for_inactive_source();
         self.jellyfin.report_playback(
             &self.jellyfin_player.snapshot(),
             self.jellyfin_player.controls_output(),
@@ -20276,6 +20296,45 @@ mod tests {
         );
         assert_eq!(app.jellyfin.provider, Provider::Spotify);
         assert_eq!(app.page(), &Page::Artist("spotify-id".into()));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn jellyfin_account_switches_stop_and_clear_outgoing_playback() {
+        use crate::jellyfin::browser::BrowserAction;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let original = app.jellyfin.source.clone().unwrap();
+        let mut other = original.clone();
+        other.id = "other-account".into();
+        other.server_id = "other-server".into();
+        other.user_id = "other-user".into();
+        app.jellyfin.servers.push(other.clone());
+
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        let playing = app.jellyfin_player.snapshot();
+        assert_eq!(playing.source_id.as_deref(), Some(original.id.as_str()));
+        assert!(!playing.tracks.is_empty());
+
+        app.apply_jellyfin_action(BrowserAction::ActivateServer(other.id.clone()));
+        let stopped = app.jellyfin_player.snapshot();
+        assert!(stopped.item.is_none());
+        assert!(stopped.tracks.is_empty());
+        assert!(stopped.queued.is_empty());
+
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        assert!(app.jellyfin_player.snapshot().item.is_some());
+        app.jellyfin.source = None;
+        app.stop_jellyfin_playback_for_inactive_source();
+        assert!(
+            app.jellyfin_player.snapshot().item.is_some(),
+            "wait for restored account identity before deciding it changed"
+        );
+        app.jellyfin.source = Some(other);
+        app.stop_jellyfin_playback_for_inactive_source();
+        assert!(app.jellyfin_player.snapshot().item.is_none());
         app.backend.shutdown();
     }
 

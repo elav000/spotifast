@@ -78,6 +78,11 @@ history below is not a list of tasks to repeat.
   configured player again. Provider switches also stop the outgoing transport:
   Jellyfin reports and clears its stream, while Spotify pauses its local or
   Connect target (including Soloist).
+- Switching the active Jellyfin server/account now follows that same boundary.
+  Tumlo reports the outgoing session to its original account, then stops and
+  clears its transport and queue before the next account becomes active. A
+  successful new Quick Connect is guarded the same way, so an old item ID is
+  never resolved or reported through the new account.
 
 ## Upstream integration
 

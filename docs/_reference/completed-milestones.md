@@ -72,6 +72,12 @@ history below is not a list of tasks to repeat.
   before the confirmation refresh. Remove and Move keep their optimistic rows
   visible while that refresh ignores any pre-edit cached reply and waits for
   live Jellyfin data; failed edits still restore the previous occurrences.
+- Soloist presentation and connection retries follow the selected provider.
+  Jellyfin does not show Soloist setup or failure banners, block its playback
+  controls, or wake a failed Soloist process; selecting Spotify wakes the
+  configured player again. Provider switches also stop the outgoing transport:
+  Jellyfin reports and clears its stream, while Spotify pauses its local or
+  Connect target (including Soloist).
 
 ## Upstream integration
 

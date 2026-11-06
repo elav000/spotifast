@@ -1322,8 +1322,7 @@ impl crate::app::App {
                     .as_ref()
                     .is_some_and(|current| current.same_identity(&source))
                 {
-                    self.jellyfin
-                        .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                    self.select_provider(Provider::Jellyfin);
                     self.apply_jellyfin_action(BrowserAction::SelectLibrary(id));
                 }
             }
@@ -1345,12 +1344,9 @@ impl crate::app::App {
                     );
                 }
             }
-            BrowserAction::Select(provider) => self
-                .jellyfin
-                .select(provider, &self.applied_jellyfin_proxy()),
+            BrowserAction::Select(provider) => self.select_provider(provider),
             BrowserAction::OpenSettings => {
-                self.jellyfin
-                    .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                self.select_provider(Provider::Jellyfin);
                 self.jellyfin
                     .browse(View::Settings, 0, &self.applied_jellyfin_proxy());
             }
@@ -1491,8 +1487,7 @@ impl crate::app::App {
                     .as_ref()
                     .is_some_and(|current| current.same_identity(&source))
                 {
-                    self.jellyfin
-                        .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                    self.select_provider(Provider::Jellyfin);
                     self.jellyfin
                         .browse(view, 0, &self.applied_jellyfin_proxy());
                 }

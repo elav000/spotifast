@@ -329,11 +329,15 @@ impl crate::app::App {
         let library_id = library
             .map(|library| library.id.clone())
             .unwrap_or_default();
+        let search_library = match &self.jellyfin.view {
+            View::Search { library, .. } => library.clone(),
+            _ => library.map(|library| library.id.clone()),
+        };
         let name = item.name.clone().unwrap_or_else(|| "Untitled".into());
         let view = match kind {
             Kind::Artist => View::Catalog {
                 query: Query::ArtistAlbums {
-                    library: library_id.clone(),
+                    library: search_library.clone(),
                     artist: item.id.clone(),
                 },
                 name: name.clone(),
@@ -369,7 +373,7 @@ impl crate::app::App {
             let play_view = if kind == Kind::Artist {
                 View::Catalog {
                     query: Query::ArtistSongs {
-                        library: library.map(|lib| lib.id.clone()).unwrap_or_default(),
+                        library: search_library,
                         artist: item.id.clone(),
                     },
                     name: name.clone(),
@@ -443,15 +447,17 @@ impl crate::app::App {
     }
 
     pub(crate) fn submit_provider_search(&mut self, query: String) {
-        if let Some(library) = &self.jellyfin.catalog.library {
-            let view = crate::jellyfin::browser::View::Search {
-                library: library.id.clone(),
-                term: query.trim().to_owned(),
-                kind: self.jellyfin.search_kind,
-            };
-            self.jellyfin
-                .browse(view, 0, &self.applied_jellyfin_proxy());
-        }
+        let library = match &self.jellyfin.view {
+            crate::jellyfin::browser::View::Search { library, .. } => library.clone(),
+            _ => None,
+        };
+        let view = crate::jellyfin::browser::View::Search {
+            library,
+            term: query.trim().to_owned(),
+            kind: self.jellyfin.search_kind,
+        };
+        self.jellyfin
+            .browse(view, 0, &self.applied_jellyfin_proxy());
     }
 
     pub(crate) fn apply_provider_navigation(&mut self, action: &crate::model::Action) -> bool {
@@ -488,26 +494,13 @@ impl crate::app::App {
                         self.toast_error("Jellyfin account changed. Open the song again.");
                         return true;
                     }
-                    let library = library.clone().or_else(|| {
-                        self.jellyfin
-                            .catalog
-                            .library
-                            .as_ref()
-                            .map(|lib| lib.id.clone())
-                    });
-                    let Some(library) = library else {
-                        self.toast_error(
-                            "Choose a Jellyfin music library before opening this artist.",
-                        );
-                        return true;
-                    };
                     if self.jellyfin.provider != Provider::Jellyfin {
                         self.select_provider(Provider::Jellyfin);
                     }
                     self.jellyfin.browse(
                         View::Catalog {
                             query: crate::jellyfin::catalog::Query::ArtistAlbums {
-                                library,
+                                library: library.clone(),
                                 artist: item.clone(),
                             },
                             name: name.clone(),

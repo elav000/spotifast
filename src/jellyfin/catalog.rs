@@ -24,18 +24,18 @@ pub enum Query {
         kind: Kind,
     },
     ArtistAlbums {
-        library: String,
+        library: Option<String>,
         artist: String,
     },
     ArtistSongs {
-        library: String,
+        library: Option<String>,
         artist: String,
     },
     PlaylistSongs {
         playlist: String,
     },
     Search {
-        library: String,
+        library: Option<String>,
         term: String,
         kind: Kind,
     },
@@ -123,7 +123,7 @@ impl Client {
                 library,
                 artist: id,
             } => {
-                parent = Some(library.as_str());
+                parent = library.as_deref();
                 artist = Some(id.as_str());
                 Kind::Album
             }
@@ -131,7 +131,7 @@ impl Client {
                 library,
                 artist: id,
             } => {
-                parent = Some(library.as_str());
+                parent = library.as_deref();
                 artist = Some(id.as_str());
                 Kind::Song
             }
@@ -150,7 +150,7 @@ impl Client {
                 {
                     return Err(Error::InvalidValue);
                 }
-                parent = Some(library.as_str());
+                parent = library.as_deref();
                 search = Some(term.as_str());
                 *kind
             }

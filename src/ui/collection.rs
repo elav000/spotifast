@@ -3124,9 +3124,17 @@ mod tests {
             } if source_id == "source1" && account == "account1" && artist == "artist1"
                 && name == "Artist" && library == "library1"
         ));
-        assert!(
-            crate::provider::detail::provider_artist_navigation(&source, None, &item).is_empty()
-        );
+        let all_collections =
+            crate::provider::detail::provider_artist_navigation(&source, None, &item);
+        assert_eq!(all_collections.len(), 1);
+        assert!(matches!(
+            &all_collections[0].1,
+            Action::OpenProviderArtist {
+                artist: crate::provider::ItemReference::Jellyfin { item: artist, .. },
+                library: None,
+                ..
+            } if artist == "artist1"
+        ));
     }
 
     fn adders(ids: &[&str]) -> std::collections::BTreeSet<String> {

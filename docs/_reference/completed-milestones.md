@@ -22,6 +22,11 @@ history below is not a list of tasks to repeat.
 - Existing left rail, search, album/artist/playlist pages, grids, track rows and
   playlist dialogs fed by provider adapters. Provider and Jellyfin collection
   selection live in menus, preserving the existing rail layout.
+- Jellyfin search defaults to all music collections and offers an explicit
+  collection picker for narrowing songs, artists and albums. Search scope is
+  independent of the Home collection selection and follows artist navigation;
+  playlists remain account-scoped because Jellyfin does not place them under a
+  music collection.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

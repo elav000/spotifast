@@ -122,6 +122,17 @@ provider-stamped active and queued entries must keep the provider-specific
 links, devices and controls that can execute them, regardless of which catalog
 is being browsed.
 
+After provider stamping is complete, redesign provider switching without adding
+a preference. Spotify remains the first-class built-in provider, while Settings
+uses an **Additional providers** section to add and manage Jellyfin connections.
+The profile menu becomes the quick catalog switcher through a **Provider**
+submenu: Spotify is a direct choice, and Jellyfin expands to the saved servers
+and accounts when more than one is available. The checked entries reflect the
+active browsing provider and Jellyfin account. These menu choices reuse the
+existing provider/account orchestration and do not take playback away from an
+already playing provider until the user starts something else; switching between
+Jellyfin accounts retains the existing explicit transport handoff rules.
+
 ## Later work
 
 - Combined provider and mixed local queues after the shared controller is stable;

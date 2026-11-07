@@ -8,6 +8,7 @@ use crate::api::models::pick_image;
 use crate::app::App;
 use crate::i18n::gettext;
 use crate::model::{Action, BackgroundActivity, Page};
+use crate::provider::Provider;
 use crate::theme::{self, Icon, Palette};
 
 /// The gap the bar keeps between everything it lays out.
@@ -106,6 +107,100 @@ fn badge_width(galley: Option<&Arc<Galley>>, padding: f32, labels: bool) -> f32 
                 galley.size().y + BADGE_PADDING_Y
             }
     })
+}
+
+fn select_jellyfin_source(app: &mut App, source_id: &str) {
+    if app
+        .jellyfin
+        .source
+        .as_ref()
+        .is_none_or(|source| source.id != source_id)
+    {
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::ActivateServer(source_id.to_owned()),
+        ));
+    }
+    app.actions.push(Action::Jellyfin(
+        crate::jellyfin::browser::BrowserAction::Select(Provider::Jellyfin),
+    ));
+}
+
+fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
+    let locale = app.locale;
+    let jellyfin_selected = app.jellyfin_selected();
+    if super::widgets::menu_item(
+        ui,
+        palette,
+        Some(if jellyfin_selected {
+            Icon::Music
+        } else {
+            Icon::Check
+        }),
+        &gettext(locale, "Spotify"),
+    ) {
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::Select(Provider::Spotify),
+        ));
+    }
+
+    let sources = app.jellyfin.servers.clone();
+    match sources.as_slice() {
+        [] => {
+            if super::widgets::menu_item(
+                ui,
+                palette,
+                Some(Icon::Jellyfin),
+                &gettext(locale, "Jellyfin"),
+            ) {
+                app.actions.push(Action::Open(Page::Settings));
+            }
+        }
+        [source] => {
+            if super::widgets::menu_item(
+                ui,
+                palette,
+                Some(if jellyfin_selected {
+                    Icon::Check
+                } else {
+                    Icon::Jellyfin
+                }),
+                &gettext(locale, "Jellyfin"),
+            ) {
+                select_jellyfin_source(app, &source.id);
+            }
+        }
+        _ => {
+            super::widgets::menu_submenu(
+                ui,
+                palette,
+                Some(Icon::Jellyfin),
+                &gettext(locale, "Jellyfin"),
+                |ui| {
+                    ui.set_width(220.0);
+                    for source in &sources {
+                        let active = app
+                            .jellyfin
+                            .source
+                            .as_ref()
+                            .is_some_and(|active| active.id == source.id);
+                        let name = if source.nickname.trim().is_empty() {
+                            source.server_url.as_str()
+                        } else {
+                            source.nickname.trim()
+                        };
+                        if super::widgets::menu_item(
+                            ui,
+                            palette,
+                            active.then_some(Icon::Check),
+                            name,
+                        ) {
+                            select_jellyfin_source(app, &source.id);
+                        }
+                    }
+                },
+            );
+        }
+    }
 }
 
 /// A pill at the right end of the bar: an icon with its label, or the icon
@@ -515,19 +610,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             });
                         });
                         super::widgets::menu_separator(ui, &palette);
+                        super::widgets::menu_submenu(
+                            ui,
+                            &palette,
+                            Some(Icon::Music),
+                            &gettext(locale, "Provider"),
+                            |ui| {
+                                ui.set_width(200.0);
+                                provider_menu(app, ui, &palette);
+                            },
+                        );
                         if super::widgets::menu_item(
                             ui,
                             &palette,
                             Some(Icon::Settings),
                             &gettext(locale, "Settings"),
                         ) {
-                            app.actions.push(if provider {
-                                Action::Jellyfin(
-                                    crate::jellyfin::browser::BrowserAction::OpenSettings,
-                                )
-                            } else {
-                                Action::Open(Page::Settings)
-                            });
+                            app.actions.push(Action::Open(Page::Settings));
                         }
                         if super::widgets::menu_item(
                             ui,
@@ -591,11 +690,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 )
                 .clicked()
                 {
-                    app.actions.push(if provider {
-                        Action::Jellyfin(crate::jellyfin::browser::BrowserAction::OpenSettings)
-                    } else {
-                        Action::Open(Page::Settings)
-                    });
+                    app.actions.push(Action::Open(Page::Settings));
                 }
                 if app.visualizers_available()
                     && theme::icon_button(

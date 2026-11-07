@@ -11,10 +11,12 @@ history below is not a list of tasks to repeat.
 
 - Protected Jellyfin sign-in and restoration for one server/account, separate
   browsing selection, account-scoped catalog/page caches and artwork caching.
-- Sign-in offers Spotify and Jellyfin as provider choices. The main provider
-  dropdown was removed; Settings switches providers and manages multiple saved
-  Jellyfin servers/accounts, including nicknames, activation, removal and
-  adding a connection without signing out of the active account.
+- Sign-in offers Spotify and Jellyfin as provider choices. The profile menu's
+  Provider submenu switches the browsed catalog and expands Jellyfin into saved
+  servers/accounts when there is more than one. Checked entries identify the
+  current catalog and Jellyfin account. Settings now uses an Additional
+  providers section to manage nicknames, activation, removal and new Jellyfin
+  connections without changing the catalog being browsed.
 - Server nicknames are presentation-only. Playback restoration, queue actions,
   in-flight browser replies and listening-history reporting use stable server
   and account identity, so renaming a server during playback does not interrupt

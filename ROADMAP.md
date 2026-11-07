@@ -65,10 +65,11 @@ provider execution adapters resolve and play entries, while exclusive output
 ownership coordinates handoffs. Do not rewrite Spotify Connect's remote service
 queue as part of this extraction.
 
-The sign-in screen now offers Spotify or Jellyfin. The main source/account
-dropdown is removed; Settings switches providers and manages saved Jellyfin
-servers and accounts, including nicknames, activation, removal and adding a
-connection without signing out of the current one. See the
+The sign-in screen now offers Spotify or Jellyfin. The profile menu's
+**Provider** submenu switches the browsed catalog and expands Jellyfin into
+saved servers/accounts when needed. Settings has an **Additional providers**
+section for Jellyfin nicknames, activation, removal and adding a connection
+without signing out of the current one. See the
 [completed milestone notes](docs/_reference/completed-milestones.md).
 
 The central shell now receives its route, stable scroll key, overview/tint
@@ -123,19 +124,11 @@ the maintainer asks for one.
 
 ## Next implementation sequence
 
-The reviewed Jellyfin sharp-edge, provider-orchestration, multi-disc album and
-provider-stamping sequences are complete. The next approved milestone is the
-provider-switching redesign. Spotify remains the first-class built-in provider,
-while Settings uses an **Additional providers** section to add and manage
-Jellyfin connections.
-
-The profile menu becomes the quick catalog switcher through a **Provider**
-submenu: Spotify is a direct choice, and Jellyfin expands to the saved servers
-and accounts when more than one is available. The checked entries reflect the
-active browsing provider and Jellyfin account. These menu choices reuse the
-existing provider/account orchestration and do not take playback away from an
-already playing provider until the user starts something else; switching between
-Jellyfin accounts retains the existing explicit transport handoff rules.
+The reviewed Jellyfin sharp-edge, provider-orchestration, multi-disc album,
+provider-stamping and provider-switching sequences are complete. No additional
+implementation milestone is approved yet. The next planning target is the
+Combined provider and mixed local queue described below; keep catalog
+composition, playback handoff and shared cache policy as separate decisions.
 
 ## Later work
 

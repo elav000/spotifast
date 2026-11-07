@@ -93,6 +93,12 @@ track-row renderers. Provider disc numbers add headings only when an album has
 more than one disc, retain server order and reset the displayed track number
 within each disc. Single-disc albums keep their previous layout.
 
+Album and artist overflow menus use one shared renderer and provider-owned
+actions. Spotify retains its save, radio and service-link capabilities.
+Jellyfin supplies play, shuffle, queue, favorite and server-link actions where
+the server supports them; favorite changes are optimistic and account-scoped.
+Unsupported service actions are omitted rather than rendered inertly.
+
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing

@@ -477,6 +477,24 @@ pub fn menu_item_enabled(
     menu_item_response(ui, palette, icon, label, enabled, false).1
 }
 
+pub(crate) fn detail_menu_items(
+    ui: &mut Ui,
+    app: &mut App,
+    items: Vec<crate::provider::detail::DetailMenuItem>,
+) {
+    let palette = app.palette;
+    ui.set_min_width(200.0);
+    ui.set_max_width(300.0);
+    for item in items {
+        if item.separator_before {
+            menu_separator(ui, &palette);
+        }
+        if menu_item_enabled(ui, &palette, Some(item.icon), &item.label, item.enabled) {
+            app.actions.push(item.action);
+        }
+    }
+}
+
 /// A menu item that may be highlighted as the keyboard's choice, as the
 /// pointer would highlight it. Returns its response and whether it was
 /// clicked.
@@ -1299,6 +1317,11 @@ pub fn context_menu_items(
     ui.set_min_width(200.0);
     ui.set_max_width(300.0);
     let kind = util::uri_kind(uri).unwrap_or("");
+    if kind == "album" {
+        let items = app.spotify_album_menu(uri, name);
+        detail_menu_items(ui, app, items);
+        return;
+    }
     if menu_item(ui, &palette, Some(Icon::Play), &gettext(locale, "Play")) {
         app.actions.push(Action::PlayContext {
             uri: uri.to_string(),

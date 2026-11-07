@@ -13,6 +13,7 @@ src/api/models.rs
 src/app/radio.rs
 src/milkdrop.rs
 src/model.rs
+src/provider/detail.rs
 src/settings.rs
 src/theme.rs
 src/ui/artist.rs

@@ -507,19 +507,7 @@ fn artist_byline(
 
 fn artist_actions(app: &mut App, ui: &mut egui::Ui, artist: &Artist) {
     let controls = app.spotify_artist_controls(artist);
-    super::collection::detail_controls(app, ui, controls, |app, ui| {
-        let more = theme::icon_button(
-            ui,
-            Icon::Ellipsis,
-            26.0,
-            app.palette.secondary,
-            app.palette.text,
-            &gettext(app.locale, "More"),
-        );
-        egui::Popup::menu(&more)
-            .frame(widgets::menu_frame(&app.palette))
-            .show(|ui| widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None));
-    });
+    super::collection::detail_controls(app, ui, controls, |_, _| {});
 }
 
 #[cfg(test)]

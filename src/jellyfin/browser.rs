@@ -169,6 +169,12 @@ pub enum Command {
         request: u64,
         edit: PlaylistEdit,
     },
+    Favorite {
+        source: Source,
+        request: u64,
+        item: String,
+        favorite: bool,
+    },
     Restore,
     Begin(String),
     Poll,
@@ -209,6 +215,13 @@ pub enum Reply {
         source: Source,
         request: u64,
         result: Result<Option<(String, String)>, String>,
+    },
+    Favorited {
+        source: Source,
+        request: u64,
+        item: String,
+        favorite: bool,
+        result: Result<(), String>,
     },
     Catalog {
         request: u64,
@@ -307,6 +320,8 @@ pub struct Browser {
     pub edit_busy: bool,
     pub edit_error: Option<String>,
     pub edit_completed: bool,
+    pub favorite_request: u64,
+    pub favorite_busy: bool,
     edit_previous: Option<View>,
     edit_rows: Option<Rows>,
     edit_generation: u64,
@@ -381,6 +396,8 @@ impl Browser {
             edit_busy: false,
             edit_error: None,
             edit_completed: false,
+            favorite_request: 0,
+            favorite_busy: false,
             edit_previous: None,
             edit_rows: None,
             edit_generation: 0,
@@ -418,6 +435,7 @@ impl Browser {
                 Reply::Catalog { .. }
                     | Reply::CatalogError { .. }
                     | Reply::Edited { .. }
+                    | Reply::Favorited { .. }
                     | Reply::Playlists { .. }
                     | Reply::ReportError { .. }
                     | Reply::Recent { .. }
@@ -533,6 +551,34 @@ impl Browser {
                 }
                 if let Some(library) = self.catalog.library.clone() {
                     self.select_catalog(library, proxy);
+                }
+            }
+
+            Reply::Favorited {
+                source,
+                request,
+                item,
+                favorite,
+                result,
+            } => {
+                if !self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(&source))
+                    || self.favorite_request != request
+                {
+                    return;
+                }
+                self.favorite_busy = false;
+                match result {
+                    Ok(()) => {
+                        self.edit_error = None;
+                        self.data_revision = self.data_revision.wrapping_add(1);
+                    }
+                    Err(error) => {
+                        self.set_item_favorite(&item, !favorite);
+                        self.edit_error = Some(error);
+                    }
                 }
             }
 
@@ -837,6 +883,88 @@ impl Browser {
         }
     }
 
+    pub fn set_favorite(
+        &mut self,
+        source: Source,
+        item: String,
+        favorite: bool,
+        proxy: &ProxyConfig,
+    ) {
+        if self.favorite_busy
+            || !self
+                .source
+                .as_ref()
+                .is_some_and(|current| current.same_identity(&source))
+        {
+            return;
+        }
+        self.set_item_favorite(&item, favorite);
+        self.favorite_request = self.favorite_request.wrapping_add(1);
+        self.favorite_busy = true;
+        self.edit_error = None;
+        self.send(
+            proxy,
+            Command::Favorite {
+                source,
+                request: self.favorite_request,
+                item,
+                favorite,
+            },
+        );
+    }
+
+    fn set_item_favorite(&mut self, id: &str, favorite: bool) {
+        fn update(item: &mut Item, id: &str, favorite: bool) {
+            if item.id == id {
+                item.details.user_data.get_or_insert_default().is_favorite = Some(favorite);
+            }
+        }
+        if let Some(item) = &mut self.album {
+            update(item, id, favorite);
+        }
+        for item in &mut self.catalog.items {
+            update(item, id, favorite);
+        }
+        for item in &mut self.playlists {
+            update(item, id, favorite);
+        }
+        for item in &mut self.recent_items {
+            update(item, id, favorite);
+        }
+        if let Some(rows) = &mut self.rows {
+            match rows {
+                Rows::Items { items, .. } => {
+                    for item in items {
+                        update(item, id, favorite);
+                    }
+                }
+                Rows::Search(sections) => {
+                    for (_, page) in sections {
+                        for item in &mut page.items {
+                            update(item, id, favorite);
+                        }
+                    }
+                }
+                Rows::Home {
+                    recently_added,
+                    recently_played,
+                    frequently_played,
+                    ..
+                } => {
+                    for item in recently_added
+                        .items
+                        .iter_mut()
+                        .chain(&mut recently_played.items)
+                        .chain(&mut frequently_played.items)
+                    {
+                        update(item, id, favorite);
+                    }
+                }
+                Rows::Libraries(_) => {}
+            }
+        }
+    }
+
     pub fn edit(&mut self, source: Source, edit: PlaylistEdit, proxy: &ProxyConfig) {
         if !self
             .source
@@ -930,6 +1058,7 @@ impl Browser {
         self.playlists_error = None;
         self.edit_busy = false;
         self.edit_error = None;
+        self.favorite_busy = false;
         self.album = None;
         self.advance();
         self.rows = None;
@@ -1003,6 +1132,7 @@ impl Browser {
         self.libraries.clear();
         self.playlists.clear();
         self.playlists_loading = false;
+        self.favorite_busy = false;
         self.album = None;
         self.view = View::Libraries;
         self.history = vec![(View::Libraries, 0)];
@@ -1226,6 +1356,11 @@ pub enum BrowserAction {
         source: Source,
         edit: PlaylistEdit,
     },
+    Favorite {
+        source: Source,
+        item: String,
+        favorite: bool,
+    },
     Select(Provider),
     ServerInput(String),
     Filter(String),
@@ -1250,6 +1385,7 @@ pub enum BrowserAction {
         reload: bool,
     },
     Play(String),
+    PlayShuffled(String),
     PlayItem {
         source: Source,
         item: Box<Item>,
@@ -1263,6 +1399,10 @@ pub enum BrowserAction {
     EnqueueItem {
         source: Source,
         item: Box<Item>,
+    },
+    EnqueueItems {
+        source: Source,
+        items: Vec<Item>,
     },
     InsertManual {
         source: Source,
@@ -1450,6 +1590,10 @@ impl crate::app::App {
                 ));
                 self.jellyfin_player.play(source, album_id, item, tracks);
             }
+            BrowserAction::PlayShuffled(id) => {
+                self.jellyfin_player.set_shuffle(true);
+                self.apply_jellyfin_action(BrowserAction::Play(id));
+            }
             BrowserAction::PlayQueue(index) => {
                 self.prepare_jellyfin_playback();
                 self.jellyfin_player.play_index(index);
@@ -1495,6 +1639,16 @@ impl crate::app::App {
             BrowserAction::EnqueueItem { source, item } => {
                 self.jellyfin_player.enqueue(&source, *item)
             }
+            BrowserAction::EnqueueItems { source, items } => {
+                self.jellyfin_player.enqueue_all(&source, items)
+            }
+            BrowserAction::Favorite {
+                source,
+                item,
+                favorite,
+            } => self
+                .jellyfin
+                .set_favorite(source, item, favorite, &self.applied_jellyfin_proxy()),
             BrowserAction::InsertManual {
                 source,
                 expected,
@@ -1658,6 +1812,7 @@ impl Browser {
                     | "jellyfin-playlist"
                     | "jellyfin-history"
             ) {
+                self.album = self.catalog.items.first().cloned();
                 self.view = View::Tracks {
                     library_id: "music1".into(),
                     library_name: "My music".into(),
@@ -1797,6 +1952,7 @@ impl Browser {
         }
         if page == "jellyfin-artist" {
             let mut artist = self.catalog.items[0].clone();
+            artist.id = "artist1".into();
             artist.name = Some("Bonobo".into());
             artist.artists.clear();
             self.album = Some(artist);
@@ -2083,6 +2239,49 @@ mod tests {
         assert!(!source.same_identity(&renamed));
         source.server_url = "https://other.example/".into();
         assert!(!source.same_identity(&renamed));
+    }
+
+    #[test]
+    fn favorite_changes_are_optimistic_and_failures_restore_the_item() {
+        let mut model = model();
+        model.demo("jellyfin-artist");
+        let source = model.source.clone().unwrap();
+        let (tx, jobs) = mpsc::channel();
+        model.tx = Some(tx);
+        model.set_favorite(source.clone(), "artist1".into(), true, &ProxyConfig::Off);
+        assert_eq!(
+            model
+                .album
+                .as_ref()
+                .and_then(|item| item.details.user_data.as_ref())
+                .and_then(|data| data.is_favorite),
+            Some(true)
+        );
+        let request = model.favorite_request;
+        assert!(matches!(
+            jobs.try_recv().unwrap().command,
+            Command::Favorite { item, favorite: true, .. } if item == "artist1"
+        ));
+        model.apply(
+            Reply::Favorited {
+                source,
+                request,
+                item: "artist1".into(),
+                favorite: true,
+                result: Err("Denied".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert_eq!(
+            model
+                .album
+                .as_ref()
+                .and_then(|item| item.details.user_data.as_ref())
+                .and_then(|data| data.is_favorite),
+            Some(false)
+        );
+        assert!(!model.favorite_busy);
+        assert_eq!(model.edit_error.as_deref(), Some("Denied"));
     }
 
     #[test]

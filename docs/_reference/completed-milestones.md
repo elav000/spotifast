@@ -47,6 +47,11 @@ history below is not a list of tasks to repeat.
   page and row paths with provider disc numbers. Disc headings appear only when
   more than one disc is present, preserve provider order and show each disc's
   own track numbers; single-disc albums are unchanged.
+- Shared album and artist overflow menus now render provider-owned actions.
+  Spotify keeps its existing library and radio choices; Jellyfin exposes the
+  supported play, shuffle, queue, favorite, copy and server-link operations.
+  Jellyfin favorite changes update immediately, remain bound to the active
+  account and roll back visibly when the server rejects them.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

@@ -734,6 +734,11 @@ pub enum Command {
         lease: CredentialLease,
         result: Result<crate::credentials::Loaded, crate::credentials::Error>,
     },
+    /// Try credential reads that timed out while a native permission prompt
+    /// held the platform store. Returning to the window sends this after the
+    /// prompt has gone away.
+    RetryCredentialRestore,
+    RetryTimedOutCredentials,
     CheckPlaylistCover {
         id: String,
         request: u64,
@@ -1383,6 +1388,7 @@ impl Backend {
                 Command::Accent { .. }
                     | Command::ClearAudioCache
                     | Command::ClearArtCache { .. }
+                    | Command::RetryCredentialRestore
                     | Command::Shutdown
                     | Command::CheckForUpdates { .. }
                     | Command::InspectUpdate
@@ -1872,6 +1878,10 @@ struct Worker {
     /// network returns.
     pending_playback_grant: Option<Credentials>,
     restore_pending: [bool; 3],
+    /// Spotify credential reads whose native store request timed out. A
+    /// platform permission prompt can outlive the runtime timeout even though
+    /// the person then approves it, so retry these when the window returns.
+    restore_timed_out: [bool; 3],
     restoring_proxy: bool,
     waiting_for_proxy: VecDeque<Command>,
     spotify_restore_started: bool,
@@ -2001,6 +2011,7 @@ impl Worker {
             playback_grant: None,
             pending_playback_grant: None,
             restore_pending: [false; 3],
+            restore_timed_out: [false; 3],
             restoring_proxy: false,
             waiting_for_proxy: VecDeque::new(),
             spotify_restore_started: false,
@@ -2335,6 +2346,17 @@ impl Worker {
                     lease,
                     result,
                 } => self.on_credentials_restored(slot, lease, result),
+                Command::RetryCredentialRestore => {
+                    let commands = self.commands.clone();
+                    tokio::spawn(async move {
+                        // The native prompt and the runtime timeout finish on
+                        // different threads. Let the timeout result reach the
+                        // worker before looking for the reads it marked.
+                        tokio::time::sleep(Duration::from_millis(250)).await;
+                        let _ = commands.send(Command::RetryTimedOutCredentials);
+                    });
+                }
+                Command::RetryTimedOutCredentials => self.retry_timed_out_credentials(),
                 Command::CheckPlaylistCover {
                     id,
                     request,
@@ -3066,6 +3088,41 @@ impl Worker {
         }
     }
 
+    fn retry_timed_out_credentials(&mut self) {
+        let mut retrying_web = false;
+        for slot in CredentialSlot::SPOTIFY {
+            let index = slot.index();
+            if !std::mem::take(&mut self.restore_timed_out[index]) || self.restore_pending[index] {
+                continue;
+            }
+            self.restore_pending[index] = true;
+            if slot != CredentialSlot::Playback {
+                retrying_web = true;
+                self.api.set_state(
+                    if slot == CredentialSlot::Shared {
+                        ApiSource::Shared
+                    } else {
+                        ApiSource::Personal
+                    },
+                    SessionState::Authorizing,
+                );
+            }
+            let lease = self.credentials.lease(slot);
+            let commands = self.commands.clone();
+            tokio::spawn(async move {
+                let result = lease.load().await;
+                let _ = commands.send(Command::CredentialsRestored {
+                    slot,
+                    lease,
+                    result,
+                });
+            });
+        }
+        if retrying_web && !self.signed_in {
+            self.emit(Event::Auth(AuthStatus::Connecting));
+        }
+    }
+
     fn on_credentials_restored(
         &mut self,
         slot: CredentialSlot,
@@ -3078,7 +3135,9 @@ impl Worker {
         if !lease.current() {
             return;
         }
-        self.restore_pending[slot.index()] = false;
+        let index = slot.index();
+        self.restore_pending[index] = false;
+        self.restore_timed_out[index] = false;
         let grant = match result {
             Ok(loaded) => {
                 if let Some(error) = loaded.warning {
@@ -3087,6 +3146,9 @@ impl Worker {
                 loaded.grant
             }
             Err(error) => {
+                if error == crate::credentials::Error::Timeout {
+                    self.restore_timed_out[index] = true;
+                }
                 self.emit(Event::Error(error.to_string()));
                 None
             }
@@ -3416,7 +3478,9 @@ impl Worker {
             }
         };
         self.credentials.invalidate(web_slot(source));
-        self.restore_pending[web_slot(source).index()] = false;
+        let slot = web_slot(source).index();
+        self.restore_pending[slot] = false;
+        self.restore_timed_out[slot] = false;
         let lease = self.credentials.lease(web_slot(source));
         self.authorization_attempt += 1;
         let attempt = self.authorization_attempt;
@@ -3551,6 +3615,7 @@ impl Worker {
             self.emit(Event::Error(error.to_string()));
         }
         self.restore_pending = [false; 3];
+        self.restore_timed_out = [false; 3];
         self.web_tokens = [None, None];
         self.playback_grant = None;
         self.pending_playback_grant = None;
@@ -3924,6 +3989,8 @@ impl Worker {
         };
         self.cancel_engine_retry();
         self.credentials.invalidate(CredentialSlot::Playback);
+        self.restore_pending[CredentialSlot::Playback.index()] = false;
+        self.restore_timed_out[CredentialSlot::Playback.index()] = false;
         self.authorization_attempt += 1;
         let attempt = self.authorization_attempt;
         let lease = self.credentials.lease(CredentialSlot::Playback);
@@ -8535,6 +8602,49 @@ mod authorization_tests {
                 ..
             }
         )));
+    }
+
+    #[test]
+    fn returning_after_a_credential_timeout_retries_the_saved_grant() {
+        let (runtime, mut worker, events) = worker("credential-timeout-retry");
+        let _entered = runtime.enter();
+        let slot = CredentialSlot::Playback;
+        let lease = worker.credentials.lease(slot);
+        runtime
+            .block_on(lease.save(StoredGrant::Playback(Credentials::with_password(
+                "alice", "secret",
+            ))))
+            .unwrap();
+        worker.restore_pending[slot.index()] = true;
+        worker.on_credentials_restored(slot, lease, Err(crate::credentials::Error::Timeout));
+        assert!(worker.restore_timed_out[slot.index()]);
+        assert!(!worker.restore_pending[slot.index()]);
+        assert!(events.try_iter().any(|event| matches!(
+            event,
+            Event::Error(message) if message.contains("did not respond")
+        )));
+
+        let (commands, mut receiver) = mpsc::unbounded_channel();
+        worker.commands = commands;
+        worker.retry_timed_out_credentials();
+        assert!(!worker.restore_timed_out[slot.index()]);
+        assert!(worker.restore_pending[slot.index()]);
+        let restored = runtime.block_on(receiver.recv()).unwrap();
+        let Command::CredentialsRestored {
+            slot: restored_slot,
+            lease,
+            result,
+        } = restored
+        else {
+            panic!("credential retry sent an unexpected command");
+        };
+        assert_eq!(restored_slot, slot);
+        worker.on_credentials_restored(restored_slot, lease, result);
+        assert!(!worker.restore_pending[slot.index()]);
+        assert!(matches!(
+            worker.playback_grant.as_ref(),
+            Some(credentials) if credentials.username.as_deref() == Some("alice")
+        ));
     }
 
     #[test]

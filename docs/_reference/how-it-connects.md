@@ -245,6 +245,10 @@ out, or a reconnection that gives up stops it.
   ([portable copies](/settings-and-files/#portable-copies)). Librespot retains its reusable credential in
   memory; Spotifast owns persistence. Flatpak can talk to
   `org.freedesktop.secrets` for this.
+  A native permission prompt can keep one of these reads open longer than the
+  app waits for it. After the prompt is approved and the window becomes active
+  again, Spotifast retries only the timed-out reads, so an existing sign-in is
+  restored without another browser approval.
   Version 0.7.1 still uses the older unencrypted files.
   See [migration, sign-out, and storage protection](/settings-and-files/).
 - Downloaded audio and artwork, in the cache directory, within the budget

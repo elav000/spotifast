@@ -2713,7 +2713,7 @@ impl App {
         if !self.settings.accent_from_art {
             return None;
         }
-        let now = self.selected_provider_now_playing()?;
+        let now = self.playback_now_playing()?;
         let url = now.art_small.or(now.art_url)?;
         self.accents.get(&url).copied()
     }
@@ -2723,7 +2723,7 @@ impl App {
         if !self.settings.accent_from_art {
             return None;
         }
-        let now = self.selected_provider_now_playing()?;
+        let now = self.playback_now_playing()?;
         let url = now.art_small.or(now.art_url)?;
         self.art_palettes.get(&url).map(Vec::as_slice)
     }
@@ -2947,17 +2947,6 @@ impl App {
                     .as_ref()
                     .and_then(|device| device.id.clone())
             })
-    }
-
-    pub(crate) fn stop_outgoing_provider(&mut self, next: crate::provider::Provider) {
-        let current = self.selected_provider();
-        if current == next {
-            return;
-        }
-        match current {
-            crate::provider::Provider::Spotify => self.pause_spotify_playback(),
-            crate::provider::Provider::Jellyfin => self.stop_jellyfin_playback(),
-        }
     }
 
     pub(crate) fn stop_jellyfin_playback(&mut self) {
@@ -24476,7 +24465,7 @@ mod tests {
     }
 
     #[test]
-    fn jellyfin_keeps_soloist_dormant_until_spotify_is_selected() {
+    fn browsing_providers_preserves_playback_and_wakes_soloist_only_for_spotify() {
         use crate::{provider::Provider, settings::SoloistOnboarding, soloist::Status};
 
         let mut app = test_app("soloist-provider-boundary");
@@ -24522,7 +24511,16 @@ mod tests {
         );
         assert!(app.soloist_retry_at.is_none());
         assert!(matches!(app.soloist_status, Status::Starting));
-        assert!(app.jellyfin_player.snapshot().item.is_none());
+        assert!(app.jellyfin_player.snapshot().item.is_some());
+        assert!(app.jellyfin_player.controls_output());
+        assert_eq!(
+            app.playback_now_playing().unwrap().provider,
+            Provider::Jellyfin
+        );
+        assert_eq!(
+            app.player_device_control(),
+            crate::provider::PlayerDeviceControl::AudioOutput
+        );
         app.handle_playback(LocalPlayback::Failed("offline".into()));
         assert_eq!(app.toasts.len(), toasts + 1);
 
@@ -24535,6 +24533,7 @@ mod tests {
         app.select_provider(Provider::Jellyfin);
 
         app.select_provider(Provider::Spotify);
+        app.jellyfin_player.suspend();
         app.local_ready = true;
         app.local = LocalState {
             connected: true,
@@ -24547,11 +24546,16 @@ mod tests {
         };
         app.backend.take_player_commands();
         app.select_provider(Provider::Jellyfin);
-        assert!(
-            app.backend
-                .take_player_commands()
-                .contains(&PlayerCommand::Pause)
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(
+            app.playback_now_playing().unwrap().provider,
+            Provider::Spotify
         );
+        assert_eq!(
+            app.player_device_control(),
+            crate::provider::PlayerDeviceControl::SpotifyConnect
+        );
+        assert!(app.queue_uses_spotify());
         app.backend.shutdown();
     }
 

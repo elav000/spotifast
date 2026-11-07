@@ -57,7 +57,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         )
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            let now = app.selected_provider_now_playing();
+            let now = app.playback_now_playing();
             // The whole bar, margins included, behind everything else.
             let behind = rect.expand2(vec2(16.0, 0.0));
             if visualizer(app, ui, behind, now.as_ref()) {

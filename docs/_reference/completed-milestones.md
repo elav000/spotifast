@@ -40,6 +40,9 @@ history below is not a list of tasks to repeat.
   snapshot and return the resulting action. Shared playlist dialogs likewise
   receive busy, error and deletion state through provider presentation rather
   than inspecting Jellyfin state.
+- Browsing provider selection no longer stops playback. The active playback
+  provider continues to own the player bar, queue, links, device picker and
+  controls until a song from another provider takes output ownership.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.
@@ -90,12 +93,11 @@ history below is not a list of tasks to repeat.
   before the confirmation refresh. Remove and Move keep their optimistic rows
   visible while that refresh ignores any pre-edit cached reply and waits for
   live Jellyfin data; failed edits still restore the previous occurrences.
-- Soloist presentation and connection retries follow the selected provider.
+- Soloist presentation and connection retries follow the playback provider.
   Jellyfin does not show Soloist setup or failure banners, block its playback
-  controls, or wake a failed Soloist process; selecting Spotify wakes the
-  configured player again. Provider switches also stop the outgoing transport:
-  Jellyfin reports and clears its stream, while Spotify pauses its local or
-  Connect target (including Soloist).
+  controls, or wake a failed Soloist process. Browsing Spotify does not wake or
+  take over playback; starting a Spotify song performs that handoff and wakes
+  the configured player when needed.
 - Switching the active Jellyfin server/account now follows that same boundary.
   Tumlo reports the outgoing session to its original account, then stops and
   clears its transport and queue before the next account becomes active. A

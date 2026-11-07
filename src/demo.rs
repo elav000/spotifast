@@ -13157,6 +13157,12 @@ mod tests {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("jellyfin-audio-output");
         app.jellyfin.demo("jellyfin-tracks");
+        app.apply(
+            Action::Jellyfin(crate::jellyfin::browser::BrowserAction::Play(
+                "track0".into(),
+            )),
+            &ctx,
+        );
         app.jellyfin_player.demo_ready(0, true);
         app.output_devices = Loadable::Loaded(demo_outputs());
 
@@ -14702,7 +14708,9 @@ mod tests {
         );
         assert_eq!(app.jellyfin_player.snapshot().tracks, queue);
         app.apply(Action::Jellyfin(A::Select(Provider::Spotify)), &ctx);
-        assert!(app.jellyfin_player.snapshot().item.is_none());
+        assert!(app.jellyfin_player.snapshot().item.is_some());
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Rosewood", Role::Link);
         app.apply(Action::Jellyfin(A::Select(Provider::Jellyfin)), &ctx);
         app.apply(Action::Jellyfin(A::Play("track0".into())), &ctx);
         app.jellyfin_player.demo_ready(0, true);
@@ -14825,15 +14833,7 @@ mod tests {
         app.jellyfin_player.demo_ready(0, true);
         app.jellyfin.provider = Provider::Spotify;
 
-        let tree = accessible_frame(&ctx, &mut app, vec![]);
-        assert!(
-            !tree
-                .nodes
-                .iter()
-                .any(|(_, node)| node.label() == Some("Rosewood") && node.role() == Role::Link)
-        );
         assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
-        app.jellyfin.provider = Provider::Jellyfin;
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         assert_eq!(

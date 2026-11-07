@@ -363,19 +363,14 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
     // Neither the Web API nor librespot can reorder or insert into a live
     // remote queue, so without local playback active every drop just
     // appends, same as the "Add to queue" menu item.
-    let reorderable = view.spotify_drag && app.queue_locally_reorderable();
-    let jellyfin_reorderable = !view.spotify_drag && app.jellyfin_player.controls_output();
-    if view.spotify_drag
+    let reorderable = view.spotify_drag_reorderable();
+    let provider_reorderable = view.provider_drag_reorderable();
+    if view.uses_spotify_rows()
         && !reorderable
         && let Some(track) = queue_drop(ui, ui.clip_rect())
+        && let Some(action) = view.spotify_drop_action(&track, None)
     {
-        app.actions.push(Action::QueueMany {
-            songs: track
-                .items
-                .iter()
-                .map(|item| (item.uri().to_string(), item.name().to_string()))
-                .collect(),
-        });
+        app.actions.push(action);
     }
     match &view.status {
         QueueStatus::Ready => {}
@@ -448,29 +443,17 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
         }
         // Nothing queued at all yet: the only slot a drop could land on is
         // the first one.
-        if reorderable && let Some(track) = queue_drop(ui, ui.clip_rect()) {
-            app.actions.push(Action::InsertInQueue {
-                items: track.items.clone(),
-                position: 0,
-            });
+        if reorderable
+            && let Some(track) = queue_drop(ui, ui.clip_rect())
+            && let Some(action) = view.spotify_drop_action(&track, Some(0))
+        {
+            app.actions.push(action);
         }
-        if jellyfin_reorderable && let Some(drag) = provider_queue_drop(ui, ui.clip_rect()) {
-            let expected = app.jellyfin_player.snapshot().queued.snapshot();
-            if expected.is_empty()
-                && app
-                    .jellyfin_player
-                    .context()
-                    .is_some_and(|(source, _)| source.same_identity(&drag.source))
-            {
-                app.actions.push(Action::Jellyfin(
-                    crate::jellyfin::browser::BrowserAction::InsertManual {
-                        source: drag.source.clone(),
-                        expected,
-                        item: Box::new(drag.item.clone()),
-                        to: 0,
-                    },
-                ));
-            }
+        if provider_reorderable
+            && let Some(drag) = provider_queue_drop(ui, ui.clip_rect())
+            && let Some(action) = view.provider_drop_action(&drag, 0)
+        {
+            app.actions.push(action);
         }
         widgets::empty_state(
             ui,
@@ -511,7 +494,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
         });
         ui.add_space(4.0);
         if reorderable && egui::DragAndDrop::has_payload_of_type::<DragTrack>(ui.ctx())
-            || jellyfin_reorderable
+            || provider_reorderable
                 && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(
                     ui.ctx(),
                 )
@@ -546,7 +529,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
                 (row >= 0.0).then(|| (row.round() as usize).min(queued_len))
             })
             .flatten();
-        let provider_slot = jellyfin_reorderable
+        let provider_slot = provider_reorderable
             .then(|| {
                 egui::DragAndDrop::payload::<crate::model::ProviderQueueDrag>(ui.ctx())?;
                 if !ui.rect_contains_pointer(section_rect) {
@@ -583,36 +566,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
             );
             if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                 && let Some(track) = egui::DragAndDrop::take_payload::<DragTrack>(ui.ctx())
+                && let Some(action) = view.spotify_drop_action(&track, Some(slot))
             {
-                match track.from.as_ref() {
-                    Some((origin, from)) if origin == "queue" => {
-                        let from = *from as usize;
-                        let uri = track.items[0].uri();
-                        // Playback can advance mid-drag and shift queue
-                        // indices; trust the recorded one only if it still
-                        // names the dragged song, otherwise find where that
-                        // song actually sits now. Not there at all means it
-                        // left the queue, so there is nothing left to move.
-                        let from = if app.manual_queue.get(from).map(String::as_str) == Some(uri) {
-                            Some(from)
-                        } else {
-                            app.manual_queue.iter().position(|queued| queued == uri)
-                        };
-                        // A row dropped back on its own edges moves nothing.
-                        if let Some(from) = from
-                            && slot != from
-                            && slot != from + 1
-                        {
-                            app.actions.push(Action::MoveInQueue { from, to: slot });
-                        }
-                    }
-                    _ => {
-                        app.actions.push(Action::InsertInQueue {
-                            items: track.items.clone(),
-                            position: slot,
-                        });
-                    }
-                }
+                app.actions.push(action);
             }
         }
         if let Some(slot) = provider_slot {
@@ -625,33 +581,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
             if ui.input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                 && let Some(drag) =
                     egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(ui.ctx())
-                && app
-                    .jellyfin_player
-                    .context()
-                    .is_some_and(|(source, _)| source.same_identity(&drag.source))
+                && let Some(action) = view.provider_drop_action(&drag, slot)
             {
-                let action = match drag.origin.as_ref() {
-                    Some((expected, from)) if slot != *from && slot != *from + 1 => {
-                        let from = *from;
-                        let to = if slot > from { slot - 1 } else { slot };
-                        Some(crate::jellyfin::browser::BrowserAction::EditManual {
-                            source: drag.source.clone(),
-                            expected: expected.clone(),
-                            index: from,
-                            to: Some(to),
-                        })
-                    }
-                    Some(_) => None,
-                    None => Some(crate::jellyfin::browser::BrowserAction::InsertManual {
-                        source: drag.source.clone(),
-                        expected: app.jellyfin_player.snapshot().queued.snapshot(),
-                        item: Box::new(drag.item.clone()),
-                        to: slot,
-                    }),
-                };
-                if let Some(action) = action {
-                    app.actions.push(Action::Jellyfin(action));
-                }
+                app.actions.push(action);
             }
         }
         ui.add_space(SECTION_GAP);
@@ -660,7 +592,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
     // row on it belongs to Next up, which plays from the context and is never
     // rewritten. A short, labeled drop slot before Next up accepts a new
     // manual row without treating any context row as a target.
-    if jellyfin_reorderable
+    if provider_reorderable
         && queued_len == 0
         && queue_len > 0
         && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(ui.ctx())
@@ -681,19 +613,9 @@ fn contents(app: &mut App, ui: &mut egui::Ui, compact: bool, view: &QueuePresent
             palette.accent,
         );
         if let Some(drag) = provider_queue_drop(ui, rect)
-            && app
-                .jellyfin_player
-                .context()
-                .is_some_and(|(source, _)| source.same_identity(&drag.source))
+            && let Some(action) = view.provider_drop_action(&drag, 0)
         {
-            app.actions.push(Action::Jellyfin(
-                crate::jellyfin::browser::BrowserAction::InsertManual {
-                    source: drag.source.clone(),
-                    expected: app.jellyfin_player.snapshot().queued.snapshot(),
-                    item: Box::new(drag.item.clone()),
-                    to: 0,
-                },
-            ));
+            app.actions.push(action);
         }
     }
     // The player bar's Queue button continues to accept Spotify drag drops.

@@ -14742,7 +14742,8 @@ mod tests {
         app.show_queue_panel = true;
         app.apply(Action::Jellyfin(A::Queue("track1".into())), &ctx);
         let view = app.playback_queue();
-        assert!(!view.spotify_drag);
+        assert!(!view.uses_spotify_rows());
+        assert!(view.provider_drag_reorderable());
         assert_eq!(view.manual_len, 1);
         assert_eq!(view.rows.len(), 1 + upcoming.len());
         let displayed: Vec<_> = view.rows[1..]

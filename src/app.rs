@@ -20125,6 +20125,38 @@ mod tests {
     }
 
     #[test]
+    fn playlist_dialog_presentation_follows_its_provider_without_ui_state_checks() {
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.dialog_source = app.jellyfin.source.clone();
+        app.jellyfin.edit_busy = true;
+        app.jellyfin.edit_error = Some("Server refused the edit".into());
+        let dialog = Dialog::ConfirmDeletePlaylist {
+            id: "playlist1".into(),
+            name: "Road trip".into(),
+            owned: true,
+        };
+        let jellyfin = app.playlist_dialog_presentation(&dialog);
+        assert!(jellyfin.busy);
+        assert_eq!(jellyfin.error.as_deref(), Some("Server refused the edit"));
+        assert_eq!(
+            jellyfin.delete_body.as_deref(),
+            Some("Delete “Road trip”? This removes the playlist from your Jellyfin server.")
+        );
+
+        app.jellyfin.dialog_source = None;
+        app.playlist_busy = false;
+        let spotify = app.playlist_dialog_presentation(&dialog);
+        assert!(!spotify.busy);
+        assert!(spotify.error.is_none());
+        assert_eq!(
+            spotify.delete_body.as_deref(),
+            Some("Delete “Road trip”? You can recover it from Spotify for 90 days.")
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn central_page_and_global_search_presentations_follow_the_active_provider() {
         use crate::{
             jellyfin::browser::View,

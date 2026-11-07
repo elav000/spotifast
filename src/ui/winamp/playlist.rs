@@ -276,7 +276,7 @@ fn rows_visible(height: u32) -> usize {
 /// playlist. The queue's URIs come along for playing from a row.
 fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, QueuePresentation) {
     let queue = app.playback_queue();
-    if queue.spotify_drag {
+    if queue.uses_spotify_rows() {
         return (spotify_rows(app, now).0, queue);
     }
     let mut rows = Vec::new();
@@ -531,10 +531,9 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue: &QueuePresentation,
         );
     }
 
-    // Jellyfin's manual rows use the same drop slots as the main queue. The
+    // Provider manual rows use the same drop slots as the main queue. The
     // current song and context rows are deliberately outside this target.
-    if !queue.spotify_drag
-        && app.jellyfin_player.controls_output()
+    if queue.provider_drag_reorderable()
         && egui::DragAndDrop::has_payload_of_type::<crate::model::ProviderQueueDrag>(view.ui.ctx())
     {
         let current_rows = usize::from(queue.current.is_some());
@@ -574,47 +573,17 @@ fn list(app: &mut App, view: &mut View, rows: &[Row], queue: &QueuePresentation,
                 y,
                 egui::Stroke::new(view.unit.max(1.0), rgb(style.current)),
             );
-            if let Some((source, _)) = app.jellyfin_player.context()
-                && view
-                    .ui
-                    .input(|input| input.pointer.button_released(egui::PointerButton::Primary))
+            if view
+                .ui
+                .input(|input| input.pointer.button_released(egui::PointerButton::Primary))
                 && let Some(drag) = egui::DragAndDrop::take_payload::<crate::model::ProviderQueueDrag>(
                     view.ui.ctx(),
                 )
-                && drag.source.same_identity(&source)
+                && let Some(action) = queue.provider_drop_action(&drag, slot)
             {
-                let expected = app.jellyfin_player.snapshot().queued.snapshot();
-                if let Some(action) = mini_provider_drop_action(&drag, slot, expected) {
-                    app.actions.push(Action::Jellyfin(action));
-                }
+                app.actions.push(action);
             }
         }
-    }
-}
-
-fn mini_provider_drop_action(
-    drag: &crate::model::ProviderQueueDrag,
-    slot: usize,
-    expected: std::sync::Arc<Vec<crate::jellyfin::Item>>,
-) -> Option<crate::jellyfin::browser::BrowserAction> {
-    use crate::jellyfin::browser::BrowserAction;
-
-    match drag.origin.as_ref() {
-        Some((snapshot, from)) if slot != *from && slot != *from + 1 => {
-            Some(BrowserAction::EditManual {
-                source: drag.source.clone(),
-                expected: snapshot.clone(),
-                index: *from,
-                to: Some(if slot > *from { slot - 1 } else { slot }),
-            })
-        }
-        Some(_) => None,
-        None => Some(BrowserAction::InsertManual {
-            source: drag.source.clone(),
-            expected,
-            item: Box::new(drag.item.clone()),
-            to: slot,
-        }),
     }
 }
 
@@ -915,74 +884,6 @@ fn list_menu(app: &mut App, ui: &mut egui::Ui, queue: &QueuePresentation) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn mini_playlist_provider_drop_uses_snapshot_safe_insert_and_move_actions() {
-        use crate::jellyfin::browser::{BrowserAction as A, Source};
-        use std::sync::Arc;
-
-        let source = Source {
-            nickname: "Test server".into(),
-            id: "source".into(),
-            server_url: "http://server".into(),
-            server_id: "server".into(),
-            user_id: "user".into(),
-            device_id: "device".into(),
-        };
-        let item: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
-            "Id": "track",
-            "Name": "Track"
-        }))
-        .unwrap();
-        let other: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
-            "Id": "other",
-            "Name": "Other"
-        }))
-        .unwrap();
-        let another: crate::jellyfin::Item = serde_json::from_value(serde_json::json!({
-            "Id": "another",
-            "Name": "Another"
-        }))
-        .unwrap();
-        let expected = Arc::new(vec![other, another]);
-        let insert = crate::model::ProviderQueueDrag {
-            source: source.clone(),
-            item: item.clone(),
-            origin: None,
-        };
-        assert!(matches!(
-            mini_provider_drop_action(&insert, 0, expected.clone()),
-            Some(A::InsertManual { source: owner, expected: snapshot, item: dropped, to: 0 })
-                if owner == source && snapshot == expected && dropped.id == "track"
-        ));
-
-        let move_drag = crate::model::ProviderQueueDrag {
-            source: source.clone(),
-            item,
-            origin: Some((expected.clone(), 1)),
-        };
-        assert!(matches!(
-            mini_provider_drop_action(&move_drag, 0, Arc::new(Vec::new())),
-            Some(A::EditManual { source: owner, expected: snapshot, index: 1, to: Some(0) })
-                if owner == source && snapshot == expected
-        ));
-        assert!(mini_provider_drop_action(&move_drag, 1, expected.clone()).is_none());
-
-        let move_down = crate::model::ProviderQueueDrag {
-            source: source.clone(),
-            item: serde_json::from_value(serde_json::json!({
-                "Id": "first",
-                "Name": "First"
-            }))
-            .unwrap(),
-            origin: Some((expected, 0)),
-        };
-        assert!(matches!(
-            mini_provider_drop_action(&move_down, 2, Arc::new(Vec::new())),
-            Some(A::EditManual { source: owner, index: 0, to: Some(1), .. })
-                if owner == source
-        ));
-    }
 
     #[test]
     fn jellyfin_main_and_mini_views_share_queue_occurrences_and_actions() {

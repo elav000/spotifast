@@ -75,6 +75,13 @@ pub struct PlaybackContextNavigation {
     pub artists: Vec<Option<crate::model::Action>>,
 }
 
+/// Provider-owned state consumed by the shared playlist dialogs.
+pub struct PlaylistDialogPresentation {
+    pub busy: bool,
+    pub error: Option<String>,
+    pub delete_body: Option<String>,
+}
+
 pub enum DetailLoadMode {
     Scroll,
     Button,
@@ -219,6 +226,52 @@ impl ItemReference {
 }
 
 impl crate::app::App {
+    pub fn playlist_dialog_presentation(
+        &self,
+        dialog: &crate::model::Dialog,
+    ) -> PlaylistDialogPresentation {
+        use crate::{i18n::gettext, model::Dialog};
+
+        let provider_source = self.jellyfin.dialog_source.as_ref();
+        let delete_body = match dialog {
+            Dialog::ConfirmDeletePlaylist { name, .. } if provider_source.is_some() => Some(
+                gettext(
+                    self.locale,
+                    "Delete “{name}”? This removes the playlist from your Jellyfin server.",
+                )
+                .replace("{name}", name),
+            ),
+            Dialog::ConfirmDeletePlaylist {
+                name, owned: true, ..
+            } => Some(
+                gettext(
+                    self.locale,
+                    "Delete “{name}”? You can recover it from Spotify for 90 days.",
+                )
+                .replace("{name}", name),
+            ),
+            Dialog::ConfirmDeletePlaylist {
+                name, owned: false, ..
+            } => Some(
+                gettext(
+                    self.locale,
+                    "“{name}” will no longer appear in Your Library.",
+                )
+                .replace("{name}", name),
+            ),
+            _ => None,
+        };
+        PlaylistDialogPresentation {
+            busy: if provider_source.is_some() {
+                self.jellyfin.edit_busy
+            } else {
+                self.playlist_busy
+            },
+            error: provider_source.and(self.jellyfin.edit_error.clone()),
+            delete_body,
+        }
+    }
+
     pub fn playback_context_navigation(
         &self,
         now: &crate::app::NowPlaying,

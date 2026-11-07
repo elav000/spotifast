@@ -6239,6 +6239,7 @@ impl App {
         if let Some(focused) = focused {
             if focused && !self.window_focused {
                 self.rootlist_wanted = true;
+                self.backend.send(Command::RetryCredentialRestore);
             }
             self.window_focused = focused;
         }

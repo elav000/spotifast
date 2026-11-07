@@ -198,11 +198,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let palette = app.palette;
     let locale = app.locale;
     let provider = app.jellyfin_selected();
-    let search_page = if provider {
-        app.provider_search_active()
-    } else {
-        matches!(app.page(), Page::Search)
-    };
+    let search_page = app.global_search_presentation().page_active;
     let width = ui.available_width();
     let mut window_controls = super::window_controls_reservation(
         ui.ctx(),
@@ -359,11 +355,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let fit = topbar_fit(search_room, controls, badges(true), badges(false));
             let search_width = fit.search;
             let id = egui::Id::new("global-search");
-            let before = if provider {
-                app.jellyfin.search_input.clone()
-            } else {
-                app.search.query.clone()
-            };
+            let before = app.global_search_presentation().query;
+            let mut edited = before.clone();
             let selected = egui::TextEdit::load_state(ui.ctx(), id)
                 .and_then(|state| state.cursor.char_range())
                 .is_some_and(|range| !range.is_empty());
@@ -372,11 +365,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 &palette,
                 app.locale,
                 id,
-                if provider {
-                    &mut app.jellyfin.search_input
-                } else {
-                    &mut app.search.query
-                },
+                &mut edited,
                 &gettext(locale, "What do you want to play?"),
                 search_width,
             );
@@ -386,11 +375,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             }
             // Clear empties the field and hands it focus in the same frame.
             // Neither should leave the page: only typing a query does.
-            let query = if provider {
-                app.jellyfin.search_input.clone()
-            } else {
-                app.search.query.clone()
-            };
+            if edited != before {
+                app.set_global_search_query(edited.clone());
+            }
+            let query = edited;
             let cleared = query.is_empty() && !before.is_empty();
             if response.gained_focus() && !cleared && !search_page {
                 app.actions.push(Action::Open(Page::Search));
@@ -401,11 +389,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 if selected || query.is_empty() {
                     app.actions.push(Action::EndSearchRun);
                 }
-                if provider {
-                    app.jellyfin.search_typed_at = Some(std::time::Instant::now());
-                } else {
-                    app.search.typed_at = Some(std::time::Instant::now());
-                }
+                app.mark_global_search_typed();
                 if !cleared && !search_page {
                     app.actions.push(Action::Open(Page::Search));
                 }

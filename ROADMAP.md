@@ -64,6 +64,12 @@ servers and accounts, including nicknames, activation, removal and adding a
 connection without signing out of the current one. See the
 [completed milestone notes](docs/_reference/completed-milestones.md).
 
+The central shell now receives its route, stable scroll key, overview/tint
+behavior and global-search state from the active provider presentation. The top
+bar and sidebar no longer inspect Jellyfin search state directly; provider
+actions own query edits, debounce and submission while the shared search page
+keeps its existing renderers.
+
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing
@@ -80,12 +86,11 @@ items under Later work as they become the next approved milestone.
 ## Later work
 
 - **Finish provider-owned page orchestration.** The shared cards, track rows,
-  detail heroes, controls, queue presentation and device capability are in
-  place, but the application shell still branches on Jellyfin view state.
-  Move central-page routing, global search state and playback-context
-  navigation behind provider presentation/actions. Then make queue drag/edit
-  capabilities and playlist dialogs explicitly provider-owned instead of
-  checking Jellyfin source state. Keep provider setup and account management
+  detail heroes, controls, queue presentation, device capability, central-page
+  routing and global search state are in place. Move playback-context
+  navigation behind provider presentation/actions next. Then make queue
+  drag/edit capabilities and playlist dialogs explicitly provider-owned instead
+  of checking Jellyfin source state. Keep provider setup and account management
   service-specific. Deliver these extractions through bounded user-facing
   fixes, not a parallel UI or a broad rewrite.
 

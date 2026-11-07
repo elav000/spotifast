@@ -39,6 +39,35 @@ pub enum PlayerDeviceControl {
     AudioOutput,
 }
 
+/// The active provider's central-page route. Shared pages keep one renderer;
+/// provider catalogs supply their own presentation through `Collection`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CentralPage {
+    Spotify(crate::model::Page),
+    Search(Provider),
+    Settings,
+    Collection,
+}
+
+/// Provider-owned shell data consumed by the central page without inspecting
+/// service-specific browser state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CentralPagePresentation {
+    pub route: CentralPage,
+    pub key: String,
+    pub overview: bool,
+    pub tint_artwork: Option<String>,
+}
+
+/// The global search field is shared, while each provider owns its query and
+/// page state until combined catalogs exist.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlobalSearchPresentation {
+    pub provider: Provider,
+    pub query: String,
+    pub page_active: bool,
+}
+
 pub enum DetailLoadMode {
     Scroll,
     Button,
@@ -183,6 +212,84 @@ impl ItemReference {
 }
 
 impl crate::app::App {
+    pub fn central_page_presentation(&self) -> CentralPagePresentation {
+        use crate::jellyfin::browser::View;
+        use crate::model::Page;
+
+        if self.selected_provider() == Provider::Jellyfin {
+            let route = match self.jellyfin.view {
+                View::Settings => CentralPage::Settings,
+                View::Search { .. } => CentralPage::Search(Provider::Jellyfin),
+                _ => CentralPage::Collection,
+            };
+            let tint_artwork = self.jellyfin.album.as_ref().and_then(|item| {
+                self.jellyfin
+                    .source
+                    .as_ref()
+                    .and_then(|source| crate::jellyfin::artwork::Reference::for_item(source, item))
+                    .map(|art| art.uri())
+            });
+            return CentralPagePresentation {
+                route,
+                key: format!(
+                    "jellyfin:{:?}:{:?}",
+                    self.jellyfin.source, self.jellyfin.view
+                ),
+                overview: self.jellyfin.view.context_id().is_none(),
+                tint_artwork,
+            };
+        }
+
+        let page = self.page().clone();
+        let route = match page {
+            Page::Search => CentralPage::Search(Provider::Spotify),
+            Page::Settings => CentralPage::Settings,
+            _ => CentralPage::Spotify(page.clone()),
+        };
+        CentralPagePresentation {
+            route,
+            key: page.encode(),
+            overview: matches!(
+                page,
+                Page::Home | Page::Search | Page::Settings | Page::Queue
+            ),
+            tint_artwork: None,
+        }
+    }
+
+    pub fn global_search_presentation(&self) -> GlobalSearchPresentation {
+        match self.selected_provider() {
+            Provider::Spotify => GlobalSearchPresentation {
+                provider: Provider::Spotify,
+                query: self.search.query.clone(),
+                page_active: matches!(self.page(), crate::model::Page::Search),
+            },
+            Provider::Jellyfin => GlobalSearchPresentation {
+                provider: Provider::Jellyfin,
+                query: self.jellyfin.search_input.clone(),
+                page_active: matches!(
+                    self.jellyfin.view,
+                    crate::jellyfin::browser::View::Search { .. }
+                ),
+            },
+        }
+    }
+
+    pub fn set_global_search_query(&mut self, query: String) {
+        match self.selected_provider() {
+            Provider::Spotify => self.search.query = query,
+            Provider::Jellyfin => self.jellyfin.search_input = query,
+        }
+    }
+
+    pub fn mark_global_search_typed(&mut self) {
+        let now = std::time::Instant::now();
+        match self.selected_provider() {
+            Provider::Spotify => self.search.typed_at = Some(now),
+            Provider::Jellyfin => self.jellyfin.search_typed_at = Some(now),
+        }
+    }
+
     /// Pagination capability for the selected provider's detail view.
     pub fn provider_detail_pagination(&self) -> Option<DetailPagination> {
         use crate::jellyfin::browser::{BrowserAction, Rows};
@@ -438,14 +545,6 @@ impl crate::app::App {
         }
     }
 
-    pub fn provider_search_active(&self) -> bool {
-        self.jellyfin_selected()
-            && matches!(
-                self.jellyfin.view,
-                crate::jellyfin::browser::View::Search { .. }
-            )
-    }
-
     pub(crate) fn submit_provider_search(&mut self, query: String) {
         let library = match &self.jellyfin.view {
             crate::jellyfin::browser::View::Search { library, .. } => library.clone(),
@@ -656,7 +755,7 @@ impl crate::app::App {
                 if matches!(action, Action::FocusSearch) {
                     self.search.focus_requested = true;
                 }
-                if !self.provider_search_active() {
+                if !self.global_search_presentation().page_active {
                     self.submit_provider_search(self.jellyfin.search_input.clone());
                 }
             }
@@ -682,6 +781,39 @@ impl crate::app::App {
             _ => return false,
         }
         true
+    }
+
+    pub(crate) fn tick_global_search(
+        &mut self,
+        ctx: &egui::Context,
+        debounce: std::time::Duration,
+    ) {
+        let typed = match self.selected_provider() {
+            Provider::Spotify => self.search.typed_at,
+            Provider::Jellyfin => self.jellyfin.search_typed_at,
+        };
+        let Some(typed) = typed else {
+            return;
+        };
+        if typed.elapsed() < debounce {
+            ctx.request_repaint_after(debounce - typed.elapsed());
+            return;
+        }
+        match self.selected_provider() {
+            Provider::Spotify => {
+                self.search.typed_at = None;
+                let query = self.search.query.trim().to_string();
+                // A pasted link waits for Enter rather than being searched
+                // for as words.
+                if crate::link::parse(&query).is_none() {
+                    self.run_typed_search(query);
+                }
+            }
+            Provider::Jellyfin => {
+                self.jellyfin.search_typed_at = None;
+                self.submit_provider_search(self.jellyfin.search_input.clone());
+            }
+        }
     }
 
     pub(crate) fn apply_provider_library(&mut self, action: LibraryAction) {

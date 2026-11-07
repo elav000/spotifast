@@ -13,7 +13,12 @@ use crate::theme::{self, Icon};
 use super::widgets::{self, TrackRow};
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
-    if app.jellyfin_selected() {
+    let provider = app.global_search_presentation().provider;
+    show_for_provider(app, ui, provider);
+}
+
+pub fn show_for_provider(app: &mut App, ui: &mut egui::Ui, source: crate::provider::Provider) {
+    if source == crate::provider::Provider::Jellyfin {
         provider(app, ui);
         return;
     }

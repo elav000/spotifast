@@ -1109,11 +1109,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
         &palette,
         Icon::Search,
         &gettext(locale, "Search"),
-        if app.jellyfin_selected() {
-            app.provider_search_active()
-        } else {
-            page == Page::Search
-        },
+        app.global_search_presentation().page_active,
     )
     .clicked()
     {

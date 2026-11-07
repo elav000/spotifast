@@ -14151,6 +14151,78 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_search_artist_card_opens_the_artist_catalog() {
+        use crate::jellyfin::{
+            browser::{Rows, View},
+            catalog::{Kind, Query},
+        };
+        use egui::accesskit::Role;
+
+        let (ctx, mut app) = accessible_app("provider-search-artist-open");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-search");
+        let artist = serde_json::from_value(serde_json::json!({
+            "Id": "artist-billy-joel",
+            "Name": "Billy Joel",
+            "Type": "MusicArtist"
+        }))
+        .unwrap();
+        let album = serde_json::from_value(serde_json::json!({
+            "Id": "album-the-stranger",
+            "Name": "The Stranger",
+            "Type": "MusicAlbum",
+            "Artists": ["Billy Joel"]
+        }))
+        .unwrap();
+        app.jellyfin.rows = Some(Rows::Search(vec![
+            (
+                Kind::Artist,
+                crate::jellyfin::Page {
+                    items: vec![artist],
+                    start_index: 0,
+                    total_record_count: 1,
+                },
+            ),
+            (
+                Kind::Album,
+                crate::jellyfin::Page {
+                    items: vec![album],
+                    start_index: 0,
+                    total_record_count: 1,
+                },
+            ),
+        ]));
+        accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "The Stranger, Billy Joel", Role::Button);
+        let card = accessible_node(&tree, "Billy Joel, Artist", Role::Button);
+        let bounds = tree
+            .nodes
+            .iter()
+            .find(|(id, _)| *id == card)
+            .and_then(|(_, node)| node.bounds())
+            .expect("artist card bounds");
+        let title = egui::pos2(bounds.x0 as f32 + 24.0, bounds.y1 as f32 - 42.0);
+        accessible_frame(
+            &ctx,
+            &mut app,
+            pointer_click(title, egui::PointerButton::Primary),
+        );
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Catalog {
+                query: Query::ArtistAlbums {
+                    library: None,
+                    ref artist,
+                },
+                ref name,
+            } if artist == "artist-billy-joel" && name == "Billy Joel"
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_shared_track_rows_dispatch_provider_actions_without_spotify_controls() {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("jellyfin-shared-rows");

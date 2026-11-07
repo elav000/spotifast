@@ -898,39 +898,41 @@ fn provider(app: &mut App, ui: &mut egui::Ui) {
         };
         theme::section_title(ui, &app.palette, label);
         ui.add_space(8.0);
-        if category == Kind::Song {
-            let tracks = app.provider_detail_tracks(
-                &page.items,
+        ui.push_id(("provider-search-section", category), |ui| {
+            if category == Kind::Song {
+                let tracks = app.provider_detail_tracks(
+                    &page.items,
+                    page.start_index,
+                    Some(Query::Search {
+                        library: library.clone(),
+                        term: term.clone(),
+                        kind: category,
+                    }),
+                    "search",
+                );
+                super::collection::provider_tracks(app, ui, &tracks);
+            } else {
+                let cards: Vec<_> = page
+                    .items
+                    .iter()
+                    .map(|item| app.jellyfin_library_item(item, category))
+                    .collect();
+                super::library::item_grid(app, ui, &cards);
+            }
+            let section_view = View::Search {
+                library: library.clone(),
+                term: term.clone(),
+                kind: Some(category),
+            };
+            super::collection::provider_paging(
+                app,
+                ui,
+                section_view,
                 page.start_index,
-                Some(Query::Search {
-                    library: library.clone(),
-                    term: term.clone(),
-                    kind: category,
-                }),
-                "search",
+                page.items.len(),
+                page.total_record_count,
             );
-            super::collection::provider_tracks(app, ui, &tracks);
-        } else {
-            let cards: Vec<_> = page
-                .items
-                .iter()
-                .map(|item| app.jellyfin_library_item(item, category))
-                .collect();
-            super::library::item_grid(app, ui, &cards);
-        }
-        let section_view = View::Search {
-            library: library.clone(),
-            term: term.clone(),
-            kind: Some(category),
-        };
-        super::collection::provider_paging(
-            app,
-            ui,
-            section_view,
-            page.start_index,
-            page.items.len(),
-            page.total_record_count,
-        );
+        });
         ui.add_space(24.0);
     }
 }

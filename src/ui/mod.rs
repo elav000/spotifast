@@ -354,41 +354,25 @@ fn page_tint(app: &mut App) -> Option<Color32> {
 }
 
 fn central(app: &mut App, ui: &mut egui::Ui) {
+    use crate::provider::CentralPage;
+
     let palette = app.palette;
-    let provider = app.jellyfin_selected();
-    let tint = if provider {
-        app.jellyfin
-            .album
-            .as_ref()
-            .and_then(|item| {
-                app.jellyfin
-                    .source
-                    .as_ref()
-                    .and_then(|source| crate::jellyfin::artwork::Reference::for_item(source, item))
-            })
-            .map(|art| art.uri())
-            .and_then(|uri| app.tint_for(Some(&uri)))
-    } else {
-        page_tint(app)
-    };
+    let presentation = app.central_page_presentation();
+    let tint = presentation
+        .tint_artwork
+        .as_deref()
+        .and_then(|uri| app.tint_for(Some(uri)))
+        .or_else(|| {
+            matches!(presentation.route, CentralPage::Spotify(_))
+                .then(|| page_tint(app))
+                .flatten()
+        });
     egui::CentralPanel::default()
         .frame(Frame::new().fill(palette.window))
         .show(ui, |ui| {
             let rect = ui.max_rect();
-            let page = app.page().clone();
-            let page_key = if provider {
-                format!("jellyfin:{:?}:{:?}", app.jellyfin.source, app.jellyfin.view)
-            } else {
-                page.encode()
-            };
-            let overview = if provider {
-                app.jellyfin.view.context_id().is_none()
-            } else {
-                matches!(
-                    page,
-                    Page::Home | Page::Search | Page::Settings | Page::Queue
-                )
-            };
+            let page_key = presentation.key.clone();
+            let route = presentation.route.clone();
             // The wash belongs to the page's hero, so it scrolls away with
             // it. The page's offset is known once it has been laid out, so
             // the previous frame's serves.
@@ -397,11 +381,13 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                 .ctx()
                 .data(|data| data.get_temp::<f32>(scrolled_id))
                 .unwrap_or(0.0);
-            let countdown = matches!(&page, Page::Album(id)
+            let countdown = matches!(&route, CentralPage::Spotify(Page::Album(id))
                 if app.album_pages.get(id).is_some_and(|page| page.prerelease.is_some()));
             // Countdown pages own their hero gradient. The generic artwork wash
             // otherwise leaves an unrelated color band behind the search bar.
-            if !countdown && let Some((top, bottom)) = header_wash(&palette, overview, tint) {
+            if !countdown
+                && let Some((top, bottom)) = header_wash(&palette, presentation.overview, tint)
+            {
                 widgets::paint_vertical_gradient(ui, header_rect(rect, scrolled), top, bottom);
             }
             ui.spacing_mut().item_spacing = vec2(8.0, 6.0);
@@ -412,7 +398,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             topbar::show(app, ui);
             // One banner at a time: a song that will not play matters more
             // than a slow app, which waits its turn.
-            if app.dialog.is_none() && page != Page::Settings {
+            if app.dialog.is_none() && route != CentralPage::Settings {
                 if app.soloist_waiting() {
                     soloist::banner(app, ui);
                 } else if app.audio_key_banner {
@@ -437,35 +423,40 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                     })
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        if provider {
-                            if let Some(error) = app.jellyfin_player.snapshot().error {
-                                widgets::error_row(ui, app, &error, None);
-                            }
-                            match app.jellyfin.view {
-                                crate::jellyfin::browser::View::Settings => settings::show(app, ui),
-                                crate::jellyfin::browser::View::Search { .. } => {
-                                    search::show(app, ui)
-                                }
-                                _ => collection::provider(app, ui),
-                            }
-                            return;
+                        if !matches!(route, CentralPage::Spotify(_))
+                            && let Some(error) = app.jellyfin_player.snapshot().error
+                        {
+                            widgets::error_row(ui, app, &error, None);
                         }
-                        match page {
-                            Page::Home => home::show(app, ui),
-                            Page::TopSongs => collection::top_songs(app, ui),
-                            Page::NewReleases => new_releases::page(app, ui),
-                            Page::Search => search::show(app, ui),
-                            Page::LikedSongs => collection::liked(app, ui),
-                            Page::Albums | Page::Artists | Page::Podcasts | Page::Episodes => {
-                                library::show(app, ui, page)
+                        match route {
+                            CentralPage::Search(provider) => {
+                                search::show_for_provider(app, ui, provider)
                             }
-                            Page::Playlist(id) => collection::playlist(app, ui, &id),
-                            Page::Album(id) => collection::album(app, ui, &id),
-                            Page::Artist(id) => artist::show(app, ui, &id),
-                            Page::Show(id) => show::show(app, ui, &id),
-                            Page::Radio(seed) => radio::radio(app, ui, &seed),
-                            Page::Queue => queue::page(app, ui),
-                            Page::Settings => settings::show(app, ui),
+                            CentralPage::Settings => settings::show(app, ui),
+                            CentralPage::Collection => collection::provider(app, ui),
+                            CentralPage::Spotify(Page::Home) => home::show(app, ui),
+                            CentralPage::Spotify(Page::TopSongs) => collection::top_songs(app, ui),
+                            CentralPage::Spotify(Page::NewReleases) => new_releases::page(app, ui),
+                            CentralPage::Spotify(Page::LikedSongs) => collection::liked(app, ui),
+                            CentralPage::Spotify(
+                                page @ (Page::Albums
+                                | Page::Artists
+                                | Page::Podcasts
+                                | Page::Episodes),
+                            ) => library::show(app, ui, page),
+                            CentralPage::Spotify(Page::Playlist(id)) => {
+                                collection::playlist(app, ui, &id)
+                            }
+                            CentralPage::Spotify(Page::Album(id)) => {
+                                collection::album(app, ui, &id)
+                            }
+                            CentralPage::Spotify(Page::Artist(id)) => artist::show(app, ui, &id),
+                            CentralPage::Spotify(Page::Show(id)) => show::show(app, ui, &id),
+                            CentralPage::Spotify(Page::Radio(seed)) => radio::radio(app, ui, &seed),
+                            CentralPage::Spotify(Page::Queue) => queue::page(app, ui),
+                            CentralPage::Spotify(Page::Search | Page::Settings) => {
+                                unreachable!("shared pages have provider-owned routes")
+                            }
                         }
                     });
                 if app.dialog.is_none() && !app.show_devices {

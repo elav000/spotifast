@@ -4963,30 +4963,7 @@ impl App {
             }
         }
 
-        if self.jellyfin_selected()
-            && let Some(typed) = self.jellyfin.search_typed_at
-        {
-            if typed.elapsed() >= SEARCH_DEBOUNCE {
-                self.jellyfin.search_typed_at = None;
-                self.submit_provider_search(self.jellyfin.search_input.clone());
-            } else {
-                ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
-            }
-        }
-
-        if let Some(typed) = self.search.typed_at {
-            if typed.elapsed() >= SEARCH_DEBOUNCE {
-                self.search.typed_at = None;
-                let query = self.search.query.trim().to_string();
-                // A pasted link waits for Enter rather than being searched
-                // for as words.
-                if crate::link::parse(&query).is_none() {
-                    self.run_typed_search(query);
-                }
-            } else {
-                ctx.request_repaint_after(SEARCH_DEBOUNCE - typed.elapsed());
-            }
-        }
+        self.tick_global_search(ctx, SEARCH_DEBOUNCE);
 
         if self.last_eviction.elapsed() > Duration::from_secs(20) {
             self.last_eviction = now;
@@ -8052,7 +8029,7 @@ impl App {
     }
 
     /// A search the debounce started while the user may still be typing.
-    fn run_typed_search(&mut self, query: String) {
+    pub(crate) fn run_typed_search(&mut self, query: String) {
         let serial = self.search.serial;
         self.run_search(query);
         if self.search.serial != serial {
@@ -20277,6 +20254,56 @@ mod tests {
         assert!(
             !app.playlist_busy,
             "an old Jellyfin dialog cannot fall through to Spotify"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn central_page_and_global_search_presentations_follow_the_active_provider() {
+        use crate::{
+            jellyfin::browser::View,
+            provider::{CentralPage, Provider},
+        };
+
+        let mut app = headless_app();
+        app.open(Page::Search);
+        app.search.query = "Spotify query".into();
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::Search(Provider::Spotify)
+        );
+        assert_eq!(app.global_search_presentation().query, "Spotify query");
+        assert!(app.global_search_presentation().page_active);
+        app.set_global_search_query("Spotify edit".into());
+        assert_eq!(app.search.query, "Spotify edit");
+
+        app.jellyfin.demo("jellyfin-search");
+        assert_eq!(app.selected_provider(), Provider::Jellyfin);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::Search(Provider::Jellyfin)
+        );
+        assert!(app.central_page_presentation().key.starts_with("jellyfin:"));
+        assert_eq!(app.global_search_presentation().query, "Bonobo");
+        assert!(app.global_search_presentation().page_active);
+        app.set_global_search_query("Jellyfin edit".into());
+        assert_eq!(app.jellyfin.search_input, "Jellyfin edit");
+        assert_eq!(app.search.query, "Spotify edit");
+        app.jellyfin.search_typed_at = Some(Instant::now() - SEARCH_DEBOUNCE);
+        app.tick_global_search(&egui::Context::default(), SEARCH_DEBOUNCE);
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Search { ref term, .. } if term == "Jellyfin edit"
+        ));
+        assert_eq!(app.jellyfin.search_typed_at, None);
+        assert_eq!(app.search.query, "Spotify edit");
+
+        app.jellyfin.view = View::Settings;
+        assert_eq!(app.central_page_presentation().route, CentralPage::Settings);
+        app.jellyfin.view = View::Libraries;
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::Collection
         );
         app.backend.shutdown();
     }

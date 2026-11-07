@@ -9,9 +9,11 @@ Accepted work and completed live validation are recorded in the
 
 - Feed existing Tumlo views and infrastructure through provider data and
   capabilities. Do not create parallel Jellyfin panels when an adapter will do.
-- Keep Spotify and Jellyfin catalogs separate for now. Switching providers or
-  active Jellyfin server/accounts stops the outgoing transport and clears its
-  queue; queue actions must never be retargeted across that boundary.
+- Keep Spotify and Jellyfin catalogs separate for now. Switching the catalog
+  being browsed preserves the current playback provider and its queue; starting
+  a song transfers output ownership. Switching active Jellyfin server/accounts
+  still stops that server's transport and clears its queue. Queue actions must
+  never be retargeted across a provider or account boundary.
 - Use the term **Combined provider** for future catalog composition. This is a
   later feature, potentially including Plex, not the current separate-catalog UI.
 - Entries retain provider/source/account/item identity. Do not invent Spotify
@@ -75,6 +77,11 @@ playback provider. Jellyfin keeps the playback source/account identity in those
 actions and preserves linked artist IDs from its playback metadata; Spotify
 retains its existing album, show and artist routes.
 
+Browsing and playback provider selection are independent. The active song keeps
+its player bar, queue, provider-specific links, device picker and transport
+controls while another catalog is open. Starting playback from that catalog is
+the handoff point and suspends the previous engine.
+
 Queue drag and edit capabilities now come from the playback-owned queue
 presentation in both the main and Winamp views. The provider resolves drops
 against its own source and snapshot, while the shared playlist dialogs receive
@@ -103,8 +110,10 @@ albums.
   this where its library supplies disc numbers.
 
 - Combined provider and mixed local queues after the shared controller is stable;
-  Plex or other sources can follow through the same contracts. Catalog composition,
-  mixed playback and shared caches are independent decisions.
+  Plex or other sources can follow through the same contracts. Every queued and
+  active entry must retain the provider identity used for its links, devices and
+  controls. Catalog composition, mixed playback and shared caches are independent
+  decisions.
 
 Incremental delivery within a partially received HTTP range is deferred. Revisit
 only if timing data shows the Jellyfin server delivers useful body bytes before

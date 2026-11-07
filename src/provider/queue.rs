@@ -233,7 +233,12 @@ impl QueuePresentation {
 impl App {
     pub fn queue_uses_spotify(&self) -> bool {
         !self.jellyfin_player.controls_output()
-            && (!self.jellyfin_selected() || self.is_connected() || self.local.is_active())
+            && (self
+                .playback_provider()
+                .is_some_and(|provider| provider == Provider::Spotify)
+                || !self.jellyfin_selected()
+                || self.is_connected()
+                || self.local.is_active())
     }
 
     pub fn playback_queue(&self) -> QueuePresentation {

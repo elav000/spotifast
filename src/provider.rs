@@ -455,7 +455,7 @@ impl crate::app::App {
         })
     }
 
-    /// The provider currently selected for browsing and the player bar.
+    /// The provider currently selected for browsing.
     pub fn selected_provider(&self) -> Provider {
         if self.jellyfin.enabled {
             self.jellyfin.provider
@@ -465,22 +465,35 @@ impl crate::app::App {
     }
 
     pub(crate) fn select_provider(&mut self, provider: Provider) {
-        self.stop_outgoing_provider(provider);
         self.jellyfin
             .select(provider, &self.applied_jellyfin_proxy());
         self.wake_soloist_for_selected_provider();
     }
 
-    /// Now-playing presentation belongs to the selected provider until the
-    /// app supports a shared, mixed-provider queue.
-    pub fn selected_provider_now_playing(&self) -> Option<crate::app::NowPlaying> {
+    /// Playback remains visible while another provider's catalog is open.
+    /// Starting a song transfers output ownership; browsing never does.
+    pub fn playback_now_playing(&self) -> Option<crate::app::NowPlaying> {
         self.now_playing()
-            .filter(|now| now.provider == self.selected_provider())
+            .filter(|now| !now.resuming || now.provider == self.selected_provider())
     }
 
-    /// Describes the device menu for the selected provider.
+    /// The provider that owns an active or paused playback surface. A cold
+    /// Spotify resume preview is not ownership while another catalog is open.
+    pub fn playback_provider(&self) -> Option<Provider> {
+        if self.jellyfin_player.controls_output() {
+            Some(Provider::Jellyfin)
+        } else {
+            self.playback_now_playing().map(|now| now.provider)
+        }
+    }
+
+    /// Describes the device menu for the provider that owns playback. With no
+    /// playback yet, the selected catalog supplies the useful empty-state menu.
     pub fn player_device_control(&self) -> PlayerDeviceControl {
-        match self.selected_provider() {
+        let provider = self
+            .playback_provider()
+            .unwrap_or_else(|| self.selected_provider());
+        match provider {
             Provider::Spotify => PlayerDeviceControl::SpotifyConnect,
             Provider::Jellyfin => PlayerDeviceControl::AudioOutput,
         }

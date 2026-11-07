@@ -226,3 +226,9 @@ Both queue renderers consume the playback provider's drag policy. They supply a
 drop slot and payload, and the provider validates ownership and the displayed
 snapshot before returning an insert or move action. Playlist dialogs use the
 same boundary for provider-specific busy, error and deletion state.
+
+Changing the catalog being browsed does not change this ownership or stop the
+current song. The queue and player controls continue to represent the playback
+provider until starting a song transfers output to another provider. A future
+mixed-provider queue must retain provider identity on every entry so its links,
+device choices and actions resolve through the entry's provider.

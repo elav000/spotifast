@@ -80,6 +80,24 @@ pub enum PlaybackEvent {
 }
 
 impl Client {
+    pub async fn set_favorite(
+        &self,
+        user: &str,
+        item: &str,
+        favorite: bool,
+        token: &Token,
+    ) -> Result<(), Error> {
+        validate_id(user)?;
+        validate_id(item)?;
+        let method = if favorite {
+            Method::POST
+        } else {
+            Method::DELETE
+        };
+        let request = self.request(method, &["Users", user, "FavoriteItems", item], Some(token))?;
+        self.catalog_success(request).await
+    }
+
     pub async fn item(&self, user: &str, id: &str, token: &Token) -> Result<Item, Error> {
         validate_id(user)?;
         validate_id(id)?;

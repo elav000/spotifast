@@ -482,6 +482,53 @@ impl Worker {
                 self.waker.wake();
             }
 
+            Command::Favorite {
+                source,
+                request,
+                item,
+                favorite,
+            } => {
+                let result = if !self
+                    .source
+                    .as_ref()
+                    .is_some_and(|current| current.same_identity(source))
+                {
+                    Err("Jellyfin account changed. Open the item again.".into())
+                } else {
+                    async {
+                        let token = self
+                            .token
+                            .as_ref()
+                            .ok_or("Connect to Jellyfin again before changing favorites.")?;
+                        let client = Client::new(&source.server_url, &source.device_id, &job.proxy)
+                            .map_err(|error| error.to_string())?;
+                        client
+                            .set_favorite(&source.user_id, item, *favorite, token)
+                            .await
+                            .map_err(|error| error.to_string())
+                    }
+                    .await
+                };
+                if result.is_ok() {
+                    let _ = tokio::fs::remove_dir_all(
+                        self.dirs.cache.join("jellyfin").join(&source.id),
+                    )
+                    .await;
+                    self.catalog_generation.fetch_add(1, Ordering::SeqCst);
+                }
+                let _ = self.events.send(Event {
+                    generation,
+                    reply: Reply::Favorited {
+                        source: source.clone(),
+                        request: *request,
+                        item: item.clone(),
+                        favorite: *favorite,
+                        result,
+                    },
+                });
+                self.waker.wake();
+            }
+
             Command::Select(provider) => {
                 fastframe_file::write(
                     &self.dirs.state.join("browsing-provider.json"),
@@ -940,17 +987,18 @@ async fn run_catalog(task: &CatalogTask) -> Result<(), String> {
             )
         }
         View::Tracks { album_id, .. } => {
-            let page = client
-                .album_tracks(&source.user_id, album_id, task.start, token)
-                .await
-                .map_err(|error| error.to_string())?;
+            let (page, item) = tokio::join!(
+                client.album_tracks(&source.user_id, album_id, task.start, token),
+                client.item(&source.user_id, album_id, token),
+            );
+            let page = page.map_err(|error| error.to_string())?;
             (
                 Rows::Items {
                     items: page.items,
                     start: page.start_index,
                     total: page.total_record_count,
                 },
-                None,
+                item.ok(),
             )
         }
     };

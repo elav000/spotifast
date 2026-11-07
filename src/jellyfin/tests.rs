@@ -699,6 +699,27 @@ async fn playlist_mutations_and_playback_reports_keep_credentials_out_of_urls() 
 }
 
 #[tokio::test]
+async fn favorite_mutations_use_the_authenticated_user_item_endpoint() {
+    let (address, requests) = server(vec![(204, ""), (204, "")]).await;
+    let client = client(&address);
+    let token = token();
+    client
+        .set_favorite("user1", "artist1", true, &token)
+        .await
+        .unwrap();
+    client
+        .set_favorite("user1", "artist1", false, &token)
+        .await
+        .unwrap();
+    let requests = requests.await.unwrap();
+    assert!(requests[0].starts_with("POST /jellyfin/Users/user1/FavoriteItems/artist1 "));
+    assert!(requests[1].starts_with("DELETE /jellyfin/Users/user1/FavoriteItems/artist1 "));
+    for request in requests {
+        assert!(!request.lines().next().unwrap().contains("private-token"));
+    }
+}
+
+#[tokio::test]
 async fn provider_catalog_and_mutations_reject_invalid_input_before_network() {
     use super::catalog::{Kind, PlaybackEvent, Query};
     let client = client("http://127.0.0.1:1/jellyfin");

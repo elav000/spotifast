@@ -356,6 +356,7 @@ pub(super) fn detail_controls(
 ) {
     let palette = app.palette;
     let compact = controls.compact;
+    let menu = controls.menu;
     ui.horizontal(|ui| {
         if !compact {
             ui.spacing_mut().item_spacing.x = 18.0;
@@ -372,6 +373,19 @@ pub(super) fn detail_controls(
             if clicked {
                 app.actions.push(button.action);
             }
+        }
+        if !menu.is_empty() {
+            let more = theme::icon_button(
+                ui,
+                Icon::Ellipsis,
+                26.0,
+                palette.secondary,
+                palette.text,
+                &gettext(app.locale, "More"),
+            );
+            egui::Popup::menu(&more)
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| widgets::detail_menu_items(ui, app, menu));
         }
         extra(app, ui);
     });

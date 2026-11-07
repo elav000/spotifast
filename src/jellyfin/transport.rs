@@ -437,6 +437,25 @@ impl Transport {
         state.snapshot.error = None;
     }
 
+    pub fn enqueue_all(&self, source: &Source, items: Vec<Item>) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        if !state
+            .template
+            .as_ref()
+            .is_some_and(|job| job.source.same_identity(source))
+        {
+            state.snapshot.error =
+                Some("Play a track from this Jellyfin account before adding to its queue.".into());
+            return;
+        }
+        if state.controller.manual.len().saturating_add(items.len()) > 1000 {
+            state.snapshot.error = Some("The Jellyfin queue is full (1,000 tracks).".into());
+            return;
+        }
+        state.controller.manual.extend(items);
+        state.snapshot.error = None;
+    }
+
     pub(crate) fn insert_manual(
         &self,
         source: &Source,
@@ -1431,6 +1450,45 @@ mod tests {
         transport.step(false);
         assert_eq!(transport.snapshot().item.unwrap().id, "b");
         assert_eq!(transport.snapshot().tracks.as_ref(), &tracks);
+    }
+
+    #[test]
+    fn enqueue_all_preserves_order_and_rejects_an_overflow_atomically() {
+        let transport = transport();
+        let current_source = source();
+        transport.play(
+            current_source.clone(),
+            "album".into(),
+            item("playing"),
+            Some(vec![item("playing")]),
+        );
+        transport.enqueue_all(
+            &current_source,
+            vec![item("first"), item("second"), item("third")],
+        );
+        assert_eq!(
+            transport
+                .snapshot()
+                .queued
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second", "third"]
+        );
+
+        transport.shared.state.lock().unwrap().controller.manual = (0..999)
+            .map(|index| item(&format!("queued-{index}")))
+            .collect();
+        transport.enqueue_all(
+            &current_source,
+            vec![item("overflow-a"), item("overflow-b")],
+        );
+        let snapshot = transport.snapshot();
+        assert_eq!(snapshot.queued.len(), 999);
+        assert_eq!(
+            snapshot.error.as_deref(),
+            Some("The Jellyfin queue is full (1,000 tracks).")
+        );
     }
 
     #[test]

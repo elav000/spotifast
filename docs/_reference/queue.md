@@ -221,3 +221,8 @@ the queue snapshot that was visible when the drag began. When **Playing next** i
 empty, its drop slot sits before the context rows; context rows themselves are
 never drop targets. The existing Spotify behavior and the rules above remain
 unchanged.
+
+Both queue renderers consume the playback provider's drag policy. They supply a
+drop slot and payload, and the provider validates ownership and the displayed
+snapshot before returning an insert or move action. Playlist dialogs use the
+same boundary for provider-specific busy, error and deletion state.

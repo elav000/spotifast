@@ -14764,6 +14764,125 @@ mod tests {
     }
 
     #[test]
+    fn account_menu_switches_the_browsed_provider() {
+        use crate::provider::Provider;
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("account-provider-switcher");
+        app.jellyfin.demo("jellyfin-tracks");
+        let account = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Music server",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(account, AccessibleAction::Click, None)],
+        );
+        let provider = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Provider",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(provider, AccessibleAction::Click, None)],
+        );
+        let spotify = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Spotify",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(spotify, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.jellyfin.provider, Provider::Spotify);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn account_menu_switches_between_saved_jellyfin_servers() {
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("account-jellyfin-server-switcher");
+        app.jellyfin.demo("jellyfin-tracks");
+        let mut upstairs = app.jellyfin.servers[0].clone();
+        upstairs.id = "fedcba9876543210fedcba9876543210".into();
+        upstairs.nickname = "Upstairs".into();
+        app.jellyfin.servers.push(upstairs);
+
+        let account = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Music server",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(account, AccessibleAction::Click, None)],
+        );
+        let provider = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Provider",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(provider, AccessibleAction::Click, None)],
+        );
+        let jellyfin = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Jellyfin",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(jellyfin, AccessibleAction::Click, None)],
+        );
+        let upstairs = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Upstairs",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(upstairs, AccessibleAction::Click, None)],
+        );
+        assert!(app.jellyfin.busy);
+        assert!(app.jellyfin.catalog.items.is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn additional_provider_settings_remain_available_while_browsing_spotify() {
+        use crate::jellyfin::browser::View;
+        use crate::provider::Provider;
+        let (ctx, mut app) = accessible_app("additional-provider-settings");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.provider = Provider::Spotify;
+        app.jellyfin.view = View::Settings;
+        app.open(crate::model::Page::Settings);
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::settings::show);
+        assert!(
+            painted
+                .iter()
+                .any(|(text, _)| text == "Additional providers")
+        );
+        assert!(
+            painted
+                .iter()
+                .any(|(text, _)| text == "Jellyfin server: Music server")
+        );
+        assert!(!painted.iter().any(|(text, _)| text == "Music provider"));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn jellyfin_server_actions_align_to_the_right_in_both_themes_and_widths() {
         use crate::jellyfin::browser::View;
         let (ctx, mut app) = accessible_app("jellyfin-server-alignment");

@@ -1737,7 +1737,9 @@ impl Browser {
         if let Some(Rows::Libraries(libraries)) = &self.rows {
             self.libraries = libraries.clone();
         }
-        if page == "jellyfin-connect" || page == "jellyfin-approval" {
+        if page == "jellyfin-settings" {
+            self.view = View::Settings;
+        } else if page == "jellyfin-connect" || page == "jellyfin-approval" {
             self.source = None;
             self.rows = None;
             if page == "jellyfin-approval" {

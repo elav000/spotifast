@@ -449,6 +449,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         );
         return;
     };
+    let navigation = app.playback_context_navigation(now);
 
     super::widgets::playing_cover(
         ui,
@@ -482,7 +483,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let offer_expand = art_available && !app.settings.art_expanded && app.settings.sidebar_visible;
     let over_expand = offer_expand && ui.rect_contains_pointer(expand_rect);
     if cover_response.clicked() && !over_expand {
-        open_now_playing_context(app, now);
+        app.actions.extend(navigation.item.clone());
     }
     if offer_expand && (cover_response.hovered() || over_expand) {
         let expand = ui.interact(
@@ -527,17 +528,15 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
     let title_response = theme::link(&mut text_ui, &now.title, theme::medium(14.0), palette.text)
         .interact(drag_sense);
     if title_response.clicked() {
-        open_now_playing_context(app, now);
+        app.actions.extend(navigation.item.clone());
     }
     let mut responses = vec![cover_response, title_response];
     text_ui.horizontal_top(|ui| {
         if now.artists.is_empty() {
             let response = theme::link(ui, &now.subtitle, theme::regular(12.0), palette.secondary)
                 .interact(drag_sense);
-            if response.clicked()
-                && let Some(id) = &now.show_id
-            {
-                app.actions.push(Action::Open(Page::Show(id.clone())));
+            if response.clicked() {
+                app.actions.extend(navigation.item.clone());
             }
             responses.push(response);
         } else {
@@ -546,19 +545,15 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 if index > 0 {
                     theme::text(ui, ", ", theme::regular(12.0), palette.secondary);
                 }
-                let response = if artist.id.is_some() {
+                let action = navigation.artists.get(index).and_then(Clone::clone);
+                let response = if action.is_some() {
                     theme::link(ui, &artist.name, theme::regular(12.0), palette.secondary)
                 } else {
                     theme::text(ui, &artist.name, theme::regular(12.0), palette.secondary)
                 }
                 .interact(drag_sense);
-                if response.clicked()
-                    && let Some(id) = &artist.id
-                {
-                    app.actions.push(crate::provider::spotify_artist_action(
-                        id,
-                        artist.name.clone(),
-                    ));
+                if response.clicked() {
+                    app.actions.extend(action);
                 }
                 responses.push(response);
             }
@@ -694,41 +689,6 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
                 }
             }
         }
-    }
-}
-
-fn open_now_playing_context(app: &mut App, now: &NowPlaying) {
-    let Some(album_id) = &now.album_id else {
-        if let Some(id) = &now.show_id {
-            app.actions.push(Action::Open(Page::Show(id.clone())));
-        }
-        return;
-    };
-    if now.provider == crate::provider::Provider::Jellyfin {
-        let (library_id, library_name) = app
-            .jellyfin
-            .catalog
-            .library
-            .as_ref()
-            .map(|library| (library.id.clone(), library.name.clone()))
-            .unwrap_or_default();
-        app.actions.push(Action::Jellyfin(
-            crate::jellyfin::browser::BrowserAction::Select(crate::provider::Provider::Jellyfin),
-        ));
-        app.actions.push(Action::Jellyfin(
-            crate::jellyfin::browser::BrowserAction::Browse {
-                view: crate::jellyfin::browser::View::Tracks {
-                    library_id,
-                    library_name,
-                    album_id: album_id.clone(),
-                    name: now.album_name.clone(),
-                },
-                start: 0,
-            },
-        ));
-    } else {
-        app.actions
-            .push(Action::Open(Page::Album(album_id.clone())));
     }
 }
 

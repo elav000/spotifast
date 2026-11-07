@@ -14317,7 +14317,7 @@ mod tests {
 
     #[test]
     fn detail_controls_keep_provider_actions_and_history_playback() {
-        use crate::jellyfin::browser::BrowserAction as A;
+        use crate::jellyfin::{browser::BrowserAction as A, catalog::Query};
         let (_ctx, mut app) = accessible_app("provider-detail-controls");
         let spotify = app.spotify_artist_controls(&artist(0));
         let spotify_menu: Vec<_> = spotify
@@ -14360,6 +14360,33 @@ mod tests {
             jellyfin.buttons[0].label.as_str(),
             "Favorite" | "Favorited"
         ));
+        let crate::jellyfin::browser::View::Catalog {
+            query: Query::ArtistAlbums { library, artist },
+            name,
+        } = app.jellyfin.view.clone()
+        else {
+            panic!("artist demo did not open its album view");
+        };
+        app.jellyfin.view = crate::jellyfin::browser::View::Catalog {
+            query: Query::ArtistSongs { library, artist },
+            name,
+        };
+        let artist_songs = app.provider_detail_controls().unwrap();
+        let artist_songs_menu: Vec<_> = artist_songs
+            .menu
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect();
+        assert_eq!(artist_songs_menu, jellyfin_menu);
+        assert!(
+            !artist_songs
+                .menu
+                .iter()
+                .find(|item| item.label == "Songs")
+                .unwrap()
+                .enabled,
+            "the current song-list mode stays visible without navigating again"
+        );
         app.jellyfin.demo("jellyfin-tracks");
         let album = app.provider_detail_controls().unwrap();
         let album_menu: Vec<_> = album.menu.iter().map(|item| item.label.as_str()).collect();

@@ -465,11 +465,18 @@ impl App {
                 }
             }
         }
-        if let View::Catalog {
-            query: Query::ArtistAlbums { library, artist },
-            name,
-        } = view
-        {
+        let artist_view = match view {
+            View::Catalog {
+                query: Query::ArtistAlbums { library, artist },
+                name,
+            } => Some((library, artist, name, false)),
+            View::Catalog {
+                query: Query::ArtistSongs { library, artist },
+                name,
+            } => Some((library, artist, name, true)),
+            _ => None,
+        };
+        if let Some((library, artist, name, songs_selected)) = artist_view {
             let songs = View::Catalog {
                 query: Query::ArtistSongs {
                     library: library.clone(),
@@ -543,7 +550,7 @@ impl App {
                     start: 0,
                 }),
                 separator_before: true,
-                enabled: true,
+                enabled: !songs_selected,
             });
             let url = format!(
                 "{}/web/#/details?id={artist}&serverId={}",

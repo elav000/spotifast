@@ -68,6 +68,13 @@ pub struct GlobalSearchPresentation {
     pub page_active: bool,
 }
 
+/// Provider-owned destinations rendered by the shared now-playing bar.
+/// Actions retain the source identity needed to reject stale account links.
+pub struct PlaybackContextNavigation {
+    pub item: Option<crate::model::Action>,
+    pub artists: Vec<Option<crate::model::Action>>,
+}
+
 pub enum DetailLoadMode {
     Scroll,
     Button,
@@ -212,6 +219,77 @@ impl ItemReference {
 }
 
 impl crate::app::App {
+    pub fn playback_context_navigation(
+        &self,
+        now: &crate::app::NowPlaying,
+    ) -> PlaybackContextNavigation {
+        use crate::{
+            jellyfin::browser::{BrowserAction, View},
+            model::{Action, Page},
+        };
+
+        match now.provider {
+            Provider::Spotify => PlaybackContextNavigation {
+                item: now
+                    .album_id
+                    .as_ref()
+                    .map(|id| Action::Open(Page::Album(id.clone())))
+                    .or_else(|| {
+                        now.show_id
+                            .as_ref()
+                            .map(|id| Action::Open(Page::Show(id.clone())))
+                    }),
+                artists: now
+                    .artists
+                    .iter()
+                    .map(|artist| {
+                        artist
+                            .id
+                            .as_deref()
+                            .map(|id| spotify_artist_action(id, artist.name.clone()))
+                    })
+                    .collect(),
+            },
+            Provider::Jellyfin => {
+                let Some((source, _)) = self.jellyfin_player.context() else {
+                    return PlaybackContextNavigation {
+                        item: None,
+                        artists: vec![None; now.artists.len()],
+                    };
+                };
+                let item = now.album_id.as_ref().map(|album_id| {
+                    Action::Jellyfin(BrowserAction::OpenQueueContext {
+                        source: source.clone(),
+                        view: View::Tracks {
+                            library_id: String::new(),
+                            library_name: String::new(),
+                            album_id: album_id.clone(),
+                            name: now.album_name.clone(),
+                        },
+                    })
+                });
+                let artists = now
+                    .artists
+                    .iter()
+                    .map(|artist| {
+                        artist.id.as_ref().map(|id| {
+                            artist_navigation_action(
+                                ItemReference::Jellyfin {
+                                    source: source.id.clone(),
+                                    account: source.user_id.clone(),
+                                    item: id.clone(),
+                                },
+                                artist.name.clone(),
+                                None,
+                            )
+                        })
+                    })
+                    .collect();
+                PlaybackContextNavigation { item, artists }
+            }
+        }
+    }
+
     pub fn central_page_presentation(&self) -> CentralPagePresentation {
         use crate::jellyfin::browser::View;
         use crate::model::Page;

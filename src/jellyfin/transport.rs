@@ -638,6 +638,23 @@ impl crate::app::App {
         let state = self.jellyfin_player.snapshot();
         let item = state.item?;
         let audio_format = item.audio_format();
+        let artists = item
+            .artists
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                let linked = item
+                    .artist_items
+                    .iter()
+                    .find(|artist| artist.name.as_deref() == Some(name))
+                    .or_else(|| item.artist_items.get(index));
+                crate::api::models::ArtistRef {
+                    id: linked.map(|artist| artist.id.clone()),
+                    name: name.clone(),
+                    uri: None,
+                }
+            })
+            .collect();
         let artwork = self
             .jellyfin
             .source
@@ -654,15 +671,7 @@ impl crate::app::App {
             id: None,
             title: item.name.unwrap_or_else(|| "Untitled".into()),
             subtitle: item.artists.join(", "),
-            artists: item
-                .artists
-                .into_iter()
-                .map(|name| crate::api::models::ArtistRef {
-                    id: None,
-                    name,
-                    uri: None,
-                })
-                .collect(),
+            artists,
             album_name: item.album.unwrap_or_default(),
             album_id: item.album_id.clone(),
             audio_format,

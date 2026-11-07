@@ -70,6 +70,11 @@ bar and sidebar no longer inspect Jellyfin search state directly; provider
 actions own query edits, debounce and submission while the shared search page
 keeps its existing renderers.
 
+The shared player bar now receives album, show and artist destinations from the
+playback provider. Jellyfin keeps the playback source/account identity in those
+actions and preserves linked artist IDs from its playback metadata; Spotify
+retains its existing album, show and artist routes.
+
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing
@@ -87,12 +92,11 @@ items under Later work as they become the next approved milestone.
 
 - **Finish provider-owned page orchestration.** The shared cards, track rows,
   detail heroes, controls, queue presentation, device capability, central-page
-  routing and global search state are in place. Move playback-context
-  navigation behind provider presentation/actions next. Then make queue
-  drag/edit capabilities and playlist dialogs explicitly provider-owned instead
-  of checking Jellyfin source state. Keep provider setup and account management
-  service-specific. Deliver these extractions through bounded user-facing
-  fixes, not a parallel UI or a broad rewrite.
+  routing, global search state and playback-context navigation are in place.
+  Next make queue drag/edit capabilities and playlist dialogs explicitly
+  provider-owned instead of checking Jellyfin source state. Keep provider setup
+  and account management service-specific. Deliver these extractions through
+  bounded user-facing fixes, not a parallel UI or a broad rewrite.
 
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their

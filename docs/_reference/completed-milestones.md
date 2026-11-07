@@ -31,6 +31,10 @@ history below is not a list of tasks to repeat.
   identity, overview/tint behavior and global-search state. The shared top bar,
   sidebar and debounce path no longer read Jellyfin search fields or browser
   routes directly, while Spotify and Jellyfin retain independent queries.
+- The playback provider now supplies the shared player bar's album, show and
+  artist destinations. Jellyfin keeps source/account identity in its actions
+  and linked artist IDs in now-playing metadata, while Spotify retains its
+  existing destinations.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

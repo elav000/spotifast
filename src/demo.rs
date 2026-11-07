@@ -14996,8 +14996,14 @@ mod tests {
     }
 
     #[test]
-    fn jellyfin_now_playing_title_follows_the_selected_provider() {
-        use crate::{jellyfin::browser::BrowserAction as A, provider::Provider};
+    fn jellyfin_now_playing_links_follow_the_playback_provider() {
+        use crate::{
+            jellyfin::{
+                browser::{BrowserAction as A, View},
+                catalog::Query,
+            },
+            provider::Provider,
+        };
         use egui::accesskit::{Action as Click, Role};
         let (ctx, mut app) = accessible_app("jellyfin-now-playing-album");
         app.jellyfin.demo("jellyfin-tracks");
@@ -15015,6 +15021,34 @@ mod tests {
         assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
         app.jellyfin.provider = Provider::Jellyfin;
         accessible_frame(&ctx, &mut app, vec![]);
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.now_playing().unwrap().artists[0].id.as_deref(),
+            Some("artist1")
+        );
+        let artist = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| {
+                node.label() == Some("Bonobo")
+                    && node.role() == Role::Link
+                    && node.bounds().is_some_and(|bounds| bounds.y0 > 700.0)
+            })
+            .expect("the provider-owned player-bar artist link")
+            .0;
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(artist, Click::Click, None)],
+        );
+        assert!(matches!(
+            &app.jellyfin.view,
+            View::Catalog {
+                query: Query::ArtistAlbums { artist, .. },
+                ..
+            } if artist == "artist1"
+        ));
+
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         let title = accessible_node(&tree, "Rosewood", Role::Link);
         accessible_frame(

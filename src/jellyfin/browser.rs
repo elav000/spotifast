@@ -1594,6 +1594,7 @@ impl Browser {
             page,
             "jellyfin-albums"
                 | "jellyfin-tracks"
+                | "jellyfin-multi-disc"
                 | "jellyfin-error"
                 | "jellyfin-search"
                 | "jellyfin-artists"
@@ -1651,7 +1652,11 @@ impl Browser {
             }
             if matches!(
                 page,
-                "jellyfin-tracks" | "jellyfin-search" | "jellyfin-playlist" | "jellyfin-history"
+                "jellyfin-tracks"
+                    | "jellyfin-multi-disc"
+                    | "jellyfin-search"
+                    | "jellyfin-playlist"
+                    | "jellyfin-history"
             ) {
                 self.view = View::Tracks {
                     library_id: "music1".into(),
@@ -1664,25 +1669,30 @@ impl Browser {
                 ]
                 .iter()
                 .enumerate()
-                .map(|(i, name)| super::Item {
-                    details: Default::default(),
-                    id: format!("track{i}"),
-                    name: Some((*name).into()),
-                    album: Some("Fragments".into()),
-                    album_id: Some("album0".into()),
-                    artists: vec!["Bonobo".into()],
-                    artist_items: vec![super::ArtistItem {
-                        id: "artist1".into(),
-                        name: Some("Bonobo".into()),
-                    }],
-                    run_time_ticks: Some(2_400_000_000),
-                    index_number: Some(i as u32 + 1),
-                    parent_index_number: Some(1),
-                    container: None,
-                    media_streams: None,
-                    media_sources: None,
-                    image_tags: Default::default(),
-                    album_primary_image_tag: Some("fixture-v1".into()),
+                .map(|(i, name)| {
+                    let multi_disc = page == "jellyfin-multi-disc";
+                    let disc = if multi_disc && i >= 3 { 2 } else { 1 };
+                    let track = if multi_disc { i % 3 + 1 } else { i + 1 };
+                    super::Item {
+                        details: Default::default(),
+                        id: format!("track{i}"),
+                        name: Some((*name).into()),
+                        album: Some("Fragments".into()),
+                        album_id: Some("album0".into()),
+                        artists: vec!["Bonobo".into()],
+                        artist_items: vec![super::ArtistItem {
+                            id: "artist1".into(),
+                            name: Some("Bonobo".into()),
+                        }],
+                        run_time_ticks: Some(2_400_000_000),
+                        index_number: Some(track as u32),
+                        parent_index_number: Some(disc),
+                        container: None,
+                        media_streams: None,
+                        media_sources: None,
+                        image_tags: Default::default(),
+                        album_primary_image_tag: Some("fixture-v1".into()),
+                    }
                 })
                 .collect();
                 self.rows = Some(Rows::Items {

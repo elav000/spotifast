@@ -88,6 +88,11 @@ against its own source and snapshot, while the shared playlist dialogs receive
 busy, error and deletion state from provider presentation instead of inspecting
 Jellyfin state.
 
+Multi-disc Spotify and Jellyfin albums use the same section rule and existing
+track-row renderers. Provider disc numbers add headings only when an album has
+more than one disc, retain server order and reset the displayed track number
+within each disc. Single-disc albums keep their previous layout.
+
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing
@@ -98,16 +103,13 @@ the maintainer asks for one.
 
 ## Next implementation sequence
 
-The reviewed Jellyfin sharp-edge and provider-orchestration sequences are
-complete. The next approved milestone is separate disc sections for multi-disc
-albums.
+The reviewed Jellyfin sharp-edge, provider-orchestration and multi-disc album
+sequences are complete. The next approved milestone is shared queue groundwork:
+provider-stamped active and queued entries must keep the provider-specific
+links, devices and controls that can execute them, regardless of which catalog
+is being browsed.
 
 ## Later work
-
-- **Show multi-disc albums as separate disc sections.** Use provider disc numbers
-  to label and group tracks in the shared album page, while preserving their
-  order and keeping the layout useful for single-disc albums. Jellyfin can use
-  this where its library supplies disc numbers.
 
 - Combined provider and mixed local queues after the shared controller is stable;
   Plex or other sources can follow through the same contracts. Every queued and

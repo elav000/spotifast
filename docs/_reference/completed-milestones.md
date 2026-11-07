@@ -27,6 +27,10 @@ history below is not a list of tasks to repeat.
   independent of the Home collection selection and follows artist navigation;
   playlists remain account-scoped because Jellyfin does not place them under a
   music collection.
+- The active provider now supplies the central shell's page route, stable scroll
+  identity, overview/tint behavior and global-search state. The shared top bar,
+  sidebar and debounce path no longer read Jellyfin search fields or browser
+  routes directly, while Spotify and Jellyfin retain independent queries.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

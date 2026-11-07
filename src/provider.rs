@@ -127,6 +127,17 @@ impl ItemReference {
             Self::Jellyfin { .. } => Provider::Jellyfin,
         }
     }
+    pub fn stamp(&self) -> ProviderStamp {
+        match self {
+            Self::Spotify { .. } => ProviderStamp::Spotify,
+            Self::Jellyfin {
+                source, account, ..
+            } => ProviderStamp::Jellyfin {
+                source: source.clone(),
+                account: account.clone(),
+            },
+        }
+    }
     pub fn uri(&self) -> String {
         match self {
             Self::Spotify { uri } => uri.clone(),
@@ -296,8 +307,8 @@ impl crate::app::App {
             model::{Action, Page},
         };
 
-        match now.provider {
-            Provider::Spotify => PlaybackContextNavigation {
+        match &now.stamp {
+            ProviderStamp::Spotify => PlaybackContextNavigation {
                 item: now
                     .album_id
                     .as_ref()
@@ -318,13 +329,22 @@ impl crate::app::App {
                     })
                     .collect(),
             },
-            Provider::Jellyfin => {
+            ProviderStamp::Jellyfin {
+                source: source_id,
+                account,
+            } => {
                 let Some((source, _)) = self.jellyfin_player.context() else {
                     return PlaybackContextNavigation {
                         item: None,
                         artists: vec![None; now.artists.len()],
                     };
                 };
+                if &source.id != source_id || &source.user_id != account {
+                    return PlaybackContextNavigation {
+                        item: None,
+                        artists: vec![None; now.artists.len()],
+                    };
+                }
                 let item = now.album_id.as_ref().map(|album_id| {
                     Action::Jellyfin(BrowserAction::OpenQueueContext {
                         source: source.clone(),
@@ -343,8 +363,8 @@ impl crate::app::App {
                         artist.id.as_ref().map(|id| {
                             artist_navigation_action(
                                 ItemReference::Jellyfin {
-                                    source: source.id.clone(),
-                                    account: source.user_id.clone(),
+                                    source: source_id.clone(),
+                                    account: account.clone(),
                                     item: id.clone(),
                                 },
                                 artist.name.clone(),
@@ -489,24 +509,31 @@ impl crate::app::App {
     /// Starting a song transfers output ownership; browsing never does.
     pub fn playback_now_playing(&self) -> Option<crate::app::NowPlaying> {
         self.now_playing()
-            .filter(|now| !now.resuming || now.provider == self.selected_provider())
+            .filter(|now| !now.resuming || now.stamp.provider() == self.selected_provider())
     }
 
     /// The provider that owns an active or paused playback surface. A cold
     /// Spotify resume preview is not ownership while another catalog is open.
-    pub fn playback_provider(&self) -> Option<Provider> {
+    pub fn playback_stamp(&self) -> Option<ProviderStamp> {
         if self.jellyfin_player.controls_output() {
-            Some(Provider::Jellyfin)
+            self.jellyfin_player
+                .context()
+                .map(|(source, _)| ProviderStamp::jellyfin(&source))
         } else {
-            self.playback_now_playing().map(|now| now.provider)
+            self.playback_now_playing().map(|now| now.stamp)
         }
+    }
+
+    pub fn playback_provider(&self) -> Option<Provider> {
+        self.playback_stamp().map(|stamp| stamp.provider())
     }
 
     /// Describes the device menu for the provider that owns playback. With no
     /// playback yet, the selected catalog supplies the useful empty-state menu.
     pub fn player_device_control(&self) -> PlayerDeviceControl {
         let provider = self
-            .playback_provider()
+            .playback_stamp()
+            .map(|stamp| stamp.provider())
             .unwrap_or_else(|| self.selected_provider());
         match provider {
             Provider::Spotify => PlayerDeviceControl::SpotifyConnect,
@@ -1017,6 +1044,32 @@ impl crate::app::App {
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Stable playback and presentation ownership. Spotify has one app-scoped
+/// identity; Jellyfin ownership includes the server and account that can
+/// resolve the entry. This stamp is safe to retain in UI state because it
+/// contains no credential or transport URL.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProviderStamp {
+    Spotify,
+    Jellyfin { source: String, account: String },
+}
+
+impl ProviderStamp {
+    pub fn provider(&self) -> Provider {
+        match self {
+            Self::Spotify => Provider::Spotify,
+            Self::Jellyfin { .. } => Provider::Jellyfin,
+        }
+    }
+
+    pub fn jellyfin(source: &crate::jellyfin::browser::Source) -> Self {
+        Self::Jellyfin {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
         }
     }
 }

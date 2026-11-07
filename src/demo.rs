@@ -14065,7 +14065,11 @@ mod tests {
         );
         let now = app.now_playing().unwrap();
         assert_eq!(now.title, "Otomo");
-        assert_eq!(now.provider, crate::provider::Provider::Jellyfin);
+        assert_eq!(now.stamp.provider(), crate::provider::Provider::Jellyfin);
+        assert_eq!(
+            now.stamp,
+            crate::provider::ProviderStamp::jellyfin(app.jellyfin.source.as_ref().unwrap())
+        );
         assert!(now.id.is_none());
         assert!(now.uri.starts_with("jellyfin:"));
         assert!(
@@ -14425,7 +14429,7 @@ mod tests {
         app.background_frame(&ctx);
         accessible_frame(&ctx, &mut app, vec![]);
         assert_eq!(
-            app.now_playing().unwrap().provider,
+            app.now_playing().unwrap().stamp.provider(),
             crate::provider::Provider::Jellyfin
         );
         assert_eq!(app.now_playing().unwrap().title, "Rosewood");
@@ -14738,7 +14742,10 @@ mod tests {
             &mut app,
             vec![accessible_action(album, AccessibleAction::Click, None)],
         );
-        assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
+        assert_eq!(
+            app.now_playing().unwrap().stamp.provider(),
+            Provider::Jellyfin
+        );
         assert_eq!(app.now_playing().unwrap().title, "Rosewood");
         assert!(app.now_playing_item().is_none());
         app.jellyfin_player.demo_ready(10_000, true);
@@ -14811,6 +14818,15 @@ mod tests {
         app.show_queue_panel = true;
         app.apply(Action::Jellyfin(A::Queue("track1".into())), &ctx);
         let view = app.playback_queue();
+        let stamp = crate::provider::ProviderStamp::jellyfin(
+            app.jellyfin.source.as_ref().expect("demo source"),
+        );
+        assert_eq!(view.stamp.as_ref(), Some(&stamp));
+        assert_eq!(
+            view.current.as_ref().map(QueueEntry::stamp),
+            Some(stamp.clone())
+        );
+        assert!(view.rows.iter().all(|entry| entry.stamp() == stamp));
         assert!(!view.uses_spotify_rows());
         assert!(view.provider_drag_reorderable());
         assert_eq!(view.manual_len, 1);
@@ -14858,6 +14874,9 @@ mod tests {
             !app.queue_uses_spotify(),
             "browsing selection cannot replace the playback queue"
         );
+        let switched = app.playback_queue();
+        assert_eq!(switched.stamp.as_ref(), Some(&stamp));
+        assert!(switched.rows.iter().all(|entry| entry.stamp() == stamp));
         app.recents.items.clear();
         app.recents.complete = false;
         app.recents.loading = false;
@@ -14894,7 +14913,15 @@ mod tests {
         app.jellyfin_player.demo_ready(0, true);
         app.jellyfin.provider = Provider::Spotify;
 
-        assert_eq!(app.now_playing().unwrap().provider, Provider::Jellyfin);
+        assert_eq!(
+            app.now_playing().unwrap().stamp.provider(),
+            Provider::Jellyfin
+        );
+        let playback_stamp = crate::provider::ProviderStamp::jellyfin(
+            app.jellyfin.source.as_ref().expect("demo source"),
+        );
+        assert_eq!(app.playback_stamp(), Some(playback_stamp.clone()));
+        assert_eq!(app.now_playing().unwrap().stamp, playback_stamp);
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         assert_eq!(

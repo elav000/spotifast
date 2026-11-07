@@ -587,7 +587,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
         }
     }
 
-    if !now.is_episode && now.provider == crate::provider::Provider::Spotify {
+    if !now.is_episode && now.stamp.provider() == crate::provider::Provider::Spotify {
         let saved = app.is_saved(&now.uri).unwrap_or(false);
         // A liked heart stays green under the pointer, like shuffle.
         let (icon, color, hover, tooltip) = if saved {
@@ -719,7 +719,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    if now.is_some_and(|now| now.provider != crate::provider::Provider::Spotify) {
+    if now.is_some_and(|now| now.stamp.provider() != crate::provider::Provider::Spotify) {
         cell.disable();
     }
     let shuffle_button = theme::icon_button(
@@ -844,7 +844,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
         ),
     };
     let mut cell = centered(ui, slot(widths[4]));
-    if now.is_some_and(|now| now.provider != crate::provider::Provider::Spotify) {
+    if now.is_some_and(|now| now.stamp.provider() != crate::provider::Provider::Spotify) {
         cell.disable();
     }
     if theme::icon_button(

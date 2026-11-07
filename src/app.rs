@@ -193,7 +193,7 @@ struct QueueShufflePending {
 /// The playing item as the interface sees it, whichever device plays it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NowPlaying {
-    pub provider: crate::provider::Provider,
+    pub stamp: crate::provider::ProviderStamp,
     pub local: bool,
     pub device_name: Option<String>,
     /// Spotify's device type, such as "Smartphone", for the device's icon.
@@ -2324,7 +2324,7 @@ impl App {
     /// Current item for menus, using cached track details when available.
     pub fn now_playing_item(&self) -> Option<PlayableItem> {
         let now = self.now_playing()?;
-        if now.is_episode || now.provider != crate::provider::Provider::Spotify {
+        if now.is_episode || now.stamp.provider() != crate::provider::Provider::Spotify {
             return None;
         }
         if let Some(track) = now.id.as_deref().and_then(|id| self.track_cache.get(id)) {
@@ -2434,7 +2434,7 @@ impl App {
                 _ => self.local.playback == Playback::Playing,
             };
             return Some(NowPlaying {
-                provider: crate::provider::Provider::Spotify,
+                stamp: crate::provider::ProviderStamp::Spotify,
                 local: true,
                 device_name: None,
                 device_kind: None,
@@ -2557,7 +2557,7 @@ impl App {
             ),
         };
         Some(NowPlaying {
-            provider: crate::provider::Provider::Spotify,
+            stamp: crate::provider::ProviderStamp::Spotify,
             local: false,
             device_name: device.map(|device| device.name.clone()),
             device_kind: device.map(|device| device.kind.clone()),
@@ -2599,7 +2599,7 @@ impl App {
     fn cached_track_preview(&self, uri: &str, position_ms: u32) -> Option<NowPlaying> {
         let track = self.track_cache.get(util::uri_id(uri)?)?;
         Some(NowPlaying {
-            provider: crate::provider::Provider::Spotify,
+            stamp: crate::provider::ProviderStamp::Spotify,
             local: true,
             device_name: None,
             device_kind: None,
@@ -4685,7 +4685,7 @@ impl App {
         self.lyrics_uri = Some(now.uri.clone());
         self.lyrics_following = true;
         self.lyrics_line_shown = None;
-        if now.is_episode || now.provider != crate::provider::Provider::Spotify || self.offline {
+        if now.is_episode || now.stamp != crate::provider::ProviderStamp::Spotify || self.offline {
             self.lyrics = Loadable::Loaded(None);
             return;
         }
@@ -7766,7 +7766,7 @@ impl App {
         let queued = self.queue.get();
         let rows = self
             .now_playing()
-            .filter(|now| now.provider == crate::provider::Provider::Spotify)
+            .filter(|now| now.stamp.provider() == crate::provider::Provider::Spotify)
             .map(|now| now.uri)
             .into_iter()
             .chain(
@@ -15235,7 +15235,7 @@ impl App {
         self.last_session_save = Instant::now();
         if let Some(now) = self
             .now_playing()
-            .filter(|now| now.provider == crate::provider::Provider::Spotify)
+            .filter(|now| now.stamp.provider() == crate::provider::Provider::Spotify)
         {
             // A paused song from a sorted view has no context to report, but
             // its playlist is still what it plays from (#1013).
@@ -20356,7 +20356,7 @@ mod tests {
             "track0".into(),
         ));
         let now = app.now_playing().unwrap();
-        assert_eq!(now.provider, crate::provider::Provider::Jellyfin);
+        assert_eq!(now.stamp.provider(), crate::provider::Provider::Jellyfin);
         assert!(app.now_playing_item().is_none());
         app.save_session();
         assert_eq!(
@@ -20428,7 +20428,7 @@ mod tests {
         assert_eq!(play(&mut app, "spotify:episode:new", None), 0);
 
         app.frame_now = Some(NowPlaying {
-            provider: crate::provider::Provider::Spotify,
+            stamp: crate::provider::ProviderStamp::Spotify,
             local: true,
             device_name: None,
             device_kind: None,
@@ -24514,7 +24514,7 @@ mod tests {
         assert!(app.jellyfin_player.snapshot().item.is_some());
         assert!(app.jellyfin_player.controls_output());
         assert_eq!(
-            app.playback_now_playing().unwrap().provider,
+            app.playback_now_playing().unwrap().stamp.provider(),
             Provider::Jellyfin
         );
         assert_eq!(
@@ -24548,7 +24548,7 @@ mod tests {
         app.select_provider(Provider::Jellyfin);
         assert!(app.backend.take_player_commands().is_empty());
         assert_eq!(
-            app.playback_now_playing().unwrap().provider,
+            app.playback_now_playing().unwrap().stamp.provider(),
             Provider::Spotify
         );
         assert_eq!(
@@ -35599,7 +35599,7 @@ mod tests {
             let mut app = headless_app();
             let ctx = egui::Context::default();
             let mut now = NowPlaying {
-                provider: crate::provider::Provider::Spotify,
+                stamp: crate::provider::ProviderStamp::Spotify,
                 local: true,
                 device_name: None,
                 device_kind: None,

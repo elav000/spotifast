@@ -484,18 +484,11 @@ impl App {
                 playing: false,
                 disabled_reason: None,
             });
-            controls.buttons.push(DetailButton {
-                label: crate::i18n::gettext(self.locale, "Songs").into_owned(),
-                action: Action::Jellyfin(A::Browse {
-                    view: songs.clone(),
-                    start: 0,
-                }),
-            });
             use crate::theme::Icon;
             controls.menu.push(DetailMenuItem {
                 label: crate::i18n::gettext(self.locale, "Play").into_owned(),
                 icon: Icon::Play,
-                action: Action::Jellyfin(A::PlayAlbum(songs)),
+                action: Action::Jellyfin(A::PlayAlbum(songs.clone())),
                 separator_before: false,
                 enabled: true,
             });
@@ -511,6 +504,20 @@ impl App {
                     .as_ref()
                     .and_then(|data| data.is_favorite)
                     .unwrap_or(false);
+                let action = Action::Jellyfin(A::Favorite {
+                    source: source.clone(),
+                    item: context.id.clone(),
+                    favorite: !favorite,
+                });
+                controls.buttons.push(DetailButton {
+                    label: if favorite {
+                        gettext(self.locale, "Favorited")
+                    } else {
+                        gettext(self.locale, "Favorite")
+                    }
+                    .into_owned(),
+                    action: action.clone(),
+                });
                 controls.menu.push(DetailMenuItem {
                     label: if favorite {
                         gettext(self.locale, "Remove from favorites")
@@ -523,15 +530,21 @@ impl App {
                     } else {
                         Icon::CirclePlus
                     },
-                    action: Action::Jellyfin(A::Favorite {
-                        source: source.clone(),
-                        item: context.id.clone(),
-                        favorite: !favorite,
-                    }),
+                    action,
                     separator_before: false,
                     enabled: !self.jellyfin.favorite_busy,
                 });
             }
+            controls.menu.push(DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Songs").into_owned(),
+                icon: Icon::Music,
+                action: Action::Jellyfin(A::Browse {
+                    view: songs,
+                    start: 0,
+                }),
+                separator_before: true,
+                enabled: true,
+            });
             let url = format!(
                 "{}/web/#/details?id={artist}&serverId={}",
                 source.server_url.trim_end_matches('/'),
@@ -586,12 +599,15 @@ impl App {
                 });
             }
         }
-        controls.buttons.push(DetailButton {
+        controls.menu.push(DetailMenuItem {
             label: crate::i18n::gettext(self.locale, "Refresh").into_owned(),
+            icon: crate::theme::Icon::Refresh,
             action: Action::Jellyfin(A::Browse {
                 view: view.clone(),
                 start: self.jellyfin.start,
             }),
+            separator_before: true,
+            enabled: true,
         });
         Some(controls)
     }

@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-07 12:44-0800\n"
+"POT-Creation-Date: 2026-11-07 13:01-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Italian\n"
@@ -140,7 +140,7 @@ msgid "Search in Your Library"
 msgstr "Cerca nella tua libreria"
 
 #: src/ui/sidebar.rs:1460 src/ui/widgets.rs:1278 src/app.rs:4342
-#: src/provider/detail.rs:630 src/ui/artist.rs:259 src/ui/home.rs:796
+#: src/provider/detail.rs:646 src/ui/artist.rs:259 src/ui/home.rs:796
 #: src/ui/library.rs:99 src/ui/search.rs:168 src/ui/search.rs:503
 #: src/ui/winamp/playlist.rs:837
 msgid "Artist"
@@ -163,7 +163,7 @@ msgstr "Nessun risultato."
 #: src/ui/sidebar.rs:2179 src/ui/sidebar.rs:2250 src/ui/player_bar.rs:810
 #: src/ui/widgets.rs:1325 src/ui/widgets.rs:2408 src/provider/detail.rs:178
 #: src/provider/detail.rs:199 src/provider/detail.rs:256
-#: src/provider/detail.rs:386 src/provider/detail.rs:496
+#: src/provider/detail.rs:386 src/provider/detail.rs:489
 #: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:417
 #: src/ui/show.rs:390
 msgid "Play"
@@ -563,7 +563,7 @@ msgstr "Vai al podcast"
 
 #: src/ui/widgets.rs:1258 src/ui/widgets.rs:1410 src/provider/detail.rs:233
 #: src/provider/detail.rs:310 src/provider/detail.rs:451
-#: src/provider/detail.rs:542 src/ui/prerelease.rs:270
+#: src/provider/detail.rs:555 src/ui/prerelease.rs:270
 msgid "Copy link"
 msgstr "Copia link"
 
@@ -2721,7 +2721,7 @@ msgctxt "filter"
 msgid "All"
 msgstr "Tutto"
 
-#: src/model.rs:804 src/provider/detail.rs:488 src/ui/search.rs:455
+#: src/model.rs:804 src/provider/detail.rs:539 src/ui/search.rs:455
 msgid "Songs"
 msgstr "Brani"
 
@@ -2741,15 +2741,16 @@ msgstr "Compilation"
 msgid "No playable songs in this view"
 msgstr "Nessun brano riproducibile in questa vista"
 
-#: src/provider/detail.rs:424 src/provider/detail.rs:516
+#: src/provider/detail.rs:424 src/provider/detail.rs:523
 msgid "Remove from favorites"
 msgstr "Rimuovi dai preferiti"
 
-#: src/provider/detail.rs:426 src/provider/detail.rs:518
+#: src/provider/detail.rs:426 src/provider/detail.rs:516
+#: src/provider/detail.rs:525
 msgid "Favorite"
 msgstr "Aggiungi ai preferiti"
 
-#: src/provider/detail.rs:458 src/provider/detail.rs:549
+#: src/provider/detail.rs:458 src/provider/detail.rs:562
 msgid "Open in Jellyfin"
 msgstr "Apri in Jellyfin"
 
@@ -2757,20 +2758,24 @@ msgstr "Apri in Jellyfin"
 msgid "Play artist"
 msgstr "Riproduci artista"
 
-#: src/provider/detail.rs:563
+#: src/provider/detail.rs:514
+msgid "Favorited"
+msgstr "Nei preferiti"
+
+#: src/provider/detail.rs:576
 msgid "Rename"
 msgstr "Rinomina"
 
-#: src/provider/detail.rs:580
+#: src/provider/detail.rs:593
 msgid "Delete playlist"
 msgstr "Elimina playlist"
 
-#: src/provider/detail.rs:590 src/ui/collection.rs:614 src/ui/devices.rs:426
+#: src/provider/detail.rs:603 src/ui/collection.rs:614 src/ui/devices.rs:426
 msgid "Refresh"
 msgstr "Aggiorna"
 
 #. Translators: {count} is the number of people who follow an artist.
-#: src/provider/detail.rs:608 src/ui/artist.rs:485
+#: src/provider/detail.rs:624 src/ui/artist.rs:485
 #, rust-format
 msgid "{count} follower"
 msgid_plural "{count} followers"

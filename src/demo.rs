@@ -14397,6 +14397,22 @@ mod tests {
     }
 
     #[test]
+    fn provider_album_groups_multiple_discs_without_a_parallel_album_view() {
+        let (ctx, mut app) = accessible_app("provider-multi-disc");
+        app.user = None;
+        app.auth = AuthStatus::SignedOut;
+        app.jellyfin.demo("jellyfin-multi-disc");
+
+        let painted = view_frame(&ctx, &mut app, vec![], crate::ui::collection::provider);
+        let labels: Vec<_> = painted.iter().map(|(label, _)| label.as_str()).collect();
+        assert!(labels.contains(&"Disc 1"), "{labels:?}");
+        assert!(labels.contains(&"Disc 2"), "{labels:?}");
+        assert!(labels.contains(&"Rosewood"), "{labels:?}");
+        assert!(labels.contains(&"Tides"), "{labels:?}");
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn sign_in_offers_provider_choices_and_jellyfin_can_return_to_spotify() {
         use crate::provider::Provider;
         use egui::accesskit::{Action as AccessibleAction, Role};

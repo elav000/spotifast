@@ -160,6 +160,21 @@ pub struct TrackPresentation {
     pub artwork: Option<String>,
     pub duration_ms: u64,
     pub number: Option<u32>,
+    pub disc_number: Option<u32>,
+}
+
+/// Providers do not always report the first disc explicitly. Treat a missing
+/// or zero value as disc one so a partly populated album still groups cleanly.
+pub(crate) fn album_disc(number: Option<u32>) -> u32 {
+    number.unwrap_or(1).max(1)
+}
+
+pub(crate) fn has_multiple_discs(numbers: impl IntoIterator<Item = Option<u32>>) -> bool {
+    let mut discs = numbers.into_iter().map(album_disc);
+    let Some(first) = discs.next() else {
+        return false;
+    };
+    discs.any(|disc| disc != first)
 }
 
 /// Data and capabilities consumed by the existing Library controls and rows.
@@ -1009,3 +1024,15 @@ impl crate::app::App {
 pub(crate) mod detail;
 pub use detail::ProviderRowActions;
 pub mod queue;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disc_grouping_defaults_missing_numbers_to_the_first_disc() {
+        assert!(!has_multiple_discs([None, Some(1), Some(0)]));
+        assert!(has_multiple_discs([None, Some(2)]));
+        assert!(has_multiple_discs([Some(2), Some(3)]));
+    }
+}

@@ -1592,6 +1592,7 @@ pub fn provider_track_row_with_layout(
             .collect(),
         duration_ms: u32::try_from(track.duration_ms).unwrap_or(u32::MAX),
         track_number: track.number,
+        disc_number: track.disc_number,
         album: Some(Album {
             name: track.album.clone(),
             images: track

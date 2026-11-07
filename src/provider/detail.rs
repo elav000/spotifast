@@ -652,6 +652,7 @@ impl App {
                         .map(|art| art.uri()),
                     duration_ms: item.duration_ms().unwrap_or_default(),
                     number: item.index_number,
+                    disc_number: item.parent_index_number,
                 },
                 index: start as usize + index,
                 actions: ProviderRowActions {

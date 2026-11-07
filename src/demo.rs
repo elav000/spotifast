@@ -14156,17 +14156,19 @@ mod tests {
             jellyfin_menu[1],
             "Favorite" | "Remove from favorites"
         ));
-        assert_eq!(jellyfin_menu[2..], ["Copy link", "Open in Jellyfin"]);
+        assert_eq!(
+            jellyfin_menu[2..],
+            ["Songs", "Copy link", "Open in Jellyfin", "Refresh"]
+        );
         assert!(matches!(
             jellyfin.primary.unwrap().action,
             Some(Action::Jellyfin(A::PlayAlbum(_)))
         ));
-        assert!(
-            jellyfin
-                .buttons
-                .iter()
-                .any(|button| button.label == "Songs")
-        );
+        assert_eq!(jellyfin.buttons.len(), 1);
+        assert!(matches!(
+            jellyfin.buttons[0].label.as_str(),
+            "Favorite" | "Favorited"
+        ));
         app.jellyfin.demo("jellyfin-tracks");
         let album = app.provider_detail_controls().unwrap();
         let album_menu: Vec<_> = album.menu.iter().map(|item| item.label.as_str()).collect();
@@ -14175,7 +14177,10 @@ mod tests {
             album_menu[3],
             "Favorite" | "Remove from favorites"
         ));
-        assert_eq!(album_menu[4..], ["Copy link", "Open in Jellyfin"]);
+        assert_eq!(
+            album_menu[4..],
+            ["Copy link", "Open in Jellyfin", "Refresh"]
+        );
         assert!(
             !album
                 .menu

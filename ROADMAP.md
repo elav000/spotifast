@@ -9,6 +9,11 @@ Accepted work and completed live validation are recorded in the
 
 - Feed existing Tumlo views and infrastructure through provider data and
   capabilities. Do not create parallel Jellyfin panels when an adapter will do.
+- Keep shared page hierarchy, control placement and interaction patterns aligned
+  across providers. Providers supply data and supported actions; they do not
+  receive bespoke layouts merely because their capabilities differ. Put
+  secondary provider actions in the shared overflow pattern and omit unsupported
+  actions rather than rearranging the page around them.
 - Keep Spotify and Jellyfin catalogs separate for now. Switching the catalog
   being browsed preserves the current playback provider and its queue; starting
   a song transfers output ownership. Switching active Jellyfin server/accounts
@@ -97,7 +102,9 @@ Album and artist overflow menus use one shared renderer and provider-owned
 actions. Spotify retains its save, radio and service-link capabilities.
 Jellyfin supplies play, shuffle, queue, favorite and server-link actions where
 the server supports them; favorite changes are optimistic and account-scoped.
-Unsupported service actions are omitted rather than rendered inertly.
+Artist hero controls share the same primary, saved-state and overflow hierarchy;
+Jellyfin keeps Songs and Refresh as secondary overflow actions. Unsupported
+service actions are omitted rather than rendered inertly.
 
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,

@@ -795,6 +795,63 @@ fn provider(app: &mut App, ui: &mut egui::Ui) {
     if let Some(filter) = widgets::chips(ui, &app.palette, &options, filter) {
         app.actions.push(Action::SetSearchFilter(filter));
     }
+    ui.add_space(8.0);
+    let all_collections = gettext(app.locale, "All collections");
+    let libraries = app.jellyfin.libraries.clone();
+    let selected_collection = library
+        .as_deref()
+        .and_then(|id| libraries.iter().find(|candidate| candidate.id == id))
+        .map(|library| library.name.as_str())
+        .unwrap_or(all_collections.as_ref())
+        .to_owned();
+    let mut next_library = None;
+    ui.horizontal(|ui| {
+        theme::text(
+            ui,
+            gettext(app.locale, "Search in"),
+            theme::regular(13.0),
+            app.palette.dim,
+        );
+        let response = egui::ComboBox::from_id_salt("jellyfin-search-collection")
+            .selected_text(&selected_collection)
+            .width(180.0_f32.min(ui.available_width()))
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_label(library.is_none(), all_collections.as_ref())
+                    .clicked()
+                    && library.is_some()
+                {
+                    next_library = Some(None);
+                }
+                for candidate in &libraries {
+                    let selected = library.as_deref() == Some(candidate.id.as_str());
+                    if ui.selectable_label(selected, &candidate.name).clicked() && !selected {
+                        next_library = Some(Some(candidate.id.clone()));
+                    }
+                }
+            });
+        response.response.widget_info(|| {
+            let mut info = egui::WidgetInfo::labeled(
+                egui::WidgetType::ComboBox,
+                ui.is_enabled(),
+                gettext(app.locale, "Search collection"),
+            );
+            info.current_text_value = Some(selected_collection.clone());
+            info
+        });
+    });
+    if let Some(library) = next_library {
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::Browse {
+                view: View::Search {
+                    library,
+                    term: term.clone(),
+                    kind: *kind,
+                },
+                start: 0,
+            },
+        ));
+    }
     ui.add_space(12.0);
     if term.is_empty() {
         widgets::empty_state(

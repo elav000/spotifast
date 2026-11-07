@@ -409,7 +409,7 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
             kind: Kind::Playlist,
         },
         Query::ArtistAlbums {
-            library: "music1".into(),
+            library: Some("music1".into()),
             artist: "artist1".into(),
         },
     ] {
@@ -435,7 +435,7 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
         .query(
             "user1",
             &Query::Search {
-                library: "music1".into(),
+                library: Some("music1".into()),
                 term: "BT & friends".into(),
                 kind: Kind::Song,
             },
@@ -569,6 +569,60 @@ async fn provider_catalog_queries_are_scoped_paged_and_preserve_playlist_occurre
 }
 
 #[tokio::test]
+async fn search_defaults_to_all_collections_and_can_narrow_music_results() {
+    use super::catalog::{Kind, Query};
+    const EMPTY: &str = r#"{"Items":[],"StartIndex":0,"TotalRecordCount":0}"#;
+    let (address, requests) = server(vec![(200, EMPTY), (200, EMPTY), (200, EMPTY)]).await;
+    let client = client(&address);
+    for query in [
+        Query::Search {
+            library: None,
+            term: "Bonobo".into(),
+            kind: Kind::Song,
+        },
+        Query::Search {
+            library: Some("music2".into()),
+            term: "Bonobo".into(),
+            kind: Kind::Album,
+        },
+        Query::Search {
+            library: Some("music2".into()),
+            term: "Bonobo".into(),
+            kind: Kind::Playlist,
+        },
+    ] {
+        client.query("user1", &query, 0, &token()).await.unwrap();
+    }
+    let requests = requests.await.unwrap();
+    let queries: Vec<_> = requests
+        .iter()
+        .map(|request| {
+            let path = request
+                .lines()
+                .next()
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap();
+            Url::parse(&format!("http://test{path}"))
+                .unwrap()
+                .query_pairs()
+                .into_owned()
+                .collect::<std::collections::HashMap<_, _>>()
+        })
+        .collect();
+    assert!(!queries[0].contains_key("ParentId"));
+    assert_eq!(
+        queries[1].get("ParentId").map(String::as_str),
+        Some("music2")
+    );
+    assert!(
+        !queries[2].contains_key("ParentId"),
+        "Jellyfin playlists remain account-scoped"
+    );
+}
+
+#[tokio::test]
 async fn playlist_mutations_and_playback_reports_keep_credentials_out_of_urls() {
     use super::catalog::PlaybackEvent;
     let (address, requests) = server(vec![
@@ -655,7 +709,7 @@ async fn provider_catalog_and_mutations_reject_invalid_input_before_network() {
             kind: Kind::Album,
         },
         Query::Search {
-            library: "music1".into(),
+            library: Some("music1".into()),
             term: "\r\n".into(),
             kind: Kind::Song,
         },
@@ -700,7 +754,7 @@ async fn artist_songs_stay_in_the_selected_collection() {
         .query(
             "user1",
             &Query::ArtistSongs {
-                library: "music2".into(),
+                library: Some("music2".into()),
                 artist: "artist1".into(),
             },
             0,

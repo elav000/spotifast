@@ -436,7 +436,7 @@ impl App {
                             Action::Jellyfin(A::OpenQueueContext {
                                 source: source.clone(),
                                 view: View::Search {
-                                    library: id.clone(),
+                                    library: None,
                                     term: String::new(),
                                     kind: None,
                                 },
@@ -576,7 +576,7 @@ impl App {
                     name.clone(),
                     View::Catalog {
                         query: Query::ArtistAlbums {
-                            library: library.map(|lib| lib.id.clone()).unwrap_or_default(),
+                            library: library.map(|lib| lib.id.clone()),
                             artist: id,
                         },
                         name,

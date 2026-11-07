@@ -1,6 +1,6 @@
 //! Playback-owned presentation for the existing queue panel and page. Browsing
 //! selection never chooses which provider's queue or history the panel shows.
-use super::{ItemReference, Provider, ProviderRowActions, TrackPresentation};
+use super::{ItemReference, Provider, ProviderRowActions, ProviderStamp, TrackPresentation};
 use crate::{
     api::models::PlayableItem,
     app::App,
@@ -37,6 +37,17 @@ fn jellyfin_context_upcoming(state: &crate::jellyfin::transport::Snapshot) -> Ve
 pub enum QueueEntry {
     Spotify(Box<PlayableItem>),
     Provider(Box<(TrackPresentation, ProviderRowActions)>),
+}
+
+impl QueueEntry {
+    /// Ownership travels with every displayed occurrence, independently of
+    /// the catalog currently being browsed.
+    pub fn stamp(&self) -> ProviderStamp {
+        match self {
+            Self::Spotify(_) => ProviderStamp::Spotify,
+            Self::Provider(row) => row.0.reference.stamp(),
+        }
+    }
 }
 
 pub enum QueueStatus {
@@ -105,6 +116,7 @@ pub struct RecentPresentation {
 }
 
 pub struct QueuePresentation {
+    pub stamp: Option<ProviderStamp>,
     pub removal: Option<QueueRemoval>,
     pub add: Vec<(String, Action)>,
     pub playlists: Vec<(String, Action)>,
@@ -255,6 +267,7 @@ impl App {
             None => queue.and_then(|q| q.currently_playing.clone()),
         };
         QueuePresentation {
+            stamp: Some(ProviderStamp::Spotify),
             removal: self
                 .queue_locally_reorderable()
                 .then_some(QueueRemoval::Spotify),
@@ -425,7 +438,7 @@ impl App {
                         .into_iter()
                         .collect(),
                     artist_navigation: Vec::new(),
-                    provider: Provider::Jellyfin,
+                    stamp: ProviderStamp::jellyfin(source),
                     play,
                     enqueue: Some(Action::Jellyfin(A::EnqueueItem {
                         source: source.clone(),
@@ -546,6 +559,7 @@ impl App {
             })
             .collect();
         QueuePresentation {
+            stamp: source.map(ProviderStamp::jellyfin),
             removal: source.map(|source| QueueRemoval::Jellyfin {
                 source: source.clone(),
                 expected: state.queued.snapshot(),

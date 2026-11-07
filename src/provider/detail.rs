@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub struct ProviderRowActions {
     pub navigation: Vec<(String, Action)>,
     pub artist_navigation: Vec<(String, Action)>,
-    pub provider: super::Provider,
+    pub stamp: super::ProviderStamp,
     pub play: Action,
     pub enqueue: Option<Action>,
     pub queue_label: String,
@@ -837,7 +837,7 @@ impl App {
     ) -> Vec<ProviderDetailTrack> {
         use crate::{
             jellyfin::browser::BrowserAction as A,
-            provider::{ItemReference, Provider, TrackPresentation},
+            provider::{ItemReference, TrackPresentation},
         };
         let Some(source) = self.jellyfin.source.clone() else {
             return Vec::new();
@@ -965,7 +965,7 @@ impl App {
                 actions: ProviderRowActions {
                     navigation: Vec::new(),
                     artist_navigation,
-                    provider: Provider::Jellyfin,
+                    stamp: super::ProviderStamp::jellyfin(&source),
                     play,
                     enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
                     queue_label: format!("Add {title} to Jellyfin queue"),

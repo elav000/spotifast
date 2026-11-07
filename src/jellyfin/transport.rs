@@ -656,6 +656,10 @@ impl crate::app::App {
         }
         let state = self.jellyfin_player.snapshot();
         let item = state.item?;
+        let (source, _) = self.jellyfin_player.context()?;
+        if Some(source.id.as_str()) != state.source_id.as_deref() {
+            return None;
+        }
         let audio_format = item.audio_format();
         let artists = item
             .artists
@@ -674,15 +678,10 @@ impl crate::app::App {
                 }
             })
             .collect();
-        let artwork = self
-            .jellyfin
-            .source
-            .as_ref()
-            .filter(|source| Some(source.id.as_str()) == state.source_id.as_deref())
-            .and_then(|source| super::artwork::Reference::for_item(source, &item))
-            .map(|reference| reference.uri());
+        let artwork =
+            super::artwork::Reference::for_item(&source, &item).map(|reference| reference.uri());
         Some(crate::app::NowPlaying {
-            provider: Provider::Jellyfin,
+            stamp: crate::provider::ProviderStamp::jellyfin(&source),
             local: true,
             device_name: None,
             device_kind: None,

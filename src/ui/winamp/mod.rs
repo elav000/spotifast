@@ -1400,7 +1400,7 @@ fn rates(app: &App, view: &mut View, now: Option<&NowPlaying>) {
 }
 
 fn displayed_rates(now: &NowPlaying, spotify_bitrate: u16) -> (Option<u32>, Option<u32>) {
-    if now.provider == crate::provider::Provider::Jellyfin {
+    if now.stamp.provider() == crate::provider::Provider::Jellyfin {
         return now.audio_format.map_or((None, None), |format| {
             (format.bitrate_kbps, format.sample_rate_hz)
         });
@@ -1653,7 +1653,7 @@ mod tests {
 
     fn now(title: &str, subtitle: &str, duration_ms: u32) -> NowPlaying {
         NowPlaying {
-            provider: crate::provider::Provider::Spotify,
+            stamp: crate::provider::ProviderStamp::Spotify,
             local: true,
             device_name: None,
             device_kind: None,
@@ -1705,7 +1705,10 @@ mod tests {
         let mut track = now("Song", "Artist", 180_000);
         assert_eq!(displayed_rates(&track, 320), (Some(320), Some(44_100)));
 
-        track.provider = crate::provider::Provider::Jellyfin;
+        track.stamp = crate::provider::ProviderStamp::Jellyfin {
+            source: "server".into(),
+            account: "account".into(),
+        };
         track.audio_format = Some(crate::app::AudioFormat {
             bitrate_kbps: Some(256),
             sample_rate_hz: Some(48_000),

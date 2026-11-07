@@ -87,6 +87,13 @@ its player bar, queue, provider-specific links, device picker and transport
 controls while another catalog is open. Starting playback from that catalog is
 the handoff point and suspends the previous engine.
 
+Active and queued entries carry a stable `ProviderStamp`. Spotify uses its
+app-scoped identity; Jellyfin stamps the server and account without retaining a
+credential or transport URL. Now-playing navigation, device/control selection,
+queue ownership, every displayed queue occurrence and provider row actions read
+that stamp rather than the catalog being browsed. This is the identity boundary
+required before queues can contain entries from more than one provider.
+
 Queue drag and edit capabilities now come from the playback-owned queue
 presentation in both the main and Winamp views. The provider resolves drops
 against its own source and snapshot, while the shared playlist dialogs receive
@@ -116,15 +123,12 @@ the maintainer asks for one.
 
 ## Next implementation sequence
 
-The reviewed Jellyfin sharp-edge, provider-orchestration and multi-disc album
-sequences are complete. The next approved milestone is shared queue groundwork:
-provider-stamped active and queued entries must keep the provider-specific
-links, devices and controls that can execute them, regardless of which catalog
-is being browsed.
+The reviewed Jellyfin sharp-edge, provider-orchestration, multi-disc album and
+provider-stamping sequences are complete. The next approved milestone is the
+provider-switching redesign. Spotify remains the first-class built-in provider,
+while Settings uses an **Additional providers** section to add and manage
+Jellyfin connections.
 
-After provider stamping is complete, redesign provider switching without adding
-a preference. Spotify remains the first-class built-in provider, while Settings
-uses an **Additional providers** section to add and manage Jellyfin connections.
 The profile menu becomes the quick catalog switcher through a **Provider**
 submenu: Spotify is a direct choice, and Jellyfin expands to the saved servers
 and accounts when more than one is available. The checked entries reflect the

@@ -1842,7 +1842,7 @@ pub fn provider_track_row_with_layout(
     actions: &ProviderRowActions,
     layout: ProviderTrackLayout,
 ) -> Option<RowPick> {
-    debug_assert_eq!(track.reference.provider(), actions.provider);
+    debug_assert_eq!(track.reference.stamp(), actions.stamp);
     // Reuse the renderer's existing display metadata. No Spotify ID, request,
     // external URL or catalog entry is manufactured by this presentation adapter.
     let item = PlayableItem::Track(Track {
@@ -1939,7 +1939,7 @@ fn track_row_response_with_actions(
             .map(|number| number.saturating_sub(1))
             .unwrap_or(row.index),
     ));
-    let id = actions.map_or(id, |actions| id.with(actions.provider as u8));
+    let id = actions.map_or(id, |actions| id.with(&actions.stamp));
     ui.scope_builder(UiBuilder::new().id(id), |ui| {
         track_row_contents(ui, app, row, actions)
     })

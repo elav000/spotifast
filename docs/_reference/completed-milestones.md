@@ -55,6 +55,11 @@ history below is not a list of tasks to repeat.
   actions rather than changing that layout.
   Jellyfin favorite changes update immediately, remain bound to the active
   account and roll back visibly when the server rejects them.
+- Active and queued entries now carry stable provider ownership. Spotify uses
+  its app identity; Jellyfin includes the server and account without a token or
+  URL. Now-playing links, device/control selection, queue presentations, every
+  queue occurrence and shared row actions keep that ownership while another
+  provider is being browsed.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

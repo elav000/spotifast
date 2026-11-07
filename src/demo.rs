@@ -14316,12 +14316,34 @@ mod tests {
         use crate::jellyfin::browser::BrowserAction as A;
         let (_ctx, mut app) = accessible_app("provider-detail-controls");
         let spotify = app.spotify_artist_controls(&artist(0));
+        let spotify_menu: Vec<_> = spotify
+            .menu
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect();
+        assert_eq!(spotify_menu[0], "Play");
+        assert!(matches!(spotify_menu[1], "Follow" | "Unfollow"));
+        assert_eq!(
+            spotify_menu[2..],
+            ["Go to artist radio", "Copy link", "Open in Spotify"]
+        );
         assert!(matches!(
             spotify.primary.unwrap().action,
             Some(Action::PlayContext { .. })
         ));
         app.jellyfin.demo("jellyfin-artist");
         let jellyfin = app.provider_detail_controls().unwrap();
+        let jellyfin_menu: Vec<_> = jellyfin
+            .menu
+            .iter()
+            .map(|item| item.label.as_str())
+            .collect();
+        assert_eq!(jellyfin_menu[0], "Play");
+        assert!(matches!(
+            jellyfin_menu[1],
+            "Favorite" | "Remove from favorites"
+        ));
+        assert_eq!(jellyfin_menu[2..], ["Copy link", "Open in Jellyfin"]);
         assert!(matches!(
             jellyfin.primary.unwrap().action,
             Some(Action::Jellyfin(A::PlayAlbum(_)))
@@ -14331,6 +14353,24 @@ mod tests {
                 .buttons
                 .iter()
                 .any(|button| button.label == "Songs")
+        );
+        app.jellyfin.demo("jellyfin-tracks");
+        let album = app.provider_detail_controls().unwrap();
+        let album_menu: Vec<_> = album.menu.iter().map(|item| item.label.as_str()).collect();
+        assert_eq!(album_menu[..3], ["Play", "Shuffle play", "Add to queue"]);
+        assert!(matches!(
+            album_menu[3],
+            "Favorite" | "Remove from favorites"
+        ));
+        assert_eq!(album_menu[4..], ["Copy link", "Open in Jellyfin"]);
+        assert!(
+            !album
+                .menu
+                .iter()
+                .find(|item| item.label == "Add to queue")
+                .unwrap()
+                .enabled,
+            "another provider cannot accept Jellyfin queue entries"
         );
         app.jellyfin.demo("jellyfin-history");
         let history = app.provider_detail_controls().unwrap();

@@ -1,6 +1,7 @@
 //! Provider-owned presentation data and actions for detail pages.
 use crate::{
     app::App,
+    i18n::gettext,
     model::{Action, Dialog},
 };
 use std::sync::Arc;
@@ -57,9 +58,18 @@ pub(crate) struct DetailButton {
     pub action: Action,
 }
 
+pub(crate) struct DetailMenuItem {
+    pub label: String,
+    pub icon: crate::theme::Icon,
+    pub action: Action,
+    pub separator_before: bool,
+    pub enabled: bool,
+}
+
 pub(crate) struct DetailControls {
     pub primary: Option<DetailPrimaryAction>,
     pub buttons: Vec<DetailButton>,
+    pub menu: Vec<DetailMenuItem>,
     pub compact: bool,
 }
 
@@ -161,6 +171,7 @@ impl App {
         &self,
         artist: &crate::api::models::Artist,
     ) -> DetailControls {
+        use crate::theme::Icon;
         let following = self.is_saved(&artist.uri).unwrap_or(false);
         DetailControls {
             primary: Some(DetailPrimaryAction {
@@ -183,8 +194,133 @@ impl App {
                 .into_owned(),
                 action: Action::ToggleSaved(artist.uri.clone()),
             }],
+            menu: vec![
+                DetailMenuItem {
+                    label: crate::i18n::gettext(self.locale, "Play").into_owned(),
+                    icon: Icon::Play,
+                    action: Action::PlayContext {
+                        uri: artist.uri.clone(),
+                        offset_uri: None,
+                        offset_index: None,
+                    },
+                    separator_before: false,
+                    enabled: true,
+                },
+                DetailMenuItem {
+                    label: crate::i18n::pgettext(
+                        self.locale,
+                        "artist",
+                        if following { "Unfollow" } else { "Follow" },
+                    )
+                    .into_owned(),
+                    icon: if following {
+                        Icon::CircleX
+                    } else {
+                        Icon::CirclePlus
+                    },
+                    action: Action::ToggleSaved(artist.uri.clone()),
+                    separator_before: false,
+                    enabled: true,
+                },
+                DetailMenuItem {
+                    label: crate::i18n::gettext(self.locale, "Go to artist radio").into_owned(),
+                    icon: Icon::Radio,
+                    action: Action::Open(crate::model::Page::Radio(artist.uri.clone())),
+                    separator_before: true,
+                    enabled: true,
+                },
+                DetailMenuItem {
+                    label: crate::i18n::gettext(self.locale, "Copy link").into_owned(),
+                    icon: Icon::Copy,
+                    action: Action::CopyLink(artist.uri.clone()),
+                    separator_before: false,
+                    enabled: true,
+                },
+                DetailMenuItem {
+                    label: crate::i18n::gettext(self.locale, "Open in Spotify").into_owned(),
+                    icon: Icon::ExternalLink,
+                    action: Action::OpenInSpotify(artist.uri.clone()),
+                    separator_before: false,
+                    enabled: true,
+                },
+            ],
             compact: false,
         }
+    }
+
+    pub(crate) fn spotify_album_menu(&self, uri: &str, name: &str) -> Vec<DetailMenuItem> {
+        use crate::theme::Icon;
+        let saved = self.is_saved(uri).unwrap_or(false);
+        vec![
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Play").into_owned(),
+                icon: Icon::Play,
+                action: Action::PlayContext {
+                    uri: uri.to_owned(),
+                    offset_uri: None,
+                    offset_index: None,
+                },
+                separator_before: false,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Shuffle play").into_owned(),
+                icon: Icon::Shuffle,
+                action: Action::ShufflePlay(uri.to_owned()),
+                separator_before: false,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Add to queue").into_owned(),
+                icon: Icon::ListEnd,
+                action: Action::AddToQueue {
+                    uri: uri.to_owned(),
+                    label: name.to_owned(),
+                },
+                separator_before: false,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(
+                    self.locale,
+                    if saved {
+                        "Remove from Your Library"
+                    } else {
+                        "Add to Your Library"
+                    },
+                )
+                .into_owned(),
+                icon: if saved {
+                    Icon::CircleX
+                } else {
+                    Icon::CirclePlus
+                },
+                action: Action::ToggleSaved(uri.to_owned()),
+                separator_before: false,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Go to album radio").into_owned(),
+                icon: Icon::Radio,
+                action: Action::Open(crate::model::Page::Radio(uri.to_owned())),
+                separator_before: true,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Copy link").into_owned(),
+                icon: Icon::Copy,
+                action: Action::CopyLink(uri.to_owned()),
+                separator_before: false,
+                enabled: true,
+            },
+            DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Open in Spotify").into_owned(),
+                icon: Icon::ExternalLink,
+                action: Action::OpenInSpotify(uri.to_owned()),
+                separator_before: false,
+                enabled: true,
+            },
+        ]
     }
 
     pub(crate) fn provider_detail_controls(&self) -> Option<DetailControls> {
@@ -200,11 +336,14 @@ impl App {
         let mut controls = DetailControls {
             primary: None,
             buttons: Vec::new(),
+            menu: Vec::new(),
             compact: !view.is_detail(),
         };
         if view.is_tracks()
             && let Some(Rows::Items {
-                items, start: 0, ..
+                items,
+                start: 0,
+                total,
             }) = &self.jellyfin.rows
         {
             let action = items.first().map(|first| {
@@ -235,6 +374,96 @@ impl App {
                 playing: false,
                 disabled_reason: None,
             });
+            if let Some(first) = items.first()
+                && matches!(view, View::Tracks { .. })
+            {
+                use crate::theme::Icon;
+                let queue_ready = items.len() as u32 == *total
+                    && self.jellyfin_player.controls_output()
+                    && self.jellyfin_player.snapshot().source_id.as_deref() == Some(&source.id);
+                controls.menu.extend([
+                    DetailMenuItem {
+                        label: crate::i18n::gettext(self.locale, "Play").into_owned(),
+                        icon: Icon::Play,
+                        action: Action::Jellyfin(A::Play(first.id.clone())),
+                        separator_before: false,
+                        enabled: true,
+                    },
+                    DetailMenuItem {
+                        label: crate::i18n::gettext(self.locale, "Shuffle play").into_owned(),
+                        icon: Icon::Shuffle,
+                        action: Action::Jellyfin(A::PlayShuffled(first.id.clone())),
+                        separator_before: false,
+                        enabled: true,
+                    },
+                    DetailMenuItem {
+                        label: crate::i18n::gettext(self.locale, "Add to queue").into_owned(),
+                        icon: Icon::ListEnd,
+                        action: Action::Jellyfin(A::EnqueueItems {
+                            source: source.clone(),
+                            items: items.clone(),
+                        }),
+                        separator_before: false,
+                        enabled: queue_ready,
+                    },
+                ]);
+                if let Some(context) = self
+                    .jellyfin
+                    .album
+                    .as_ref()
+                    .filter(|item| view.context_id() == Some(item.id.as_str()))
+                {
+                    let favorite = context
+                        .details
+                        .user_data
+                        .as_ref()
+                        .and_then(|data| data.is_favorite)
+                        .unwrap_or(false);
+                    controls.menu.push(DetailMenuItem {
+                        label: if favorite {
+                            gettext(self.locale, "Remove from favorites")
+                        } else {
+                            gettext(self.locale, "Favorite")
+                        }
+                        .into_owned(),
+                        icon: if favorite {
+                            Icon::CircleX
+                        } else {
+                            Icon::CirclePlus
+                        },
+                        action: Action::Jellyfin(A::Favorite {
+                            source: source.clone(),
+                            item: context.id.clone(),
+                            favorite: !favorite,
+                        }),
+                        separator_before: false,
+                        enabled: !self.jellyfin.favorite_busy,
+                    });
+                }
+                if let Some(id) = view.context_id() {
+                    let url = format!(
+                        "{}/web/#/details?id={id}&serverId={}",
+                        source.server_url.trim_end_matches('/'),
+                        source.server_id
+                    );
+                    controls.menu.extend([
+                        DetailMenuItem {
+                            label: crate::i18n::gettext(self.locale, "Copy link").into_owned(),
+                            icon: Icon::Copy,
+                            action: Action::CopyText(url.clone()),
+                            separator_before: true,
+                            enabled: true,
+                        },
+                        DetailMenuItem {
+                            label: gettext(self.locale, "Open in Jellyfin").into_owned(),
+                            icon: Icon::ExternalLink,
+                            action: Action::OpenUrl(url),
+                            separator_before: false,
+                            enabled: true,
+                        },
+                    ]);
+                }
+            }
         }
         if let View::Catalog {
             query: Query::ArtistAlbums { library, artist },
@@ -258,10 +487,72 @@ impl App {
             controls.buttons.push(DetailButton {
                 label: crate::i18n::gettext(self.locale, "Songs").into_owned(),
                 action: Action::Jellyfin(A::Browse {
-                    view: songs,
+                    view: songs.clone(),
                     start: 0,
                 }),
             });
+            use crate::theme::Icon;
+            controls.menu.push(DetailMenuItem {
+                label: crate::i18n::gettext(self.locale, "Play").into_owned(),
+                icon: Icon::Play,
+                action: Action::Jellyfin(A::PlayAlbum(songs)),
+                separator_before: false,
+                enabled: true,
+            });
+            if let Some(context) = self
+                .jellyfin
+                .album
+                .as_ref()
+                .filter(|item| item.id.as_str() == artist.as_str())
+            {
+                let favorite = context
+                    .details
+                    .user_data
+                    .as_ref()
+                    .and_then(|data| data.is_favorite)
+                    .unwrap_or(false);
+                controls.menu.push(DetailMenuItem {
+                    label: if favorite {
+                        gettext(self.locale, "Remove from favorites")
+                    } else {
+                        gettext(self.locale, "Favorite")
+                    }
+                    .into_owned(),
+                    icon: if favorite {
+                        Icon::CircleX
+                    } else {
+                        Icon::CirclePlus
+                    },
+                    action: Action::Jellyfin(A::Favorite {
+                        source: source.clone(),
+                        item: context.id.clone(),
+                        favorite: !favorite,
+                    }),
+                    separator_before: false,
+                    enabled: !self.jellyfin.favorite_busy,
+                });
+            }
+            let url = format!(
+                "{}/web/#/details?id={artist}&serverId={}",
+                source.server_url.trim_end_matches('/'),
+                source.server_id
+            );
+            controls.menu.extend([
+                DetailMenuItem {
+                    label: crate::i18n::gettext(self.locale, "Copy link").into_owned(),
+                    icon: Icon::Copy,
+                    action: Action::CopyText(url.clone()),
+                    separator_before: true,
+                    enabled: true,
+                },
+                DetailMenuItem {
+                    label: gettext(self.locale, "Open in Jellyfin").into_owned(),
+                    icon: Icon::ExternalLink,
+                    action: Action::OpenUrl(url),
+                    separator_before: false,
+                    enabled: true,
+                },
+            ]);
         }
         if let View::Catalog {
             query: Query::PlaylistSongs { playlist },

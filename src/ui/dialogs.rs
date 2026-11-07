@@ -11,6 +11,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     let Some(dialog) = app.dialog.clone() else {
         return;
     };
+    let presentation = app.playlist_dialog_presentation(&dialog);
     if let Dialog::CoverArt { url, shown, title } = &dialog {
         cover_art(app, ctx, url, shown.as_deref(), title);
         return;
@@ -37,7 +38,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         }))
         .show(ctx, |ui| {
             ui.set_width(420.0);
-            if app.jellyfin.dialog_source.is_some() && let Some(error) = app.jellyfin.edit_error.clone() { ui.colored_label(palette.danger, error); ui.add_space(8.0); }
+            if let Some(error) = &presentation.error {
+                ui.colored_label(palette.danger, error);
+                ui.add_space(8.0);
+            }
             match dialog {
                 // Drawn by cover_art above.
                 Dialog::CoverArt { .. } => {}
@@ -56,10 +60,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         }
                     });
                 }
-                Dialog::RenamePlaylist { .. } => rename_playlist(app, ui),
-                Dialog::CreatePlaylist { .. } => create_playlist(app, ui),
-                Dialog::EditPlaylist { .. } => edit_playlist(app, ui),
-                Dialog::ConfirmDeletePlaylist { id, name, owned } => {
+                Dialog::RenamePlaylist { .. } => rename_playlist(app, ui, presentation.busy),
+                Dialog::CreatePlaylist { .. } => create_playlist(app, ui, presentation.busy),
+                Dialog::EditPlaylist { .. } => edit_playlist(app, ui, presentation.busy),
+                Dialog::ConfirmDeletePlaylist {
+                    id,
+                    name: _,
+                    owned,
+                } => {
                     theme::text(
                         ui,
                         if owned {
@@ -71,16 +79,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         palette.text,
                     );
                     ui.add_space(8.0);
-                    let body = if app.jellyfin.dialog_source.is_some() {
-                        gettext(locale, "Delete “{name}”? This removes the playlist from your Jellyfin server.")
-                    } else if owned {
-                        // Translators: {name} is a playlist name.
-                        gettext(locale, "Delete “{name}”? You can recover it from Spotify for 90 days.")
-                    } else {
-                        // Translators: {name} is a playlist name.
-                        gettext(locale, "“{name}” will no longer appear in Your Library.")
-                    }
-                    .replace("{name}", &name);
+                    let body = presentation.delete_body.as_deref().unwrap_or_default();
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(body)
@@ -346,14 +345,9 @@ fn text_field(
     response
 }
 
-fn create_playlist(app: &mut App, ui: &mut egui::Ui) {
+fn create_playlist(app: &mut App, ui: &mut egui::Ui, busy: bool) {
     let palette = app.palette;
     let locale = app.locale;
-    let busy = if app.jellyfin.dialog_source.is_some() {
-        app.jellyfin.edit_busy
-    } else {
-        app.playlist_busy
-    };
     let Some(Dialog::CreatePlaylist {
         name,
         public,
@@ -437,7 +431,7 @@ fn create_playlist(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
-fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
+fn edit_playlist(app: &mut App, ui: &mut egui::Ui, busy: bool) {
     let existing_image = if let Some(Dialog::EditPlaylist { id, .. }) = &app.dialog {
         app.library
             .playlists
@@ -450,7 +444,6 @@ fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
     };
     let palette = app.palette;
     let locale = app.locale;
-    let busy = app.playlist_busy;
     let Some(Dialog::EditPlaylist {
         cover,
         id,
@@ -618,13 +611,8 @@ fn edit_playlist(app: &mut App, ui: &mut egui::Ui) {
     });
 }
 
-fn rename_playlist(app: &mut App, ui: &mut egui::Ui) {
+fn rename_playlist(app: &mut App, ui: &mut egui::Ui, busy: bool) {
     let palette = app.palette;
-    let busy = if app.jellyfin.dialog_source.is_some() {
-        app.jellyfin.edit_busy
-    } else {
-        app.playlist_busy
-    };
     let Some(Dialog::RenamePlaylist { target, name }) = &mut app.dialog else {
         return;
     };

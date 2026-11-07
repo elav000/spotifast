@@ -45,6 +45,47 @@ pub enum QueueStatus {
     Failed(String),
 }
 
+enum QueueDragPolicy {
+    Spotify {
+        reorderable: bool,
+        manual: Vec<String>,
+    },
+    Provider {
+        source: crate::jellyfin::browser::Source,
+        expected: Arc<Vec<crate::jellyfin::Item>>,
+    },
+    None,
+}
+
+fn provider_drop_action(
+    source: &crate::jellyfin::browser::Source,
+    expected: &Arc<Vec<crate::jellyfin::Item>>,
+    drag: &crate::model::ProviderQueueDrag,
+    slot: usize,
+) -> Option<Action> {
+    if !source.same_identity(&drag.source) {
+        return None;
+    }
+    let action = match drag.origin.as_ref() {
+        Some((snapshot, from)) if slot != *from && slot != *from + 1 => {
+            crate::jellyfin::browser::BrowserAction::EditManual {
+                source: source.clone(),
+                expected: snapshot.clone(),
+                index: *from,
+                to: Some(if slot > *from { slot - 1 } else { slot }),
+            }
+        }
+        Some(_) => return None,
+        None => crate::jellyfin::browser::BrowserAction::InsertManual {
+            source: source.clone(),
+            expected: expected.clone(),
+            item: Box::new(drag.item.clone()),
+            to: slot,
+        },
+    };
+    Some(Action::Jellyfin(action))
+}
+
 pub enum QueueRemoval {
     Spotify,
     Jellyfin {
@@ -75,11 +116,88 @@ pub struct QueuePresentation {
     pub pending: bool,
     pub clear: Option<Action>,
     pub save: Option<Action>,
-    pub spotify_drag: bool,
+    drag: QueueDragPolicy,
     pub recent: RecentPresentation,
 }
 
 impl QueuePresentation {
+    pub fn uses_spotify_rows(&self) -> bool {
+        matches!(self.drag, QueueDragPolicy::Spotify { .. })
+    }
+
+    pub fn spotify_drag_reorderable(&self) -> bool {
+        matches!(
+            self.drag,
+            QueueDragPolicy::Spotify {
+                reorderable: true,
+                ..
+            }
+        )
+    }
+
+    pub fn provider_drag_reorderable(&self) -> bool {
+        matches!(self.drag, QueueDragPolicy::Provider { .. })
+    }
+
+    /// Resolve a Spotify queue drop against the playback snapshot used to
+    /// draw this view. Remote queues can only append; local queues can insert
+    /// and move manual occurrences.
+    pub fn spotify_drop_action(
+        &self,
+        drag: &crate::model::DragTrack,
+        slot: Option<usize>,
+    ) -> Option<Action> {
+        let QueueDragPolicy::Spotify {
+            reorderable,
+            manual,
+        } = &self.drag
+        else {
+            return None;
+        };
+        if !reorderable {
+            return Some(Action::QueueMany {
+                songs: drag
+                    .items
+                    .iter()
+                    .map(|item| (item.uri().to_string(), item.name().to_string()))
+                    .collect(),
+            });
+        }
+        let slot = slot?;
+        if let Some((origin, from)) = drag.from.as_ref()
+            && origin == "queue"
+        {
+            let from = *from as usize;
+            let uri = drag.items.first()?.uri();
+            // Playback can advance mid-drag. Prefer the recorded occurrence
+            // while it still matches, then locate the song in this snapshot.
+            let from = if manual.get(from).map(String::as_str) == Some(uri) {
+                Some(from)
+            } else {
+                manual.iter().position(|queued| queued == uri)
+            }?;
+            return (slot != from && slot != from + 1)
+                .then_some(Action::MoveInQueue { from, to: slot });
+        }
+        Some(Action::InsertInQueue {
+            items: drag.items.clone(),
+            position: slot,
+        })
+    }
+
+    /// Resolve an opaque provider drag into the source-bound edit action.
+    /// The shared queue views never inspect provider transport state.
+    pub fn provider_drop_action(
+        &self,
+        drag: &crate::model::ProviderQueueDrag,
+        slot: usize,
+    ) -> Option<Action> {
+        let QueueDragPolicy::Provider { source, expected } = &self.drag else {
+            return None;
+        };
+        provider_drop_action(source, expected, drag, slot)
+    }
+
     /// The same displayed occurrences are used by either queue view. A batch
     /// removal must be atomic so duplicate songs cannot shift under later edits.
     pub fn remove_rows(&self, indices: impl IntoIterator<Item = usize>) -> Option<Action> {
@@ -187,7 +305,10 @@ impl App {
             pending: false,
             clear: self.can_clear_queue().then_some(Action::ClearQueue),
             save: (!self.queue_playlist_uris().is_empty()).then_some(Action::SaveQueueAsPlaylist),
-            spotify_drag: true,
+            drag: QueueDragPolicy::Spotify {
+                reorderable: self.queue_locally_reorderable(),
+                manual: self.manual_queue.to_vec(),
+            },
             recent: RecentPresentation {
                 rows: self
                     .recents_view
@@ -500,7 +621,13 @@ impl App {
             pending: state.item.is_some() && !state.queue_complete && state.loading,
             clear: (!state.queued.is_empty()).then_some(Action::Jellyfin(A::ClearQueue)),
             save,
-            spotify_drag: false,
+            drag: source
+                .filter(|_| self.jellyfin_player.controls_output())
+                .map(|source| QueueDragPolicy::Provider {
+                    source: source.clone(),
+                    expected: state.queued.snapshot(),
+                })
+                .unwrap_or(QueueDragPolicy::None),
             recent: RecentPresentation {
                 rows: recent,
                 loading: self.jellyfin.recent_loading,
@@ -592,5 +719,73 @@ impl App {
             .is_some_and(|current| current.same_identity(&source))
             .then_some(Action::Jellyfin(A::OpenQueueContext { source, view }));
         Some((name, open))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        jellyfin::browser::{BrowserAction as A, Source},
+        model::ProviderQueueDrag,
+    };
+
+    fn source(id: &str) -> Source {
+        Source {
+            nickname: "Test server".into(),
+            id: id.into(),
+            server_url: "http://server".into(),
+            server_id: "server".into(),
+            user_id: "user".into(),
+            device_id: "device".into(),
+        }
+    }
+
+    fn item(id: &str) -> crate::jellyfin::Item {
+        serde_json::from_value(serde_json::json!({
+            "Id": id,
+            "Name": id
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn provider_drop_policy_binds_inserts_and_moves_to_its_snapshot_and_source() {
+        let owner = source("source");
+        let expected = Arc::new(vec![item("other"), item("another")]);
+        let insert = ProviderQueueDrag {
+            source: owner.clone(),
+            item: item("track"),
+            origin: None,
+        };
+        assert!(matches!(
+            provider_drop_action(&owner, &expected, &insert, 0),
+            Some(Action::Jellyfin(A::InsertManual { source, expected: snapshot, item, to: 0 }))
+                if source == owner && snapshot == expected && item.id == "track"
+        ));
+
+        let moved = ProviderQueueDrag {
+            source: owner.clone(),
+            item: item("another"),
+            origin: Some((expected.clone(), 1)),
+        };
+        assert!(matches!(
+            provider_drop_action(&owner, &Arc::new(Vec::new()), &moved, 0),
+            Some(Action::Jellyfin(A::EditManual { source, expected: snapshot, index: 1, to: Some(0) }))
+                if source == owner && snapshot == expected
+        ));
+        assert!(provider_drop_action(&owner, &expected, &moved, 1).is_none());
+
+        let moved_down = ProviderQueueDrag {
+            source: owner.clone(),
+            item: item("other"),
+            origin: Some((expected.clone(), 0)),
+        };
+        assert!(matches!(
+            provider_drop_action(&owner, &Arc::new(Vec::new()), &moved_down, 2),
+            Some(Action::Jellyfin(A::EditManual { source, expected: snapshot, index: 0, to: Some(1) }))
+                if source == owner && snapshot == expected
+        ));
+        assert!(provider_drop_action(&source("other"), &expected, &insert, 0).is_none());
     }
 }

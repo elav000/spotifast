@@ -75,6 +75,12 @@ playback provider. Jellyfin keeps the playback source/account identity in those
 actions and preserves linked artist IDs from its playback metadata; Spotify
 retains its existing album, show and artist routes.
 
+Queue drag and edit capabilities now come from the playback-owned queue
+presentation in both the main and Winamp views. The provider resolves drops
+against its own source and snapshot, while the shared playlist dialogs receive
+busy, error and deletion state from provider presentation instead of inspecting
+Jellyfin state.
+
 The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing
@@ -85,18 +91,11 @@ the maintainer asks for one.
 
 ## Next implementation sequence
 
-The reviewed Jellyfin sharp-edge sequence is complete. Continue with bounded
-items under Later work as they become the next approved milestone.
+The reviewed Jellyfin sharp-edge and provider-orchestration sequences are
+complete. The next approved milestone is separate disc sections for multi-disc
+albums.
 
 ## Later work
-
-- **Finish provider-owned page orchestration.** The shared cards, track rows,
-  detail heroes, controls, queue presentation, device capability, central-page
-  routing, global search state and playback-context navigation are in place.
-  Next make queue drag/edit capabilities and playlist dialogs explicitly
-  provider-owned instead of checking Jellyfin source state. Keep provider setup
-  and account management service-specific. Deliver these extractions through
-  bounded user-facing fixes, not a parallel UI or a broad rewrite.
 
 - **Show multi-disc albums as separate disc sections.** Use provider disc numbers
   to label and group tracks in the shared album page, while preserving their

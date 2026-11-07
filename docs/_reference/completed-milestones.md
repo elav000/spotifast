@@ -35,6 +35,11 @@ history below is not a list of tasks to repeat.
   artist destinations. Jellyfin keeps source/account identity in its actions
   and linked artist IDs in now-playing metadata, while Spotify retains its
   existing destinations.
+- Queue drag/edit policy now belongs to the playback-owned presentation used by
+  both main and Winamp queue views. Providers validate their own source and
+  snapshot and return the resulting action. Shared playlist dialogs likewise
+  receive busy, error and deletion state through provider presentation rather
+  than inspecting Jellyfin state.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

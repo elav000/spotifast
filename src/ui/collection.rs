@@ -631,6 +631,55 @@ pub struct Table<'a> {
     pub plays_shown_rows: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiscTableRow {
+    Heading(u32),
+    Track(usize),
+}
+
+fn sectioned_disc_rows(discs: &[Option<Option<u32>>]) -> Option<Vec<DiscTableRow>> {
+    if !crate::provider::has_multiple_discs(discs.iter().filter_map(|disc| *disc)) {
+        return None;
+    }
+    let mut rows = Vec::with_capacity(discs.len() + 2);
+    let mut previous = None;
+    for (row, disc) in discs.iter().enumerate() {
+        if let Some(disc) = disc.map(crate::provider::album_disc)
+            && previous != Some(disc)
+        {
+            rows.push(DiscTableRow::Heading(disc));
+            previous = Some(disc);
+        }
+        rows.push(DiscTableRow::Track(row));
+    }
+    Some(rows)
+}
+
+fn playable_disc(item: &PlayableItem) -> Option<u32> {
+    match item {
+        PlayableItem::Track(track) => track.disc_number,
+        PlayableItem::Episode(_) => None,
+    }
+}
+
+fn playable_track_number(item: &PlayableItem) -> Option<usize> {
+    match item {
+        PlayableItem::Track(track) => track.track_number.map(|number| number as usize),
+        PlayableItem::Episode(_) => None,
+    }
+}
+
+fn disc_heading(ui: &mut egui::Ui, palette: &Palette, locale: Locale, disc: u32, height: f32) {
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), height),
+        Layout::left_to_right(Align::Center),
+        |ui| {
+            ui.add_space(12.0);
+            theme::section_title(ui, palette, &format!("{} {disc}", gettext(locale, "Disc")));
+        },
+    );
+}
+
 /// The server's row space, including unloaded and unavailable entries.
 #[derive(Clone, Copy)]
 pub struct TablePagination<'a> {
@@ -987,6 +1036,17 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
             entry.visible.get(row).copied()
         }
     };
+    let disc_rows = (matches!(table.page, Page::Album(_)) && sort.is_none() && needle.is_empty())
+        .then(|| {
+            (0..rows)
+                .map(|row| {
+                    item_index(row)
+                        .and_then(|index| table.items.get(index))
+                        .map(|(item, _, _)| playable_disc(item))
+                })
+                .collect::<Vec<_>>()
+        })
+        .and_then(|discs| sectioned_disc_rows(&discs));
     app.keep_picked_rows_for(&table.page, &view);
     // A song's link opened this page. Waiting out a load keeps the arriving
     // rows from clearing the pick, and a long album loads until the song
@@ -1002,9 +1062,18 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
         if let Some(row) = row {
             app.pick_rows(&table.page, &view, [row].into_iter().collect());
             app.finish_linked_song();
+            let display_row = disc_rows.as_ref().map_or(row, |display| {
+                display
+                    .iter()
+                    .position(|entry| *entry == DiscTableRow::Track(row))
+                    .unwrap_or(row)
+            });
             ui.scroll_to_rect(
                 Rect::from_min_size(
-                    pos2(ui.max_rect().left(), list_top + row as f32 * row_height),
+                    pos2(
+                        ui.max_rect().left(),
+                        list_top + display_row as f32 * row_height,
+                    ),
                     vec2(ui.max_rect().width(), row_height),
                 ),
                 Some(egui::Align::Center),
@@ -1030,7 +1099,17 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
     let mut row_responses = Vec::new();
     let mut missing = None;
     let mut retry_shown = false;
-    widgets::virtual_rows(ui, rows, row_height, |ui, row| {
+    let display_rows = disc_rows.as_deref();
+    let display_count = display_rows.map_or(rows, <[DiscTableRow]>::len);
+    widgets::virtual_rows(ui, display_count, row_height, |ui, display_row| {
+        let row = match display_rows.map(|rows| rows[display_row]) {
+            Some(DiscTableRow::Heading(disc)) => {
+                disc_heading(ui, &palette, locale, disc, row_height);
+                return;
+            }
+            Some(DiscTableRow::Track(row)) => row,
+            None => display_row,
+        };
         let Some(index) = item_index(row) else {
             let unavailable = finite.is_some_and(|page| {
                 (table.row_offset as usize..table.row_offset as usize + page.loaded_count)
@@ -1098,7 +1177,11 @@ fn table_contents(app: &mut App, ui: &mut egui::Ui, table: Table<'_>) {
                 } else {
                     actual_index
                 },
-                number: Some(if sorted { row + 1 } else { actual_index + 1 }),
+                number: if display_rows.is_some() {
+                    playable_track_number(item)
+                } else {
+                    Some(if sorted { row + 1 } else { actual_index + 1 })
+                },
                 item,
                 context: &context,
                 show_cover,
@@ -3076,7 +3159,20 @@ pub(crate) fn provider_tracks(
     ui: &mut egui::Ui,
     tracks: &[crate::provider::detail::ProviderDetailTrack],
 ) {
+    let sectioned =
+        crate::provider::has_multiple_discs(tracks.iter().map(|row| row.track.disc_number));
+    let mut previous_disc = None;
     for row in tracks {
+        let disc = crate::provider::album_disc(row.track.disc_number);
+        if sectioned && previous_disc != Some(disc) {
+            ui.add_space(8.0);
+            theme::section_title(
+                ui,
+                &app.palette,
+                &format!("{} {disc}", gettext(app.locale, "Disc")),
+            );
+            previous_disc = Some(disc);
+        }
         widgets::provider_track_row(ui, app, &row.track, row.index, &row.actions);
     }
 }
@@ -3092,6 +3188,25 @@ mod tests {
         hero: 640,
         card: 300,
     };
+
+    #[test]
+    fn album_disc_sections_preserve_track_order_and_hide_for_one_disc() {
+        assert_eq!(
+            sectioned_disc_rows(&[Some(None), Some(Some(1)), Some(Some(0))]),
+            None
+        );
+        assert_eq!(
+            sectioned_disc_rows(&[Some(Some(1)), Some(Some(1)), Some(Some(2)), Some(Some(2)),]),
+            Some(vec![
+                DiscTableRow::Heading(1),
+                DiscTableRow::Track(0),
+                DiscTableRow::Track(1),
+                DiscTableRow::Heading(2),
+                DiscTableRow::Track(2),
+                DiscTableRow::Track(3),
+            ])
+        );
+    }
 
     #[test]
     fn jellyfin_track_artist_credits_open_the_artist_catalog() {

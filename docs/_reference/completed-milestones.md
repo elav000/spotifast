@@ -43,6 +43,10 @@ history below is not a list of tasks to repeat.
 - Browsing provider selection no longer stops playback. The active playback
   provider continues to own the player bar, queue, links, device picker and
   controls until a song from another provider takes output ownership.
+- Multi-disc Spotify and Jellyfin albums render through their existing shared
+  page and row paths with provider disc numbers. Disc headings appear only when
+  more than one disc is present, preserve provider order and show each disc's
+  own track numbers; single-disc albums are unchanged.
 - Jellyfin Home retains the music-library cards for selection and adds shared
   card shelves for Recently Added Music, Recently Played and Frequently Played.
   These account-scoped shelves use server ordering; Spotify Home is unchanged.

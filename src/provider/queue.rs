@@ -388,6 +388,7 @@ impl App {
                     album: item.album.clone().unwrap_or_default(),
                     duration_ms: item.duration_ms().unwrap_or_default(),
                     number: item.index_number,
+                    disc_number: item.parent_index_number,
                     artwork: crate::jellyfin::artwork::Reference::for_item(source, item)
                         .map(|art| art.uri()),
                 },

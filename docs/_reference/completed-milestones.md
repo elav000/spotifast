@@ -50,6 +50,9 @@ history below is not a list of tasks to repeat.
 - Shared album and artist overflow menus now render provider-owned actions.
   Spotify keeps its existing library and radio choices; Jellyfin exposes the
   supported play, shuffle, queue, favorite, copy and server-link operations.
+  Artist heroes keep the same Play, saved-state and overflow hierarchy across
+  providers; Jellyfin Songs and Refresh remain available as secondary menu
+  actions rather than changing that layout.
   Jellyfin favorite changes update immediately, remain bound to the active
   account and roll back visibly when the server rejects them.
 - Jellyfin Home retains the music-library cards for selection and adds shared

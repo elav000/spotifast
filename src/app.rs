@@ -20187,12 +20187,33 @@ mod tests {
         };
         let mut app = headless_app();
         app.jellyfin.demo("jellyfin-tracks");
+        let home_library = app.jellyfin.catalog.library.clone();
         app.search.query = "Spotify query".into();
         let page = app.page().clone();
         app.apply(Action::Search("Bonobo".into()), &egui::Context::default());
-        assert!(matches!(app.jellyfin.view, View::Search { ref term, .. } if term == "Bonobo"));
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Search {
+                library: None,
+                ref term,
+                ..
+            } if term == "Bonobo"
+        ));
+        assert_eq!(app.jellyfin.catalog.library, home_library);
         assert_eq!(app.search.query, "Spotify query");
         assert_eq!(app.page(), &page);
+        app.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Browse {
+            view: View::Search {
+                library: Some("music2".into()),
+                term: "Bonobo".into(),
+                kind: None,
+            },
+            start: 0,
+        });
+        app.apply(
+            Action::Search("Boards of Canada".into()),
+            &egui::Context::default(),
+        );
         app.apply(
             Action::SetSearchFilter(crate::model::SearchFilter::Artists),
             &egui::Context::default(),
@@ -20200,10 +20221,13 @@ mod tests {
         assert!(matches!(
             app.jellyfin.view,
             View::Search {
+                library: Some(ref library),
+                ref term,
                 kind: Some(Kind::Artist),
                 ..
-            }
+            } if library == "music2" && term == "Boards of Canada"
         ));
+        assert_eq!(app.jellyfin.catalog.library, home_library);
         let source = app.jellyfin.source.clone().unwrap();
         let playlist = ItemReference::Jellyfin {
             source: source.id.clone(),
@@ -20283,7 +20307,29 @@ mod tests {
             View::Catalog {
                 query: Query::ArtistAlbums { ref library, ref artist },
                 ref name,
-            } if library == "music1" && artist == "artist1" && name == "Jellyfin Artist"
+            } if library.as_deref() == Some("music1")
+                && artist == "artist1"
+                && name == "Jellyfin Artist"
+        ));
+
+        app.apply(
+            Action::OpenProviderArtist {
+                artist: ItemReference::Jellyfin {
+                    source: source.id.clone(),
+                    account: source.user_id.clone(),
+                    item: "artist2".into(),
+                },
+                name: "All-collection artist".into(),
+                library: None,
+            },
+            &egui::Context::default(),
+        );
+        assert!(matches!(
+            app.jellyfin.view,
+            View::Catalog {
+                query: Query::ArtistAlbums { library: None, ref artist },
+                ref name,
+            } if artist == "artist2" && name == "All-collection artist"
         ));
 
         app.apply(

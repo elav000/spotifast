@@ -43,7 +43,7 @@ pub enum View {
     #[default]
     Libraries,
     Search {
-        library: String,
+        library: Option<String>,
         term: String,
         kind: Option<Kind>,
     },
@@ -1700,7 +1700,7 @@ impl Browser {
             let albums = self.catalog.items.clone();
             self.search_input = "Bonobo".into();
             self.view = View::Search {
-                library: "music1".into(),
+                library: None,
                 term: "Bonobo".into(),
                 kind: None,
             };
@@ -1792,7 +1792,7 @@ impl Browser {
             self.album = Some(artist);
             self.view = View::Catalog {
                 query: Query::ArtistAlbums {
-                    library: "music1".into(),
+                    library: Some("music1".into()),
                     artist: "artist1".into(),
                 },
                 name: "Bonobo".into(),
@@ -1907,7 +1907,7 @@ mod tests {
         .unwrap();
         model.view = View::Catalog {
             query: Query::ArtistAlbums {
-                library: "music1".into(),
+                library: Some("music1".into()),
                 artist: "artist1".into(),
             },
             name: "deadmau5".into(),
@@ -2019,6 +2019,43 @@ mod tests {
     }
 
     #[test]
+    fn old_search_scope_remains_readable_as_an_optional_collection() {
+        let view: View = serde_json::from_value(serde_json::json!({
+            "Search": {
+                "library": "music1",
+                "term": "BT",
+                "kind": "Song"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            view,
+            View::Search {
+                library: Some(library),
+                term,
+                kind: Some(Kind::Song),
+            } if library == "music1" && term == "BT"
+        ));
+
+        let query: Query = serde_json::from_value(serde_json::json!({
+            "Search": {
+                "library": "music1",
+                "term": "BT",
+                "kind": "Song"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            query,
+            Query::Search {
+                library: Some(library),
+                term,
+                kind: Kind::Song,
+            } if library == "music1" && term == "BT"
+        ));
+    }
+
+    #[test]
     fn source_identity_ignores_nickname_but_includes_account_and_server() {
         let mut source = Source {
             id: "saved-id".into(),
@@ -2101,7 +2138,7 @@ mod tests {
             }
         ));
         let search = View::Search {
-            library: "music1".into(),
+            library: None,
             term: "BT".into(),
             kind: Some(Kind::Song),
         };

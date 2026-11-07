@@ -74,13 +74,8 @@ the maintainer asks for one.
 
 ## Next implementation sequence
 
-Address the following Jellyfin sharp edges in order. These are review findings,
-not permission for a broad abstraction rewrite.
-
-1. **Make Jellyfin search scope explicit.** Songs, artists and albums currently
-   search only the selected collection, while playlists are user-scoped across
-   collections. Default to All collections and allow narrowing to one, while
-   keeping Home library selection and per-collection browsing intact.
+The reviewed Jellyfin sharp-edge sequence is complete. Continue with bounded
+items under Later work as they become the next approved milestone.
 
 ## Later work
 

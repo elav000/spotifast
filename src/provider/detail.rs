@@ -89,9 +89,6 @@ pub(crate) fn provider_artist_links(
     library: Option<&str>,
     artists: &[crate::jellyfin::ArtistItem],
 ) -> Vec<(String, Action)> {
-    let Some(library) = library else {
-        return Vec::new();
-    };
     artists
         .iter()
         .filter_map(|artist| {
@@ -105,7 +102,7 @@ pub(crate) fn provider_artist_links(
                             item: artist.id.clone(),
                         },
                         name: name.clone(),
-                        library: Some(library.to_owned()),
+                        library: library.map(str::to_owned),
                     },
                 )
             })
@@ -585,9 +582,10 @@ impl App {
                 })
             };
             let artist_library = match &query {
-                Some(crate::jellyfin::catalog::Query::ArtistSongs { library, .. }) => {
-                    Some(library.clone())
-                }
+                Some(
+                    crate::jellyfin::catalog::Query::ArtistSongs { library, .. }
+                    | crate::jellyfin::catalog::Query::Search { library, .. },
+                ) => library.clone(),
                 _ => self
                     .jellyfin
                     .catalog

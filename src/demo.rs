@@ -14098,6 +14098,14 @@ mod tests {
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
         accessible_node(&tree, "What do you want to play?", Role::TextInput);
+        let collection = accessible_node(&tree, "Search collection", Role::ComboBox);
+        assert_eq!(
+            tree.nodes
+                .iter()
+                .find(|(id, _)| *id == collection)
+                .and_then(|(_, node)| node.value()),
+            Some("All collections")
+        );
         let albums = accessible_node(&tree, "Songs", Role::Button);
         accessible_frame(
             &ctx,

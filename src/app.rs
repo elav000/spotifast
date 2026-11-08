@@ -2128,6 +2128,14 @@ impl App {
 
     /// Context shown as playing, including pending local play requests.
     pub fn playing_context_uri(&self) -> Option<String> {
+        // Spotify's last context remains useful when its engine is merely
+        // paused, but it is not the playing context while Jellyfin owns the
+        // output. Otherwise a Spotify page can mistake its stale context for
+        // the active one and turn its page-scoped Play button into a generic
+        // resume of the Jellyfin song.
+        if self.jellyfin_player.controls_output() {
+            return None;
+        }
         let remote = self
             .remote
             .as_ref()
@@ -20982,6 +20990,51 @@ mod tests {
         app.set_volume(20, true);
         app.apply_jellyfin_action(BrowserAction::Resume);
         assert_eq!(app.jellyfin_player.snapshot().volume, 20);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn spotify_page_play_replaces_jellyfin_despite_a_stale_spotify_context() {
+        use crate::jellyfin::browser::BrowserAction;
+
+        let mut app = headless_app();
+        app.settings.soloist_enabled = true;
+        app.soloist_status = crate::soloist::Status::Ready {
+            name: "Tumlo Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.soloist_device_id = Some("owned-soloist".into());
+        app.selected_device = app.soloist_device_id.clone();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:playlist:daily-mix".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+
+        assert_eq!(app.playing_context_uri(), None);
+        let action = app
+            .spotify_context_primary("spotify:playlist:daily-mix", None, false, false, false)
+            .action
+            .expect("the Spotify page can start its context");
+        assert!(matches!(action, Action::PlayContext { .. }));
+        app.backend.take_remote_play_requests();
+
+        app.apply(action, &egui::Context::default());
+
+        assert!(!app.jellyfin_player.controls_output());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: Some(device),
+                play: Some(play),
+                ..
+            }] if device == "owned-soloist"
+                && play.context_uri.as_deref() == Some("spotify:playlist:daily-mix")
+        ));
         app.backend.shutdown();
     }
 

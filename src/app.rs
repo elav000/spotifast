@@ -3049,13 +3049,29 @@ impl App {
     fn mixed_queue_can_handoff(&self) -> bool {
         !self.mixed_queue.is_empty()
             && (self.jellyfin_player.controls_output()
+                || self.targets_own_soloist()
                 || (self.local.is_active() && matches!(self.target(), Target::Local)))
+    }
+
+    /// The Spotify implementation this app owns on the current computer.
+    /// Soloist presents as a Connect device, but it is still Tumlo's configured
+    /// local Spotify engine. An arbitrary remote Connect device is never a
+    /// mixed-queue target.
+    fn mixed_spotify_target(&self) -> Option<Target> {
+        if self.settings.soloist_enabled {
+            return (matches!(self.soloist_status, crate::soloist::Status::Ready { .. }))
+                .then(|| self.soloist_device_id.clone())
+                .flatten()
+                .map(|id| Target::Remote(Some(id)));
+        }
+        (self.local_ready && self.local.connected).then_some(Target::Local)
     }
 
     fn play_mixed_queue_item(&mut self, index: usize) {
         let Some(item) = self.mixed_queue.get(index).cloned() else {
             return;
         };
+        let mut spotify_target = None;
         let source = match &item {
             crate::provider::ProviderQueueItem::Jellyfin {
                 source, account, ..
@@ -3070,10 +3086,11 @@ impl App {
                 }
             },
             crate::provider::ProviderQueueItem::Spotify { .. } => {
-                if !self.local_ready || !self.local.connected {
+                spotify_target = self.mixed_spotify_target();
+                if spotify_target.is_none() {
                     self.toast_error(gettext(
                         self.locale,
-                        "Enable playback on this computer to play the mixed queue.",
+                        "The configured Spotify player is not ready to play the mixed queue.",
                     ));
                     return;
                 }
@@ -3086,19 +3103,12 @@ impl App {
         self.session_dirty = true;
         match item {
             crate::provider::ProviderQueueItem::Spotify { item } => {
-                self.jellyfin_player.suspend();
-                self.supersede_play_search();
-                self.resume_load = None;
                 let uri = item.uri().to_owned();
-                self.expect_track(uri.clone(), 0);
-                self.set_play_pending(vec![uri.clone()]);
-                self.queue_start_pending = Some(Target::Local);
-                self.local_list = Some(vec![uri.clone()]);
-                let mut load =
-                    local_load(&PlayRequest::tracks(vec![uri]).starting_at_index(0), false);
-                load.repeat = Some(self.local_repeat());
-                self.backend.player(PlayerCommand::Load(load));
-                self.optimistic_playing = Some((true, Instant::now()));
+                self.play_request_on(
+                    PlayRequest::tracks(vec![uri]).starting_at_index(0),
+                    false,
+                    spotify_target.expect("Spotify target was resolved before consuming the row"),
+                );
             }
             crate::provider::ProviderQueueItem::Jellyfin { item, .. } => {
                 let source = source.expect("Jellyfin source was resolved before consuming the row");
@@ -11018,6 +11028,13 @@ impl App {
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
+        self.play_request_on(request, shuffle_first, self.target());
+    }
+
+    /// Start Spotify through a specific engine Tumlo owns. Mixed-provider
+    /// playback uses this to choose Soloist or the built-in engine without
+    /// ever leaking a Jellyfin occurrence into an arbitrary Connect device.
+    fn play_request_on(&mut self, request: PlayRequest, shuffle_first: bool, target: Target) {
         if self.soloist_waiting() && !self.soloist_recovering() {
             return;
         }
@@ -11027,7 +11044,7 @@ impl App {
         // A play from a row names its row again after this.
         self.played_row = None;
         self.resume_load = None;
-        self.start_play(request, shuffle_first);
+        self.start_play_on(request, shuffle_first, target);
     }
 
     /// A playback choice made now: a play-search still in flight must not
@@ -11057,6 +11074,10 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
+        self.start_play_on(request, shuffle_first, self.target());
+    }
+
+    fn start_play_on(&mut self, request: PlayRequest, shuffle_first: bool, target: Target) {
         if self.soloist_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
@@ -11134,13 +11155,13 @@ impl App {
             shuffle: shuffle.then_some(true),
             at: Instant::now(),
         });
-        self.queue_start_pending = Some(self.target());
+        self.queue_start_pending = Some(target.clone());
         // Held for Soloist, never handed to the built-in player meanwhile.
         if self.soloist_waiting() {
             self.queued_play = Some(request);
             return;
         }
-        match self.target() {
+        match target {
             Target::Local if !self.local.connected => {
                 // Hold the request while the local engine reconnects.
                 self.queued_play = Some(request);
@@ -20780,6 +20801,87 @@ mod tests {
         assert!(app.backend.take_player_commands().iter().any(|command| {
             matches!(command, PlayerCommand::Load(load) if load.context_uri.as_deref() == Some("spotify:track:local"))
         }));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_queue_next_hands_owned_soloist_to_jellyfin() {
+        use crate::provider::ProviderQueueItem;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.settings.soloist_enabled = true;
+        app.soloist_status = crate::soloist::Status::Ready {
+            name: "Tumlo Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.soloist_device_id = Some("owned-soloist".into());
+        app.selected_device = app.soloist_device_id.clone();
+        app.local_ready = false;
+        app.mixed_queue
+            .push(ProviderQueueItem::jellyfin(&source, item.clone()));
+
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(app.mixed_queue.is_empty());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|playing| &playing.id),
+            Some(&item.id)
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_queue_next_hands_jellyfin_to_owned_soloist() {
+        use crate::{jellyfin::browser::BrowserAction, provider::ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let first = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].id.clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.apply_jellyfin_action(BrowserAction::Play(first));
+        app.settings.soloist_enabled = true;
+        app.soloist_status = crate::soloist::Status::Ready {
+            name: "Tumlo Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.soloist_device_id = Some("owned-soloist".into());
+        app.selected_device = app.soloist_device_id.clone();
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:after-jellyfin".into(),
+                ..Track::default()
+            })));
+        app.backend.take_remote_play_requests();
+
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(app.mixed_queue.is_empty());
+        assert!(!app.jellyfin_player.controls_output());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote {
+                action: RemoteAction::Play,
+                device_id: Some(device),
+                play: Some(play),
+                ..
+            }] if device == "owned-soloist"
+                && play.uris == ["spotify:track:after-jellyfin"]
+        ));
+        assert!(app.backend.take_player_commands().is_empty());
         app.backend.shutdown();
     }
 

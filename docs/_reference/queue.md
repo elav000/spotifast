@@ -235,10 +235,11 @@ The local manual queue may contain Spotify and Jellyfin songs together. Adding
 the first song from a provider other than the one playing migrates the existing
 manual occurrences into that shared order. The provider's own album, playlist,
 or radio rows remain its context underneath. Pressing Next, selecting a manual
-row, or reaching the natural end of the current song consumes the stamped entry,
-suspends the outgoing engine, and asks that entry's provider to play it. Spotify
-Connect queues on other devices remain Spotify-only and never receive Jellyfin
-entries.
+row, or reaching a natural end reported by the current engine consumes the
+stamped entry, suspends the outgoing engine, and asks that entry's provider to
+play it. When Soloist is enabled, it is the owned local Spotify implementation
+used for these explicit handoffs. Spotify Connect queues on other devices remain
+Spotify-only and never receive Jellyfin entries.
 
 Every mixed occurrence retains its stable provider stamp and provider-native
 payload. Spotify has one app-scoped stamp; Jellyfin stamps its server and account

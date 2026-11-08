@@ -201,6 +201,10 @@ pub struct LocalState {
     pub loading: bool,
     /// A newly loaded track, including another play of the same URI.
     pub track_sequence: u64,
+    /// A locally played track reached its natural end. This is separate from
+    /// `track_sequence` so the mixed queue can hand off before the next
+    /// provider-native context row becomes authoritative.
+    pub end_sequence: u64,
     /// Another play of the same track started, and its start position has
     /// not arrived yet. The track looks unchanged, so the `Playing` or
     /// `Paused` that brings the position counts as a seek for media
@@ -1240,9 +1244,12 @@ fn apply_event(state: &mut LocalState, event: PlayerEvent) -> bool {
             };
             set(&mut state.repeat, mode)
         }
+        PlayerEvent::EndOfTrack { .. } => {
+            state.end_sequence = state.end_sequence.wrapping_add(1);
+            true
+        }
         PlayerEvent::Preloading { .. }
         | PlayerEvent::TimeToPreloadNextTrack { .. }
-        | PlayerEvent::EndOfTrack { .. }
         | PlayerEvent::PlayRequestIdChanged { .. }
         | PlayerEvent::AutoPlayChanged { .. }
         | PlayerEvent::FilterExplicitContentChanged { .. }
@@ -1792,6 +1799,20 @@ mod tests {
                 assert_eq!(state.track_sequence, sequence);
             }
         }
+    }
+
+    #[test]
+    fn natural_track_end_has_an_independent_sequence() {
+        let mut state = LocalState::default();
+        assert!(apply_event(
+            &mut state,
+            PlayerEvent::EndOfTrack {
+                play_request_id: 1,
+                track_id: uri(),
+            }
+        ));
+        assert_eq!(state.end_sequence, 1);
+        assert_eq!(state.track_sequence, 0);
     }
 
     /// A track on repeat plays again with the same metadata, so only a

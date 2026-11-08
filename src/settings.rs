@@ -1877,6 +1877,9 @@ pub struct SessionState {
     /// Queue rows displayed on the next start. Playback restores manual rows
     /// from `last_added_queue`; it does not enqueue this list.
     pub last_queue_rows: Vec<crate::api::models::PlayableItem>,
+    /// Provider-stamped local manual queue. Older sessions omit it and keep
+    /// restoring their Spotify-only queue through `last_added_queue`.
+    pub mixed_queue: Vec<crate::provider::ProviderQueueItem>,
     /// Sidebar folders rolled up, by their rootlist ids.
     pub collapsed_folders: Vec<String>,
     /// Last good playlist tree, scoped to the account that supplied it.
@@ -1972,6 +1975,14 @@ impl SessionState {
 mod session_tests {
     use super::{CachedRootlist, SessionState, SoloistOnboarding};
     use crate::player::RootlistEntry;
+
+    #[test]
+    fn old_sessions_read_with_an_empty_mixed_queue() {
+        let state: SessionState =
+            serde_json::from_str(r#"{"last_added_queue":["spotify:track:one"]}"#).unwrap();
+        assert!(state.mixed_queue.is_empty());
+        assert_eq!(state.last_added_queue, ["spotify:track:one"]);
+    }
 
     #[test]
     fn soloist_output_volume_restores_without_changing_old_sessions() {

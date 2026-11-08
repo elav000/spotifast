@@ -379,8 +379,11 @@ impl App {
             {
                 use crate::theme::Icon;
                 let queue_ready = items.len() as u32 == *total
-                    && self.jellyfin_player.controls_output()
-                    && self.jellyfin_player.snapshot().source_id.as_deref() == Some(&source.id);
+                    && ((self.jellyfin_player.controls_output()
+                        && self.jellyfin_player.snapshot().source_id.as_deref()
+                            == Some(&source.id))
+                        || (self.local.is_active()
+                            && matches!(self.target(), crate::app::Target::Local)));
                 controls.menu.extend([
                     DetailMenuItem {
                         label: crate::i18n::gettext(self.locale, "Play").into_owned(),
@@ -976,8 +979,10 @@ impl App {
                     play,
                     enqueue: Some(Action::Jellyfin(A::Queue(item.id.clone()))),
                     queue_label: format!("Add {title} to Jellyfin queue"),
-                    can_enqueue: state.item.is_some()
-                        && state.source_id.as_deref() == Some(&source.id),
+                    can_enqueue: (state.item.is_some()
+                        && state.source_id.as_deref() == Some(&source.id))
+                        || (self.local.is_active()
+                            && matches!(self.target(), crate::app::Target::Local)),
                     queue_drag: (state.source_id.as_deref() == Some(&source.id)).then(|| {
                         crate::model::ProviderQueueDrag {
                             source: source.clone(),

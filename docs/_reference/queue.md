@@ -229,9 +229,22 @@ same boundary for provider-specific busy, error and deletion state.
 
 Changing the catalog being browsed does not change this ownership or stop the
 current song. The queue and player controls continue to represent the playback
-provider until starting a song transfers output to another provider. A future
-mixed-provider queue builds on the stable provider stamp already carried by the
-active song, every queue occurrence and provider row action. Spotify has one
-app-scoped stamp; Jellyfin stamps its server and account without credentials or
-transport URLs. Links, device choices and actions therefore resolve through the
-entry's provider even while another catalog is open.
+provider until starting a song transfers output to another provider.
+
+The local manual queue may contain Spotify and Jellyfin songs together. Adding
+the first song from a provider other than the one playing migrates the existing
+manual occurrences into that shared order. The provider's own album, playlist,
+or radio rows remain its context underneath. Pressing Next, selecting a manual
+row, or reaching the natural end of the current song consumes the stamped entry,
+suspends the outgoing engine, and asks that entry's provider to play it. Spotify
+Connect queues on other devices remain Spotify-only and never receive Jellyfin
+entries.
+
+Every mixed occurrence retains its stable provider stamp and provider-native
+payload. Spotify has one app-scoped stamp; Jellyfin stamps its server and account
+without credentials or transport URLs. The playing entry continues to own its
+links, device choices and controls even while another catalog is open. If a
+saved Jellyfin server or account is unavailable, its queued row remains visible,
+playback fails with an explanation, and the row is not retargeted or consumed.
+Closing the app saves this mixed manual order locally. Clear queue removes it;
+service-specific Save queue actions are omitted while providers are mixed.

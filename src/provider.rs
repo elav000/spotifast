@@ -502,7 +502,7 @@ impl crate::app::App {
     pub(crate) fn select_provider(&mut self, provider: Provider) {
         self.jellyfin
             .select(provider, &self.applied_jellyfin_proxy());
-        self.wake_soloist_for_selected_provider();
+        self.activate_selected_provider();
     }
 
     /// Playback remains visible while another provider's catalog is open.
@@ -1140,6 +1140,8 @@ impl ProviderQueueItem {
 
 pub(crate) mod detail;
 pub use detail::ProviderRowActions;
+pub(crate) mod playback;
+pub(crate) use playback::QueueItemLifecycle;
 pub mod queue;
 
 #[cfg(test)]

@@ -137,7 +137,14 @@ catalog browsing:
    Spotify Connect remote queues remain Spotify-only.
 3. Persist and restore the mixed manual queue without credentials. A Jellyfin
    entry is playable only when its stamped server/account can still be resolved;
-   an unavailable entry fails visibly and is never retargeted to another server.
+   an unavailable entry is skipped visibly and is never retargeted to another
+   server.
+
+Restored and selected occurrences go through a provider lifecycle hook. The
+shared queue coordinates only the stamped occurrence and its `Preparing`,
+`Ready`, or `Failed` result. Each provider owns credential restoration, engine
+selection and execution. This keeps future local, network-share, Emby or other
+providers out of queue-coordinator conditionals.
 
 The active entry, not the browsed catalog, continues to own links, devices and
 transport controls. Combined catalog composition and shared cache policy remain

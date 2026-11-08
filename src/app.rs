@@ -371,6 +371,7 @@ pub struct App {
     pub jellyfin: crate::jellyfin::browser::Browser,
     pub jellyfin_player: crate::jellyfin::transport::Transport,
     jellyfin_epoch: u64,
+    jellyfin_end_sequence: u64,
     jellyfin_data_revision: u64,
     pub(crate) local_output: std::sync::Arc<crate::playback_output::LocalOutput>,
     pub dirs: AppDirs,
@@ -866,6 +867,10 @@ pub struct App {
     pub resume_queue: Vec<String>,
     /// Manually queued songs from this session, oldest first.
     pub manual_queue: ManualQueue<String>,
+    /// Provider-stamped manual occurrences used once a local queue crosses a
+    /// provider boundary. Provider engines remain responsible for decoding and
+    /// transport; this queue only owns ordering and handoff identity.
+    pub mixed_queue: ManualQueue<crate::provider::ProviderQueueItem>,
     /// Queue additions shown before Spotify confirms them, with request time.
     pending_queue_adds: Vec<PendingQueueAdd>,
     pending_album_queues: HashMap<u64, PendingAlbumQueue>,
@@ -1235,6 +1240,7 @@ impl App {
         let mut app = Self {
             jellyfin_player,
             jellyfin_epoch: 0,
+            jellyfin_end_sequence: 0,
             jellyfin_data_revision: 0,
             local_output,
             jellyfin: crate::jellyfin::browser::Browser::new(
@@ -1519,6 +1525,7 @@ impl App {
             resume_load: None,
             resume_queue: session.last_added_queue.clone(),
             manual_queue: ManualQueue::default(),
+            mixed_queue: session.mixed_queue.clone().into(),
             pending_queue_adds: Vec::new(),
             pending_album_queues: HashMap::new(),
             pending_queue_batches: HashMap::new(),
@@ -1561,6 +1568,8 @@ impl App {
         // What was played here is on disk and needs nothing from the
         // network, so the tab has rows before Spotify has answered.
         app.rebuild_recents();
+        app.jellyfin_player
+            .set_external_queue_pending(!app.mixed_queue.is_empty());
         // Whether Spotifast starts at login, for its Settings row; the
         // answer comes from the backend's thread.
         if app.autostart_live {
@@ -2934,6 +2943,160 @@ impl App {
         }
     }
 
+    pub(crate) fn jellyfin_source(
+        &self,
+        source: &str,
+        account: &str,
+    ) -> Option<crate::jellyfin::browser::Source> {
+        self.jellyfin
+            .source
+            .iter()
+            .chain(&self.jellyfin.servers)
+            .find(|candidate| candidate.id == source && candidate.user_id == account)
+            .cloned()
+    }
+
+    /// Enter mixed-queue mode once, preserving the provider-native manual
+    /// occurrences that were already ahead of the foreign entry.
+    pub(crate) fn activate_mixed_queue(&mut self) {
+        if !self.mixed_queue.is_empty() {
+            return;
+        }
+        match self.playback_provider() {
+            Some(crate::provider::Provider::Spotify) => {
+                let queued = self.queue.get().map(|queue| &queue.queue);
+                let manual = if self.manual_queue.is_empty() && self.resume_only() {
+                    self.resume_queue.clone()
+                } else {
+                    self.manual_queue.to_vec()
+                };
+                let items: Vec<_> = manual
+                    .iter()
+                    .map(|uri| {
+                        queued
+                            .and_then(|rows| rows.iter().find(|item| item.uri() == uri))
+                            .cloned()
+                            .unwrap_or_else(|| self.optimistic_queue_item(uri, uri))
+                    })
+                    .map(crate::provider::ProviderQueueItem::spotify)
+                    .collect();
+                self.mixed_queue.extend(items);
+                if self.queue_locally_reorderable() {
+                    self.backend.player(PlayerCommand::ClearQueue);
+                }
+                self.manual_queue.clear();
+                self.resume_queue.clear();
+                self.pending_queue_adds.clear();
+            }
+            Some(crate::provider::Provider::Jellyfin) => {
+                let state = self.jellyfin_player.snapshot();
+                if let Some((source, _)) = self.jellyfin_player.context() {
+                    self.mixed_queue.extend(
+                        state.queued.iter().cloned().map(|item| {
+                            crate::provider::ProviderQueueItem::jellyfin(&source, item)
+                        }),
+                    );
+                    self.jellyfin_player.clear_queue();
+                }
+            }
+            None => {}
+        }
+        self.session_dirty = true;
+    }
+
+    pub(crate) fn enqueue_mixed(&mut self, item: crate::provider::ProviderQueueItem) {
+        self.enqueue_mixed_all(vec![item]);
+    }
+
+    pub(crate) fn enqueue_mixed_all(&mut self, items: Vec<crate::provider::ProviderQueueItem>) {
+        if items.is_empty() {
+            return;
+        }
+        self.activate_mixed_queue();
+        if self.mixed_queue.len().saturating_add(items.len()) > 1000 {
+            self.toast_error(gettext(
+                self.locale,
+                "The local queue is full (1,000 tracks).",
+            ));
+            return;
+        }
+        self.mixed_queue.extend(items);
+        self.jellyfin_player.set_external_queue_pending(true);
+        self.session_dirty = true;
+    }
+
+    fn mixed_queue_can_handoff(&self) -> bool {
+        !self.mixed_queue.is_empty()
+            && (self.jellyfin_player.controls_output()
+                || (self.local.is_active() && matches!(self.target(), Target::Local)))
+    }
+
+    fn play_mixed_queue_item(&mut self, index: usize) {
+        let Some(item) = self.mixed_queue.get(index).cloned() else {
+            return;
+        };
+        let source = match &item {
+            crate::provider::ProviderQueueItem::Jellyfin {
+                source, account, ..
+            } => match self.jellyfin_source(source, account) {
+                Some(source) => Some(source),
+                None => {
+                    self.toast_error(gettext(
+                        self.locale,
+                        "This queued song's Jellyfin server or account is no longer available.",
+                    ));
+                    return;
+                }
+            },
+            crate::provider::ProviderQueueItem::Spotify { .. } => {
+                if !self.local_ready || !self.local.connected {
+                    self.toast_error(gettext(
+                        self.locale,
+                        "Enable playback on this computer to play the mixed queue.",
+                    ));
+                    return;
+                }
+                None
+            }
+        };
+        self.mixed_queue.remove_through(index);
+        self.jellyfin_player
+            .set_external_queue_pending(!self.mixed_queue.is_empty());
+        self.session_dirty = true;
+        match item {
+            crate::provider::ProviderQueueItem::Spotify { item } => {
+                self.jellyfin_player.suspend();
+                self.supersede_play_search();
+                self.resume_load = None;
+                let uri = item.uri().to_owned();
+                self.expect_track(uri.clone(), 0);
+                self.set_play_pending(vec![uri.clone()]);
+                self.queue_start_pending = Some(Target::Local);
+                self.local_list = Some(vec![uri.clone()]);
+                let mut load =
+                    local_load(&PlayRequest::tracks(vec![uri]).starting_at_index(0), false);
+                load.repeat = Some(self.local_repeat());
+                self.backend.player(PlayerCommand::Load(load));
+                self.optimistic_playing = Some((true, Instant::now()));
+            }
+            crate::provider::ProviderQueueItem::Jellyfin { item, .. } => {
+                let source = source.expect("Jellyfin source was resolved before consuming the row");
+                self.prepare_jellyfin_playback();
+                self.jellyfin_player.configure(engine_config(
+                    &self.dirs,
+                    &self.settings,
+                    self.applied_jellyfin_proxy(),
+                    self.winamp.tap.clone(),
+                    self.winamp.eq.clone(),
+                    self.local_output.clone(),
+                ));
+                let context = item.album_id.clone().unwrap_or_else(|| item.id.clone());
+                self.jellyfin_player
+                    .play(source, context, item.clone(), Some(vec![item]));
+            }
+        }
+    }
+
     fn spotify_remote_pause_device(&self) -> Option<Option<String>> {
         if self.targets_own_soloist() {
             return Some(self.soloist_device_id.clone());
@@ -2997,6 +3160,13 @@ impl App {
             self.jellyfin_player.controls_output(),
             &self.applied_proxy,
         );
+        let jellyfin_end = self.jellyfin_player.snapshot().end_sequence;
+        if jellyfin_end != 0 && jellyfin_end != self.jellyfin_end_sequence {
+            self.jellyfin_end_sequence = jellyfin_end;
+            if !self.mixed_queue.is_empty() {
+                self.play_mixed_queue_item(0);
+            }
+        }
         if self.jellyfin.edit_completed {
             self.jellyfin.edit_completed = false;
             if self.jellyfin.dialog_source.as_ref() == self.jellyfin.source.as_ref()
@@ -4090,6 +4260,10 @@ impl App {
     }
 
     fn handle_local(&mut self, state: LocalState) {
+        let mixed_handoff = state.end_sequence != 0
+            && state.end_sequence != self.local.end_sequence
+            && !self.mixed_queue.is_empty()
+            && matches!(self.target(), Target::Local);
         if self
             .local_transfer_sequence
             .is_some_and(|sequence| sequence != state.track_sequence)
@@ -4221,6 +4395,9 @@ impl App {
                 self.user_names.remove(id);
             }
             self.request_user_names(unresolved);
+        }
+        if mixed_handoff {
+            self.play_mixed_queue_item(0);
         }
     }
 
@@ -11866,6 +12043,9 @@ impl App {
     fn queue_album_tracks(&mut self, tracks: Vec<Track>, label: String) {
         let pending_start = self.pending_queue_adds.len();
         let mut uris = Vec::new();
+        let mixed = !self.mixed_queue.is_empty()
+            || self.playback_provider() == Some(crate::provider::Provider::Jellyfin);
+        let mut mixed_items = Vec::new();
         for track in tracks {
             if track.is_local
                 || track.is_playable == Some(false)
@@ -11875,11 +12055,16 @@ impl App {
             }
             let uri = track.uri.clone();
             let name = track.name.clone();
+            let item = PlayableItem::Track(track.clone());
             if let Some(id) = util::uri_id(&uri) {
                 self.remember_track_recording(&track);
                 self.track_cache.insert(id.to_string(), track);
             }
-            self.show_queued_song(&uri, &name);
+            if mixed {
+                mixed_items.push(item);
+            } else {
+                self.show_queued_song(&uri, &name);
+            }
             uris.push(uri);
         }
         if uris.is_empty() {
@@ -11901,6 +12086,16 @@ impl App {
             .replace("{count}", &count.to_string())
             .replace("{name}", &label),
         );
+        if mixed {
+            self.activate_mixed_queue();
+            self.enqueue_mixed_all(
+                mixed_items
+                    .into_iter()
+                    .map(crate::provider::ProviderQueueItem::spotify)
+                    .collect(),
+            );
+            return;
+        }
         if self.local.is_active() && self.target() == Target::Local {
             for uri in uris {
                 self.backend.player(PlayerCommand::AddToQueue(uri));
@@ -11976,6 +12171,16 @@ impl App {
     /// `announce` is false when a batch should produce one toast.
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
         if !self.can_queue(&uri) {
+            return;
+        }
+        if !self.mixed_queue.is_empty()
+            || self.playback_provider() == Some(crate::provider::Provider::Jellyfin)
+        {
+            let item = self.optimistic_queue_item(&uri, &label);
+            self.enqueue_mixed(crate::provider::ProviderQueueItem::spotify(item));
+            if announce {
+                self.toast(gettext(self.locale, "{name} added to queue").replace("{name}", &label));
+            }
             return;
         }
         let pending_start = self.pending_queue_adds.len();
@@ -13000,6 +13205,8 @@ impl App {
                 self.play_request(PlayRequest::context(uri), true);
             }
             Action::TogglePlay => self.toggle_play(),
+            Action::Next if self.mixed_queue_can_handoff() => self.play_mixed_queue_item(0),
+            Action::PlayMixedQueue(index) => self.play_mixed_queue_item(index),
             Action::Next if self.jellyfin_player.controls_output() => {
                 self.jellyfin_player.step(true)
             }
@@ -13102,6 +13309,15 @@ impl App {
             Action::AddToQueue { uri, label } => self.add_to_queue(uri, label),
             Action::QueueMany { songs } => self.queue_many(songs),
             Action::PlayNext { items } => {
+                if !self.mixed_queue.is_empty() {
+                    for item in items.into_iter().rev() {
+                        self.mixed_queue
+                            .insert(0, crate::provider::ProviderQueueItem::spotify(item));
+                    }
+                    self.jellyfin_player.set_external_queue_pending(true);
+                    self.session_dirty = true;
+                    return;
+                }
                 // Unlike a positional drop, Play next must never fall back
                 // to appending if the playback target has changed.
                 if self.queue_locally_reorderable() {
@@ -13109,6 +13325,13 @@ impl App {
                 }
             }
             Action::MoveInQueue { from, to } => {
+                if !self.mixed_queue.is_empty() {
+                    let at = if to > from { to.saturating_sub(1) } else { to };
+                    if self.mixed_queue.move_to(from, at) {
+                        self.session_dirty = true;
+                    }
+                    return;
+                }
                 if !self.queue_locally_reorderable() {
                     return;
                 }
@@ -13141,6 +13364,22 @@ impl App {
             }
             Action::RemoveFromQueue { rows } => self.remove_from_queue(rows),
             Action::InsertInQueue { items, position } => {
+                if !self.mixed_queue.is_empty() {
+                    let at = position.min(self.mixed_queue.len());
+                    let count = items.len();
+                    for (offset, item) in items.into_iter().enumerate() {
+                        self.mixed_queue.insert(
+                            at + offset,
+                            crate::provider::ProviderQueueItem::spotify(item),
+                        );
+                    }
+                    if count > 0 {
+                        self.jellyfin_player.set_external_queue_pending(true);
+                        self.session_dirty = true;
+                        self.queued_toast(count);
+                    }
+                    return;
+                }
                 if !self.queue_locally_reorderable() {
                     let songs = items
                         .into_iter()
@@ -13475,6 +13714,11 @@ impl App {
                 self.devices_fetched_at = None;
                 self.refresh_devices();
                 self.backend.send(Command::DiscoverReceivers);
+            }
+            Action::ClearQueue if !self.mixed_queue.is_empty() => {
+                self.mixed_queue.clear();
+                self.jellyfin_player.set_external_queue_pending(false);
+                self.session_dirty = true;
             }
             Action::ClearQueue if self.jellyfin_player.controls_output() => {
                 self.jellyfin_player.clear_queue()
@@ -15269,7 +15513,9 @@ impl App {
                 last_position_ms: self.resume_position_ms,
                 collapsed_folders: self.collapsed_folders.clone(),
                 rootlist: self.rootlist_cache.clone(),
-                last_added_queue: if self.resume_queue.is_empty() {
+                last_added_queue: if !self.mixed_queue.is_empty() {
+                    Vec::new()
+                } else if self.resume_queue.is_empty() {
                     self.manual_queue.to_vec()
                 } else {
                     // Never resumed this session; the owed queue carries over.
@@ -15280,6 +15526,7 @@ impl App {
                     .get()
                     .map(|queue| queue.queue.iter().take(30).cloned().collect())
                     .unwrap_or_default(),
+                mixed_queue: self.mixed_queue.clone().into_vec(),
                 shuffle_on: self.shuffle_wanted,
                 repeat: self.local_repeat().api_name().into(),
                 sorts: self
@@ -20296,6 +20543,196 @@ mod tests {
         app.jellyfin.source = Some(other);
         app.stop_jellyfin_playback_for_inactive_source();
         assert!(app.jellyfin_player.snapshot().item.is_none());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn adding_spotify_to_jellyfin_migrates_manual_occurrences_in_order() {
+        use crate::{jellyfin::browser::BrowserAction, provider::ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let items = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items.clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.apply_jellyfin_action(BrowserAction::Play(items[0].id.clone()));
+        app.jellyfin_player.enqueue(&source, items[1].clone());
+
+        app.apply(
+            Action::AddToQueue {
+                uri: "spotify:track:queued".into(),
+                label: "Spotify song".into(),
+            },
+            &egui::Context::default(),
+        );
+
+        assert!(app.jellyfin_player.snapshot().queued.is_empty());
+        assert_eq!(app.mixed_queue.len(), 2);
+        assert!(matches!(
+            &app.mixed_queue[0],
+            ProviderQueueItem::Jellyfin { item, .. } if item.id == items[1].id
+        ));
+        assert!(matches!(
+            &app.mixed_queue[1],
+            ProviderQueueItem::Spotify { item } if item.uri() == "spotify:track:queued"
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_queue_handoff_uses_the_entry_provider_and_rejects_missing_accounts() {
+        use crate::provider::ProviderQueueItem;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.mixed_queue
+            .push(ProviderQueueItem::jellyfin(&source, item.clone()));
+        app.apply(Action::PlayMixedQueue(0), &egui::Context::default());
+        assert!(app.mixed_queue.is_empty());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|item| &item.id),
+            Some(&item.id)
+        );
+
+        app.mixed_queue.push(ProviderQueueItem::Jellyfin {
+            source: "missing".into(),
+            account: "missing".into(),
+            item,
+        });
+        app.apply(Action::PlayMixedQueue(0), &egui::Context::default());
+        assert_eq!(
+            app.mixed_queue.len(),
+            1,
+            "an unresolved row is not consumed"
+        );
+        assert!(
+            app.toasts
+                .iter()
+                .any(|toast| toast.message.contains("no longer available"))
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_spotify_handoff_always_targets_the_local_engine() {
+        use crate::provider::ProviderQueueItem;
+
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.local.connected = true;
+        app.selected_device = Some("remote-speaker".into());
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:local".into(),
+                name: "Local handoff".into(),
+                ..Track::default()
+            })));
+        app.backend.take_player_commands();
+
+        app.apply(Action::PlayMixedQueue(0), &egui::Context::default());
+
+        assert!(app.mixed_queue.is_empty());
+        assert!(app.backend.take_player_commands().iter().any(|command| {
+            matches!(command, PlayerCommand::Load(load) if load.context_uri.as_deref() == Some("spotify:track:local"))
+        }));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn natural_spotify_end_hands_the_mixed_head_to_jellyfin() {
+        use crate::provider::ProviderQueueItem;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:playing".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.mixed_queue
+            .push(ProviderQueueItem::jellyfin(&source, item.clone()));
+
+        let mut ended = app.local.clone();
+        ended.end_sequence = 1;
+        app.handle_local(ended);
+
+        assert!(app.mixed_queue.is_empty());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|item| &item.id),
+            Some(&item.id)
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn natural_jellyfin_end_hands_the_mixed_head_to_local_spotify() {
+        use crate::{jellyfin::browser::BrowserAction, provider::ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let first = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].id.clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.apply_jellyfin_action(BrowserAction::Play(first));
+        app.local_ready = true;
+        app.local.connected = true;
+        app.enqueue_mixed(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+            uri: "spotify:track:after-jellyfin".into(),
+            ..Track::default()
+        })));
+        app.backend.take_player_commands();
+
+        app.jellyfin_player.demo_natural_end();
+        app.handle_events();
+
+        assert!(app.mixed_queue.is_empty());
+        assert!(app.backend.take_player_commands().iter().any(|command| {
+            matches!(command, PlayerCommand::Load(load) if load.context_uri.as_deref() == Some("spotify:track:after-jellyfin"))
+        }));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_queue_round_trips_through_the_session() {
+        use crate::provider::ProviderQueueItem;
+
+        let mut app = test_app("mixed-queue-session");
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:one".into(),
+                name: "One".into(),
+                ..Track::default()
+            })));
+        app.save_session();
+        app.flush_files();
+        let saved = SessionState::load(&app.dirs.session_file());
+        assert_eq!(saved.mixed_queue, app.mixed_queue.as_slice());
         app.backend.shutdown();
     }
 

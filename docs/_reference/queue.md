@@ -230,15 +230,22 @@ manual occurrences into that shared order. The provider's own album, playlist,
 or radio rows remain its context underneath. Pressing Next, selecting a manual
 row, or reaching a natural end reported by the current engine consumes the
 stamped entry, suspends the outgoing engine, and asks that entry's provider to
-play it. When Soloist is enabled, it is the owned local Spotify implementation
-used for these explicit handoffs. Spotify Connect queues on other devices remain
-Spotify-only and never receive Jellyfin entries.
+play it. Remote service queues remain provider-owned and never receive entries
+from another provider.
 
 Every mixed occurrence retains its stable provider stamp and provider-native
 payload. Spotify has one app-scoped stamp; Jellyfin stamps its server and account
 without credentials or transport URLs. The playing entry continues to own its
-links, device choices and controls even while another catalog is open. If a
-saved Jellyfin server or account is unavailable, its queued row remains visible,
-playback fails with an explanation, and the row is not retargeted or consumed.
-Closing the app saves this mixed manual order locally. Clear queue removes it;
+links, device choices and controls even while another catalog is open. Closing
+the app saves this mixed manual order locally. Clear queue removes it;
 service-specific Save queue actions are omitted while providers are mixed.
+
+On restart, every saved occurrence invokes its stamped provider's restore hook.
+When an occurrence is chosen, the shared queue asks that provider to prepare it
+without knowing which credentials, transport or playback engine the provider
+uses. The exact occurrence remains in place while preparation is pending, then
+plays automatically when the provider reports ready. A definitive preparation
+failure skips that occurrence with an explanation; it is never retargeted to a
+different provider, server or account. An intervening queue edit cancels the
+pending occurrence rather than playing whichever row later occupies the same
+position.

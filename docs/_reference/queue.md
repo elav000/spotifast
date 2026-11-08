@@ -233,6 +233,21 @@ stamped entry, suspends the outgoing engine, and asks that entry's provider to
 play it. Remote service queues remain provider-owned and never receive entries
 from another provider.
 
+There is one provider-owned base context beneath those shared manual
+occurrences. Starting an album, playlist, artist or radio replaces the previous
+base context, whichever provider owned it, while preserving manual occurrences.
+Adding or playing a queued song is a temporary detour: the outgoing provider
+supplies an opaque continuation containing its remaining **Next up** rows, and
+the coordinator resumes that context after the manual occurrences finish. It
+does not combine two providers' automatic **Next up** lists. Selecting a new
+base context intentionally replaces the old one.
+
+The coordinator knows only stamped occurrences and an opaque continuation.
+Provider adapters capture and execute that continuation, decide whether their
+output is ready to hand off, and translate their own natural-end signal. Engine
+names, credentials and native queue formats do not participate in shared queue
+decisions.
+
 Every mixed occurrence retains its stable provider stamp and provider-native
 payload. Spotify has one app-scoped stamp; Jellyfin stamps its server and account
 without credentials or transport URLs. The playing entry continues to own its

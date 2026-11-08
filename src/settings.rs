@@ -1880,6 +1880,13 @@ pub struct SessionState {
     /// Provider-stamped local manual queue. Older sessions omit it and keep
     /// restoring their Spotify-only queue through `last_added_queue`.
     pub mixed_queue: Vec<crate::provider::ProviderQueueItem>,
+    /// Provider-owned album, playlist, artist or radio rows that continue
+    /// after the mixed manual queue. Older sessions simply have no suspended
+    /// context.
+    pub provider_continuation: Option<crate::provider::ProviderContinuation>,
+    /// Whether a manual occurrence has taken output away from the saved base
+    /// context. Kept separately because two contexts may share one provider.
+    pub provider_continuation_suspended: bool,
     /// Sidebar folders rolled up, by their rootlist ids.
     pub collapsed_folders: Vec<String>,
     /// Last good playlist tree, scoped to the account that supplied it.

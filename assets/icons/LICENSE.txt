@@ -50,3 +50,12 @@ https://github.com/jellyfin/jellyfin-ux/blob/master/branding/SVG/icon-transparen
 Copyright belongs to the Jellyfin contributors. It is licensed under the
 Creative Commons Attribution-ShareAlike 4.0 International License:
 https://creativecommons.org/licenses/by-sa/4.0/.
+
+---
+
+The Spotify icon in spotify.svg is Spotify's official monochrome icon,
+downloaded from Spotify for Developers:
+https://developer.spotify.com/documentation/design
+
+Its use is governed by Spotify's Developer Terms of Service and Design and
+Branding Guidelines.

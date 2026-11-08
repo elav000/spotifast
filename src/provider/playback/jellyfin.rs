@@ -62,7 +62,18 @@ fn configure_playback(app: &mut App) {
     ));
 }
 
-pub(super) fn activate(_app: &mut App) {}
+pub(super) fn activate(app: &mut App) {
+    // A credential store can be temporarily unavailable while the app is
+    // restored. Selecting this provider is an explicit opportunity to retry
+    // its active saved account without teaching shared navigation about
+    // Jellyfin credentials.
+    if app.jellyfin.error.is_some()
+        && let Some(source) = app.jellyfin.source.clone()
+    {
+        app.jellyfin
+            .activate_server(source.id, &app.applied_jellyfin_proxy());
+    }
+}
 
 pub(super) fn prepare(app: &App, source: &str, account: &str) -> QueueItemLifecycle {
     if app.jellyfin_source(source, account).is_some() {

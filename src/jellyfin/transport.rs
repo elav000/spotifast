@@ -46,6 +46,7 @@ pub struct Snapshot {
     pub volume: u8,
     pub shuffle: bool,
     pub repeat: crate::player::RepeatMode,
+    pub end_sequence: u64,
 }
 
 #[derive(Clone)]
@@ -96,6 +97,7 @@ struct State {
     active_epoch: Option<u64>,
     controller: LocalPlaybackController<Item>,
     restored: bool,
+    external_queue_pending: bool,
 }
 
 struct Shared {
@@ -130,6 +132,7 @@ impl Transport {
                 active_epoch: None,
                 controller: LocalPlaybackController::default(),
                 restored: !enabled,
+                external_queue_pending: false,
             }),
             changed: Condvar::new(),
             volume: Arc::new(AtomicU64::new(level(volume).to_bits())),
@@ -531,6 +534,14 @@ impl Transport {
         state.snapshot.queued = ManualQueue::default();
     }
 
+    pub fn set_external_queue_pending(&self, pending: bool) {
+        self.shared
+            .state
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .external_queue_pending = pending;
+    }
+
     pub fn play_queued(&self, index: usize) {
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         if !state.snapshot.queue_complete {
@@ -597,8 +608,10 @@ impl Transport {
         state.request = None;
         state.seek = None;
         let volume = state.snapshot.volume;
+        let end_sequence = state.snapshot.end_sequence;
         state.snapshot = Snapshot {
             volume,
+            end_sequence,
             ..Snapshot::default()
         };
         self.shared.changed.notify_one();
@@ -646,6 +659,15 @@ impl Transport {
         state.snapshot.playing = playing;
         state.snapshot.position_ms = position_ms;
         state.active_epoch = Some(state.epoch);
+    }
+
+    #[cfg(any(test, feature = "demo"))]
+    pub fn demo_natural_end(&self) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.snapshot.playing = true;
+        natural_advance(&mut state);
+        drop(state);
+        self.shared.waker.wake();
     }
 }
 
@@ -867,6 +889,18 @@ fn advance(state: &mut State, forward: bool, natural_end: bool) {
     }
 }
 
+fn natural_advance(state: &mut State) {
+    if state.external_queue_pending {
+        state.snapshot.playing = false;
+        state.snapshot.loading = false;
+        state.snapshot.finished = true;
+        state.snapshot.position_ms = state.snapshot.duration_ms;
+        state.snapshot.end_sequence = state.snapshot.end_sequence.wrapping_add(1);
+    } else {
+        advance(state, true, true);
+    }
+}
+
 fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
     use std::io::Read;
     let saved = (|| {
@@ -991,7 +1025,7 @@ fn run(dirs: AppDirs, shared: Arc<Shared>, initial_config: EngineConfig) {
         }
         state.active_epoch = None;
         match result {
-            Ok(true) if state.snapshot.playing => advance(&mut state, true, true),
+            Ok(true) if state.snapshot.playing => natural_advance(&mut state),
             Ok(_) => {
                 state.snapshot.playing = false;
                 state.snapshot.loading = false;
@@ -1449,6 +1483,22 @@ mod tests {
         transport.step(false);
         assert_eq!(transport.snapshot().item.unwrap().id, "b");
         assert_eq!(transport.snapshot().tracks.as_ref(), &tracks);
+    }
+
+    #[test]
+    fn natural_end_yields_to_the_external_mixed_queue() {
+        let transport = transport();
+        let tracks = vec![item("a"), item("b")];
+        transport.play(source(), "album".into(), tracks[0].clone(), Some(tracks));
+        let mut state = transport.shared.state.lock().unwrap();
+        state.snapshot.playing = true;
+        state.snapshot.duration_ms = 10_000;
+        state.external_queue_pending = true;
+        natural_advance(&mut state);
+        assert_eq!(state.snapshot.item.as_ref().unwrap().id, "a");
+        assert!(state.snapshot.finished);
+        assert_eq!(state.snapshot.position_ms, 10_000);
+        assert_eq!(state.snapshot.end_sequence, 1);
     }
 
     #[test]

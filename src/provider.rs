@@ -1074,6 +1074,70 @@ impl ProviderStamp {
     }
 }
 
+/// One manually queued local-playback occurrence. The provider-native payload
+/// is retained so a handoff never has to reinterpret an ID through whichever
+/// catalog happens to be open. Jellyfin credentials and transport URLs are
+/// deliberately excluded; the saved source/account stamp must resolve through
+/// the configured providers before playback can start.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum ProviderQueueItem {
+    Spotify {
+        item: crate::api::models::PlayableItem,
+    },
+    Jellyfin {
+        source: String,
+        account: String,
+        item: crate::jellyfin::Item,
+    },
+}
+
+impl ProviderQueueItem {
+    pub fn spotify(item: crate::api::models::PlayableItem) -> Self {
+        Self::Spotify { item }
+    }
+
+    pub fn jellyfin(
+        source: &crate::jellyfin::browser::Source,
+        item: crate::jellyfin::Item,
+    ) -> Self {
+        Self::Jellyfin {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
+            item,
+        }
+    }
+
+    pub fn stamp(&self) -> ProviderStamp {
+        match self {
+            Self::Spotify { .. } => ProviderStamp::Spotify,
+            Self::Jellyfin {
+                source, account, ..
+            } => ProviderStamp::Jellyfin {
+                source: source.clone(),
+                account: account.clone(),
+            },
+        }
+    }
+
+    pub fn reference(&self) -> ItemReference {
+        match self {
+            Self::Spotify { item } => ItemReference::Spotify {
+                uri: item.uri().to_owned(),
+            },
+            Self::Jellyfin {
+                source,
+                account,
+                item,
+            } => ItemReference::Jellyfin {
+                source: source.clone(),
+                account: account.clone(),
+                item: item.id.clone(),
+            },
+        }
+    }
+}
+
 pub(crate) mod detail;
 pub use detail::ProviderRowActions;
 pub mod queue;
@@ -1087,5 +1151,48 @@ mod tests {
         assert!(!has_multiple_discs([None, Some(1), Some(0)]));
         assert!(has_multiple_discs([None, Some(2)]));
         assert!(has_multiple_discs([Some(2), Some(3)]));
+    }
+
+    #[test]
+    fn queued_jellyfin_items_retain_account_identity_without_a_server_url() {
+        let source = crate::jellyfin::browser::Source {
+            id: "home".into(),
+            nickname: "Living room".into(),
+            server_url: "https://media.invalid".into(),
+            server_id: "server".into(),
+            user_id: "listener".into(),
+            device_id: "device".into(),
+        };
+        let item = crate::jellyfin::Item {
+            id: "track".into(),
+            name: Some("Song".into()),
+            album: None,
+            album_id: None,
+            artists: Vec::new(),
+            artist_items: Vec::new(),
+            run_time_ticks: None,
+            index_number: None,
+            parent_index_number: None,
+            container: None,
+            media_streams: None,
+            media_sources: None,
+            image_tags: None,
+            album_primary_image_tag: None,
+            details: Default::default(),
+        };
+        let queued = ProviderQueueItem::jellyfin(&source, item);
+        let json = serde_json::to_string(&queued).unwrap();
+        assert!(!json.contains("media.invalid"));
+        assert_eq!(
+            serde_json::from_str::<ProviderQueueItem>(&json).unwrap(),
+            queued
+        );
+        assert_eq!(
+            queued.stamp(),
+            ProviderStamp::Jellyfin {
+                source: "home".into(),
+                account: "listener".into(),
+            }
+        );
     }
 }

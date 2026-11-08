@@ -125,18 +125,36 @@ the maintainer asks for one.
 ## Next implementation sequence
 
 The reviewed Jellyfin sharp-edge, provider-orchestration, multi-disc album,
-provider-stamping and provider-switching sequences are complete. No additional
-implementation milestone is approved yet. The next planning target is the
-Combined provider and mixed local queue described below; keep catalog
-composition, playback handoff and shared cache policy as separate decisions.
+provider-stamping and provider-switching sequences are complete. The approved
+next milestone is the mixed local queue, delivered independently of Combined
+catalog browsing:
+
+1. Give every manual queue occurrence a serializable provider-owned payload and
+   stable `ProviderStamp`. Preserve duplicates and source/account identity.
+2. Let the local coordinator hand playback from Spotify to Jellyfin and back at
+   an explicit queue selection, Next, or natural track end. The outgoing engine
+   is suspended before the incoming provider resolves and starts its entry.
+   Spotify Connect remote queues remain Spotify-only.
+3. Persist and restore the mixed manual queue without credentials. A Jellyfin
+   entry is playable only when its stamped server/account can still be resolved;
+   an unavailable entry fails visibly and is never retargeted to another server.
+
+The active entry, not the browsed catalog, continues to own links, devices and
+transport controls. Combined catalog composition and shared cache policy remain
+separate decisions.
 
 ## Later work
 
-- Combined provider and mixed local queues after the shared controller is stable;
+- Combined provider catalog browsing after the mixed local queue is stable;
   Plex or other sources can follow through the same contracts. Every queued and
   active entry must retain the provider identity used for its links, devices and
   controls. Catalog composition, mixed playback and shared caches are independent
   decisions.
+- Jellyfin offline downloads are a separate later feature. Design storage
+  limits, eviction, server transcoding profiles (including an MP3 compatibility
+  option), original-file downloads, availability indicators and offline account
+  behavior before implementation. The cache must remain server/account scoped
+  and must not be treated as the mixed queue's playback identity.
 
 Incremental delivery within a partially received HTTP range is deferred. Revisit
 only if timing data shows the Jellyfin server delivers useful body bytes before

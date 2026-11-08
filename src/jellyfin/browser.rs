@@ -1637,10 +1637,40 @@ impl crate::app::App {
                 }
             }
             BrowserAction::EnqueueItem { source, item } => {
-                self.jellyfin_player.enqueue(&source, *item)
+                let foreign = self
+                    .playback_provider()
+                    .is_some_and(|provider| provider != Provider::Jellyfin)
+                    || self
+                        .jellyfin_player
+                        .context()
+                        .is_some_and(|(playing, _)| !playing.same_identity(&source));
+                if foreign || !self.mixed_queue.is_empty() {
+                    self.enqueue_mixed(crate::provider::ProviderQueueItem::jellyfin(
+                        &source, *item,
+                    ));
+                } else {
+                    self.jellyfin_player.enqueue(&source, *item)
+                }
             }
             BrowserAction::EnqueueItems { source, items } => {
-                self.jellyfin_player.enqueue_all(&source, items)
+                let foreign = self
+                    .playback_provider()
+                    .is_some_and(|provider| provider != Provider::Jellyfin)
+                    || self
+                        .jellyfin_player
+                        .context()
+                        .is_some_and(|(playing, _)| !playing.same_identity(&source));
+                if foreign || !self.mixed_queue.is_empty() {
+                    self.activate_mixed_queue();
+                    self.enqueue_mixed_all(
+                        items
+                            .into_iter()
+                            .map(|item| crate::provider::ProviderQueueItem::jellyfin(&source, item))
+                            .collect(),
+                    );
+                } else {
+                    self.jellyfin_player.enqueue_all(&source, items)
+                }
             }
             BrowserAction::Favorite {
                 source,
@@ -1658,7 +1688,7 @@ impl crate::app::App {
                 .jellyfin_player
                 .insert_manual(&source, &expected, *item, to),
             BrowserAction::Queue(id) => {
-                if let Some(source) = &self.jellyfin.source {
+                if let Some(source) = self.jellyfin.source.clone() {
                     let item = match &self.jellyfin.rows {
                         Some(Rows::Items { items, .. }) if self.jellyfin.view.is_tracks() => {
                             items.iter().find(|item| item.id == id)
@@ -1670,8 +1700,11 @@ impl crate::app::App {
                             .find(|item| item.id == id),
                         _ => None,
                     };
-                    if let Some(item) = item {
-                        self.jellyfin_player.enqueue(source, item.clone());
+                    if let Some(item) = item.cloned() {
+                        self.apply_jellyfin_action(BrowserAction::EnqueueItem {
+                            source,
+                            item: Box::new(item),
+                        });
                     }
                 }
             }

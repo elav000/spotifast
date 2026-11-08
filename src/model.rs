@@ -1207,6 +1207,9 @@ pub enum Action {
     ShufflePlay(String),
     TogglePlay,
     Next,
+    /// Play a provider-stamped occurrence from the mixed local manual queue.
+    /// Rows before it are consumed with it, matching the ordinary queue.
+    PlayMixedQueue(usize),
     Previous,
     Seek(u32),
     SeekBy(i64),

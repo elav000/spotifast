@@ -520,6 +520,7 @@ fastframe_icons::icons! {
         Smartphone => lucide "smartphone",
         Sparkles => "sparkles",
         Speaker => "speaker",
+        Spotify => "spotify",
         Square => "square",
         SquarePen => lucide "square-pen",
         Sun => lucide "sun",

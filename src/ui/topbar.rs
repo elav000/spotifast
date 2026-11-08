@@ -125,18 +125,24 @@ fn select_jellyfin_source(app: &mut App, source_id: &str) {
     ));
 }
 
+fn jellyfin_source_name(source: &crate::jellyfin::browser::Source) -> &str {
+    let nickname = source.nickname.trim();
+    if nickname.is_empty() {
+        source.server_url.as_str()
+    } else {
+        nickname
+    }
+}
+
 fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     let locale = app.locale;
     let jellyfin_selected = app.jellyfin_selected();
-    if super::widgets::menu_item(
+    if super::widgets::menu_item_selected(
         ui,
         palette,
-        Some(if jellyfin_selected {
-            Icon::Music
-        } else {
-            Icon::Check
-        }),
+        Icon::Spotify,
         &gettext(locale, "Spotify"),
+        !jellyfin_selected,
     ) {
         app.actions.push(Action::Jellyfin(
             crate::jellyfin::browser::BrowserAction::Select(Provider::Spotify),
@@ -156,15 +162,12 @@ fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
             }
         }
         [source] => {
-            if super::widgets::menu_item(
+            if super::widgets::menu_item_selected(
                 ui,
                 palette,
-                Some(if jellyfin_selected {
-                    Icon::Check
-                } else {
-                    Icon::Jellyfin
-                }),
-                &gettext(locale, "Jellyfin"),
+                Icon::Jellyfin,
+                jellyfin_source_name(source),
+                jellyfin_selected,
             ) {
                 select_jellyfin_source(app, &source.id);
             }
@@ -183,16 +186,12 @@ fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
                             .source
                             .as_ref()
                             .is_some_and(|active| active.id == source.id);
-                        let name = if source.nickname.trim().is_empty() {
-                            source.server_url.as_str()
-                        } else {
-                            source.nickname.trim()
-                        };
-                        if super::widgets::menu_item(
+                        if super::widgets::menu_item_selected(
                             ui,
                             palette,
-                            active.then_some(Icon::Check),
-                            name,
+                            Icon::Jellyfin,
+                            jellyfin_source_name(source),
+                            active,
                         ) {
                             select_jellyfin_source(app, &source.id);
                         }

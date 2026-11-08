@@ -1544,6 +1544,7 @@ impl crate::app::App {
                 {
                     return;
                 }
+                self.replace_provider_continuation();
                 self.prepare_jellyfin_playback();
                 self.jellyfin_player.configure(crate::app::engine_config(
                     &self.dirs,
@@ -1579,6 +1580,7 @@ impl crate::app::App {
                 let source = source.clone();
                 let album_id = album_id.clone();
                 let tracks = (*start == 0 && items.len() as u32 == *total).then(|| items.clone());
+                self.replace_provider_continuation();
                 self.prepare_jellyfin_playback();
                 self.jellyfin_player.configure(crate::app::engine_config(
                     &self.dirs,

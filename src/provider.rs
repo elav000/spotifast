@@ -1092,6 +1092,76 @@ pub enum ProviderQueueItem {
     },
 }
 
+/// The provider-owned context that continues after the shared manual queue.
+/// Unlike a manual occurrence, this is replaced whenever the listener presses
+/// Play on another album, playlist, artist or radio. Payloads contain only the
+/// provider-native data needed to present and resume the next unplayed rows;
+/// credentials and transport URLs remain in provider configuration.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "provider", rename_all = "snake_case")]
+pub enum ProviderContinuation {
+    Spotify {
+        context_uri: Option<String>,
+        shuffle: bool,
+        rows: Vec<crate::api::models::PlayableItem>,
+    },
+    Jellyfin {
+        source: String,
+        account: String,
+        context: String,
+        query: Option<crate::jellyfin::catalog::Query>,
+        rows: Vec<crate::jellyfin::Item>,
+    },
+}
+
+impl ProviderContinuation {
+    pub fn spotify(
+        context_uri: Option<String>,
+        shuffle: bool,
+        rows: Vec<crate::api::models::PlayableItem>,
+    ) -> Self {
+        Self::Spotify {
+            context_uri,
+            shuffle,
+            rows,
+        }
+    }
+
+    pub fn jellyfin(
+        source: &crate::jellyfin::browser::Source,
+        context: String,
+        query: Option<crate::jellyfin::catalog::Query>,
+        rows: Vec<crate::jellyfin::Item>,
+    ) -> Self {
+        Self::Jellyfin {
+            source: source.id.clone(),
+            account: source.user_id.clone(),
+            context,
+            query,
+            rows,
+        }
+    }
+
+    pub fn stamp(&self) -> ProviderStamp {
+        match self {
+            Self::Spotify { .. } => ProviderStamp::Spotify,
+            Self::Jellyfin {
+                source, account, ..
+            } => ProviderStamp::Jellyfin {
+                source: source.clone(),
+                account: account.clone(),
+            },
+        }
+    }
+
+    pub fn contains_index(&self, index: usize) -> bool {
+        match self {
+            Self::Spotify { rows, .. } => rows.get(index).is_some(),
+            Self::Jellyfin { rows, .. } => rows.get(index).is_some(),
+        }
+    }
+}
+
 impl ProviderQueueItem {
     pub fn spotify(item: crate::api::models::PlayableItem) -> Self {
         Self::Spotify { item }

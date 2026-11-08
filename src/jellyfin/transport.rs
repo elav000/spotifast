@@ -49,6 +49,35 @@ pub struct Snapshot {
     pub end_sequence: u64,
 }
 
+impl Snapshot {
+    /// Context rows after the current cursor, in the order they will play.
+    /// Manual rows are deliberately excluded: the shared queue migrates those
+    /// occurrences separately before suspending this continuation.
+    pub(crate) fn context_upcoming(&self) -> Vec<usize> {
+        let len = self.tracks.len();
+        let natural: Vec<_> = (0..len).collect();
+        let order = if PlaybackOrder::from(self.context_order.as_ref().clone()).is_valid_for(len) {
+            self.context_order.as_slice()
+        } else {
+            natural.as_slice()
+        };
+        if self.repeat == crate::player::RepeatMode::Track {
+            return (self.index < len)
+                .then_some(self.index)
+                .into_iter()
+                .collect();
+        }
+        let Some(position) = order.iter().position(|index| *index == self.index) else {
+            return Vec::new();
+        };
+        let mut upcoming = order[position + 1..].to_vec();
+        if self.repeat == crate::player::RepeatMode::Context {
+            upcoming.extend_from_slice(&order[..=position]);
+        }
+        upcoming
+    }
+}
+
 #[derive(Clone)]
 struct Job {
     source: Source,
@@ -59,6 +88,9 @@ struct Job {
     config: EngineConfig,
     manual: bool,
     context_index: Option<usize>,
+    /// `known_tracks` already follows the provider's saved playback order.
+    /// Keep that order even while the visible shuffle mode remains enabled.
+    preserve_order: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -269,6 +301,11 @@ impl Transport {
         }
     }
 
+    pub(crate) fn context_query(&self) -> Option<super::catalog::Query> {
+        let state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.template.as_ref().and_then(|job| job.query.clone())
+    }
+
     pub fn play(&self, source: Source, album: String, item: Item, tracks: Option<Vec<Item>>) {
         let job = Job {
             source,
@@ -279,6 +316,7 @@ impl Transport {
             config: self.config.clone(),
             manual: false,
             context_index: None,
+            preserve_order: false,
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.controller.history.clear();
@@ -303,6 +341,7 @@ impl Transport {
             config: self.config.clone(),
             manual: false,
             context_index: index,
+            preserve_order: false,
         };
         let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
         state.controller.history.clear();
@@ -314,6 +353,31 @@ impl Transport {
         {
             state.controller.context.order.rotate_to(index);
         }
+        select(&mut state, job);
+        self.shared.changed.notify_one();
+    }
+
+    pub fn play_continuation(
+        &self,
+        source: Source,
+        context: String,
+        item: Item,
+        tracks: Vec<Item>,
+        query: Option<super::catalog::Query>,
+    ) {
+        let job = Job {
+            source,
+            album: context,
+            item,
+            known_tracks: Some(tracks),
+            query,
+            config: self.config.clone(),
+            manual: false,
+            context_index: Some(0),
+            preserve_order: true,
+        };
+        let mut state = self.shared.state.lock().unwrap_or_else(|p| p.into_inner());
+        state.controller.history.clear();
         select(&mut state, job);
         self.shared.changed.notify_one();
     }
@@ -810,7 +874,11 @@ fn select(state: &mut State, job: Job) {
         })
         .unwrap_or(if job.manual { state.snapshot.index } else { 0 });
     if context_changed || state.controller.context.order.len() != tracks.len() {
-        state.controller.context.order = PlaybackOrder::for_context(tracks.len(), index, shuffle);
+        state.controller.context.order = if job.preserve_order {
+            PlaybackOrder::from((0..tracks.len()).collect::<Vec<_>>())
+        } else {
+            PlaybackOrder::for_context(tracks.len(), index, shuffle)
+        };
     }
     state.controller.context.set_tracks(tracks.clone());
     state.controller.context.set_cursor(index, job.manual);
@@ -968,6 +1036,7 @@ fn restore(dirs: &AppDirs, shared: &Shared, config: &EngineConfig) {
         config: config.clone(),
         manual: saved.context.current_is_manual,
         context_index: Some(saved.context.index),
+        preserve_order: false,
     });
     state.controller.history = saved.history;
     let volume = state.snapshot.volume;
@@ -1499,6 +1568,30 @@ mod tests {
         assert!(state.snapshot.finished);
         assert_eq!(state.snapshot.position_ms, 10_000);
         assert_eq!(state.snapshot.end_sequence, 1);
+    }
+
+    #[test]
+    fn continuation_keeps_saved_order_while_shuffle_remains_visible() {
+        let transport = transport();
+        transport.set_shuffle(true);
+        let tracks = vec![item("c"), item("a"), item("b")];
+        let query = super::super::catalog::Query::PlaylistSongs {
+            playlist: "list1".into(),
+        };
+
+        transport.play_continuation(
+            source(),
+            "list1".into(),
+            tracks[0].clone(),
+            tracks.clone(),
+            Some(query.clone()),
+        );
+
+        let state = transport.shared.state.lock().unwrap();
+        assert!(state.snapshot.shuffle);
+        assert_eq!(state.snapshot.tracks.as_ref(), &tracks);
+        assert_eq!(&*state.controller.context.order, &[0, 1, 2]);
+        assert_eq!(state.template.as_ref().unwrap().query, Some(query));
     }
 
     #[test]

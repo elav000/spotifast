@@ -150,6 +150,34 @@ The active entry, not the browsed catalog, continues to own links, devices and
 transport controls. Combined catalog composition and shared cache policy remain
 separate decisions.
 
+### Provider context continuation
+
+Provider context continuation is complete. One provider-owned album, playlist,
+artist or radio context sits beneath the shared stamped manual occurrences.
+Each provider supplies an opaque resumable payload, so the coordinator can show
+and resume the remaining **Next up** rows without interpreting credentials,
+transport state or provider queue formats.
+
+The boundary is deliberate: shared app coordination owns occurrence order,
+pending lifecycle state and the choice between a manual detour and the saved
+base context. Provider playback adapters own context capture, native manual-row
+migration, output readiness, natural-end recognition, engine preparation and
+execution. Shared coordination must not name Soloist, librespot or Jellyfin when
+making a continuation decision; adding another provider implements those hooks
+without adding another branch to the coordinator.
+
+Explicit Play replaces that single base context while preserving manual queue
+occurrences. Add to queue and Play next create temporary detours, including
+same-provider detours; after those occurrences finish, the owner restores its
+context at the next unplayed row. The app does not merge two providers'
+automatic **Next up** lists. A failed restoration is reported and skipped
+rather than retargeted.
+
+Regression coverage includes Spotify-to-Jellyfin and Jellyfin-to-Spotify
+handoffs, natural track end, explicit continuation-row selection, direct base
+replacement, same-provider detours, restart persistence, duplicate manual
+occurrences through `ManualQueue`, and an unavailable saved provider context.
+
 ## Later work
 
 - Combined provider catalog browsing after the mixed local queue is stable;

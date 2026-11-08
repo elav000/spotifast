@@ -3931,6 +3931,17 @@ impl App {
             self.soloist_settled = true;
             self.soloist_retry_at = None;
             self.soloist_bound_at = Some(Instant::now());
+            // Restoring a Spotify occurrence starts its provider runtime in
+            // the background. If Soloist was this account's last explicit
+            // output choice, restore that target as soon as it binds so a
+            // later Play does not fall back to another Spotify device. This
+            // selects the target without transferring or starting playback.
+            let restore_target = self.user_id().is_some_and(|account| {
+                self.device_history.last_choice(account) == Some(id.as_str())
+            });
+            if restore_target {
+                self.selected_device = Some(id.clone());
+            }
             // A setup resumed from an earlier run has nothing left to show.
             if self.soloist_onboarding == crate::settings::SoloistOnboarding::Setup
                 && !self.soloist_setup_chosen
@@ -21064,6 +21075,59 @@ mod tests {
     }
 
     #[test]
+    fn restored_spotify_runtime_reselects_the_accounts_last_soloist_output() {
+        use crate::{provider::ProviderQueueItem, soloist::Status};
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        app.user = Some(crate::api::models::User {
+            id: "listener".into(),
+            ..Default::default()
+        });
+        app.device_history.record("listener", "owned-soloist");
+        app.settings.soloist_enabled = true;
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:restored".into(),
+                ..Track::default()
+            })));
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                is_playing: true,
+                device: Some(Device {
+                    id: Some("other-speaker".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            received_at: Instant::now(),
+        });
+
+        app.handle_auth(AuthStatus::Connected {
+            username: "listener".into(),
+        });
+        assert!(matches!(app.soloist_status, Status::Starting));
+        app.devices = vec![Device {
+            id: Some("owned-soloist".into()),
+            name: "Tumlo Soloist".into(),
+            ..Default::default()
+        }];
+        app.soloist_status = Status::Ready {
+            name: "Tumlo Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.bind_soloist_device();
+
+        assert_eq!(app.selected_device.as_deref(), Some("owned-soloist"));
+        assert!(
+            app.backend.take_remote_play_requests().is_empty(),
+            "restoring the target does not transfer or start playback"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn provider_handoff_waits_for_preparation_and_resumes_the_exact_occurrence() {
         use crate::{
             jellyfin::browser::BrowserAction,
@@ -26106,6 +26170,25 @@ mod tests {
             crate::provider::PlayerDeviceControl::SpotifyConnect
         );
         assert!(app.queue_uses_spotify());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn reselecting_jellyfin_retries_its_saved_account_after_a_restore_error() {
+        use crate::provider::Provider;
+
+        let mut app = test_app("jellyfin-provider-retry");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.error = Some("Saved sign-in is unavailable".into());
+
+        app.select_provider(Provider::Jellyfin);
+
+        assert!(app.jellyfin.error.is_none());
+        assert!(app.jellyfin.busy);
+        assert!(matches!(
+            app.jellyfin.view,
+            crate::jellyfin::browser::View::Libraries
+        ));
         app.backend.shutdown();
     }
 

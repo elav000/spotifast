@@ -474,7 +474,28 @@ pub fn menu_item_enabled(
     label: &str,
     enabled: bool,
 ) -> bool {
-    menu_item_response(ui, palette, icon, label, enabled, false).1
+    menu_item_response(ui, palette, icon, label, enabled, false, None).1
+}
+
+/// One provider entry whose service icon stays at the leading edge while its
+/// selected state is shown at the trailing edge.
+pub fn menu_item_selected(
+    ui: &mut Ui,
+    palette: &Palette,
+    icon: Icon,
+    label: &str,
+    selected: bool,
+) -> bool {
+    menu_item_response(
+        ui,
+        palette,
+        Some(icon),
+        label,
+        true,
+        false,
+        selected.then_some(Icon::Check),
+    )
+    .1
 }
 
 pub(crate) fn detail_menu_items(
@@ -505,6 +526,7 @@ fn menu_item_response(
     label: &str,
     enabled: bool,
     highlighted: bool,
+    trailing_icon: Option<Icon>,
 ) -> (egui::Response, bool) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(
@@ -536,20 +558,30 @@ fn menu_item_response(
             .paint_at(ui, icon_rect);
             x += 26.0;
         }
-        // A playlist can be named a paragraph; the label ends at the menu's
-        // edge instead of running past it.
+        let right = if let Some(icon) = trailing_icon {
+            let icon_rect = Rect::from_center_size(
+                pos2(rect.right() - 18.0, rect.center().y),
+                Vec2::splat(16.0),
+            );
+            icon.image(palette.secondary, 16.0).paint_at(ui, icon_rect);
+            rect.right() - 36.0
+        } else {
+            rect.right() - 10.0
+        };
+        // A playlist can be named a paragraph; the label ends before any
+        // trailing state icon instead of running past the menu's edge.
         let galley = crate::bidi::layout(
             ui.painter(),
             label,
             theme::regular(13.5),
             color,
-            (rect.right() - 10.0 - x).max(0.0),
+            (right - x).max(0.0),
             1,
             Some(crate::bidi::ELLIPSIS),
         );
         let text_rect = Rect::from_min_max(
             pos2(x, rect.center().y - galley.size().y / 2.0),
-            pos2(rect.right() - 10.0, rect.center().y + galley.size().y / 2.0),
+            pos2(right, rect.center().y + galley.size().y / 2.0),
         );
         ui.painter()
             .galley(crate::bidi::galley_pos(text_rect, &galley), galley, color);
@@ -557,7 +589,7 @@ fn menu_item_response(
     response.widget_info(|| {
         let mut info =
             egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled && ui.is_enabled(), label);
-        if highlighted {
+        if highlighted || trailing_icon.is_some() {
             info.selected = Some(true);
         }
         info

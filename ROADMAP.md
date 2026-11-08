@@ -122,12 +122,11 @@ update asset names remain for compatibility. The fork has no GitHub releases,
 and release publishing or release metadata migration is out of scope unless
 the maintainer asks for one.
 
-## Next implementation sequence
+## Completed mixed local queue milestone
 
 The reviewed Jellyfin sharp-edge, provider-orchestration, multi-disc album,
-provider-stamping and provider-switching sequences are complete. The approved
-next milestone is the mixed local queue, delivered independently of Combined
-catalog browsing:
+provider-stamping and provider-switching sequences are complete. The mixed
+local queue was delivered independently of Combined catalog browsing:
 
 1. Give every manual queue occurrence a serializable provider-owned payload and
    stable `ProviderStamp`. Preserve duplicates and source/account identity.
@@ -178,13 +177,32 @@ handoffs, natural track end, explicit continuation-row selection, direct base
 replacement, same-provider detours, restart persistence, duplicate manual
 occurrences through `ManualQueue`, and an unavailable saved provider context.
 
+Restored occurrences initialize their provider runtime without changing the
+browsed catalog or starting playback. Spotify restores the last explicitly
+chosen app-owned output when Soloist binds, while the shared lifecycle remains
+provider-neutral.
+
+## Next implementation sequence
+
+Combined provider catalog browsing is next. It composes discovery without
+changing the playback contracts that are now stable:
+
+1. Define provider-neutral result groups and identity-preserving navigation for
+   Home, Search and Library. Every card and row keeps its original
+   `ProviderStamp` and provider-native destination.
+2. Compose available providers into shared shelves and result sections without
+   copying provider pages or flattening unsupported actions into inert controls.
+3. Keep playback, queue handoff, links, devices and controls owned by the active
+   entry. Browsing combined results must not select an output or initialize an
+   unrelated provider runtime.
+
+Shared cache policy is a separate decision. Combined browsing must not make
+Spotify and Jellyfin metadata, artwork or credentials interchangeable.
+
 ## Later work
 
-- Combined provider catalog browsing after the mixed local queue is stable;
-  Plex or other sources can follow through the same contracts. Every queued and
-  active entry must retain the provider identity used for its links, devices and
-  controls. Catalog composition, mixed playback and shared caches are independent
-  decisions.
+- Plex or other sources can follow Combined provider browsing through the same
+  identity and capability contracts.
 - Jellyfin offline downloads are a separate later feature. Design storage
   limits, eviction, server transcoding profiles (including an MP3 compatibility
   option), original-file downloads, availability indicators and offline account

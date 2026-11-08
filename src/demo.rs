@@ -14796,6 +14796,7 @@ mod tests {
         use egui::accesskit::{Action as AccessibleAction, Role};
         let (ctx, mut app) = accessible_app("account-provider-switcher");
         app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.servers[0].nickname = "Living room".into();
         let account = accessible_node(
             &accessible_frame(&ctx, &mut app, vec![]),
             "Music server",
@@ -14815,6 +14816,11 @@ mod tests {
             &ctx,
             &mut app,
             vec![accessible_action(provider, AccessibleAction::Click, None)],
+        );
+        accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Living room",
+            Role::Button,
         );
         let spotify = accessible_node(
             &accessible_frame(&ctx, &mut app, vec![]),

@@ -13,8 +13,10 @@ history below is not a list of tasks to repeat.
   browsing selection, account-scoped catalog/page caches and artwork caching.
 - Sign-in offers Spotify and Jellyfin as provider choices. The profile menu's
   Provider submenu switches the browsed catalog and expands Jellyfin into saved
-  servers/accounts when there is more than one. Checked entries identify the
-  current catalog and Jellyfin account. Settings now uses an Additional
+  servers/accounts when there is more than one. Saved server nicknames label
+  the Jellyfin choices. Provider marks remain visible at the leading edge and a
+  trailing check identifies the current catalog and Jellyfin account. Settings
+  now uses an Additional
   providers section to manage nicknames, activation, removal and new Jellyfin
   connections without changing the catalog being browsed.
 - Server nicknames are presentation-only. Playback restoration, queue actions,
@@ -122,6 +124,14 @@ history below is not a list of tasks to repeat.
   clears its transport and queue before the next account becomes active. A
   successful new Quick Connect is guarded the same way, so an old item ID is
   never resolved or reported through the new account.
+- The mixed local queue persists stamped Spotify and Jellyfin manual
+  occurrences, hands explicit Next and natural-end transitions through
+  provider lifecycle adapters, and resumes one opaque provider-owned base
+  context after temporary detours. Shared coordination never names a playback
+  engine, credential or provider-native queue format. Restored occurrences
+  initialize their provider runtime without starting playback; when Soloist
+  binds, Spotify reselects the account's last explicitly chosen app-owned
+  output.
 
 ## Upstream integration
 

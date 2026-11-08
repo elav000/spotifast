@@ -42,6 +42,13 @@ impl DeviceHistory {
             .position(|id| Some(id.as_str()) == device);
         (Reverse(count), latest.unwrap_or(usize::MAX))
     }
+
+    /// The output this account explicitly chose most recently.
+    pub fn last_choice(&self, account: &str) -> Option<&str> {
+        (self.account_id == account)
+            .then(|| self.recent.first().map(String::as_str))
+            .flatten()
+    }
 }
 
 #[cfg(test)]
@@ -93,5 +100,14 @@ mod tests {
         history.record("", "ignored");
         history.record("alice", "");
         assert_eq!(history.recent, ["speaker-id"]);
+    }
+
+    #[test]
+    fn last_choice_is_scoped_to_the_verified_account() {
+        let mut history = DeviceHistory::default();
+        history.record("alice", "speaker");
+        history.record("alice", "soloist");
+        assert_eq!(history.last_choice("alice"), Some("soloist"));
+        assert_eq!(history.last_choice("bob"), None);
     }
 }

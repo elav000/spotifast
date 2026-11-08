@@ -882,12 +882,24 @@ pub struct App {
     /// provider boundary. Provider engines remain responsible for decoding and
     /// transport; this queue only owns ordering and handoff identity.
     pub mixed_queue: ManualQueue<crate::provider::ProviderQueueItem>,
+    /// The single provider-owned context underneath the mixed manual queue.
+    /// Explicit Play replaces it; queued occurrences temporarily detour from
+    /// it and resume its next unplayed row.
+    pub provider_continuation: Option<crate::provider::ProviderContinuation>,
+    /// A manual occurrence has started since the base context was captured.
+    /// Provider identity alone cannot express this because the detour and base
+    /// may belong to the same provider.
+    provider_continuation_suspended: bool,
     /// Exact mixed-queue occurrence waiting for its stamped provider to finish
     /// preparing. The snapshot prevents a later edit from retargeting it.
     provider_queue_play_pending: Option<(
         std::sync::Arc<Vec<crate::provider::ProviderQueueItem>>,
         usize,
     )>,
+    /// Provider-owned context waiting for its engine or credentials. The
+    /// cloned payload prevents a later explicit Play from resuming the context
+    /// that action replaced.
+    provider_continuation_play_pending: Option<(crate::provider::ProviderContinuation, usize)>,
     /// Queue additions shown before Spotify confirms them, with request time.
     pending_queue_adds: Vec<PendingQueueAdd>,
     pending_album_queues: HashMap<u64, PendingAlbumQueue>,
@@ -1551,7 +1563,10 @@ impl App {
             resume_queue: session.last_added_queue.clone(),
             manual_queue: ManualQueue::default(),
             mixed_queue: session.mixed_queue.clone().into(),
+            provider_continuation: session.provider_continuation.clone(),
+            provider_continuation_suspended: session.provider_continuation_suspended,
             provider_queue_play_pending: None,
+            provider_continuation_play_pending: None,
             pending_queue_adds: Vec::new(),
             pending_album_queues: HashMap::new(),
             pending_queue_batches: HashMap::new(),
@@ -2004,7 +2019,7 @@ impl App {
         }
     }
 
-    fn remote_fresh(&self) -> Option<&RemoteSnapshot> {
+    pub(crate) fn remote_fresh(&self) -> Option<&RemoteSnapshot> {
         self.remote
             .as_ref()
             .filter(|remote| remote.received_at.elapsed() < REMOTE_FRESH)
@@ -2991,51 +3006,49 @@ impl App {
             .cloned()
     }
 
+    /// Snapshot the active provider's context underneath the shared manual
+    /// queue. Providers retain native playback state, while this credential-
+    /// free payload keeps the remaining rows visible and restorable even if a
+    /// later manual occurrence uses that provider's engine.
+    fn capture_provider_continuation(&mut self) {
+        if self.provider_continuation.is_some() {
+            return;
+        }
+        self.provider_continuation = self.capture_active_provider_continuation();
+        if self.provider_continuation.is_some() {
+            self.provider_continuation_suspended = false;
+            self.session_dirty = true;
+        }
+    }
+
+    fn set_provider_handoff_pending(&self) {
+        self.sync_provider_handoff_pending(
+            !self.mixed_queue.is_empty() || self.provider_continuation_waiting(),
+        );
+    }
+
+    /// A direct Play starts a new provider-owned base context. Manually queued
+    /// detours stay in their shared order, but the context they eventually
+    /// return to is replaced by the one the listener just chose.
+    pub(crate) fn replace_provider_continuation(&mut self) {
+        if self.provider_continuation.take().is_some()
+            || self.provider_continuation_play_pending.take().is_some()
+        {
+            self.session_dirty = true;
+        }
+        self.provider_continuation_suspended = false;
+        self.set_provider_handoff_pending();
+    }
+
     /// Enter mixed-queue mode once, preserving the provider-native manual
     /// occurrences that were already ahead of the foreign entry.
     pub(crate) fn activate_mixed_queue(&mut self) {
-        if !self.mixed_queue.is_empty() {
+        if !self.mixed_queue.is_empty() || self.provider_continuation.is_some() {
             return;
         }
-        match self.playback_provider() {
-            Some(crate::provider::Provider::Spotify) => {
-                let queued = self.queue.get().map(|queue| &queue.queue);
-                let manual = if self.manual_queue.is_empty() && self.resume_only() {
-                    self.resume_queue.clone()
-                } else {
-                    self.manual_queue.to_vec()
-                };
-                let items: Vec<_> = manual
-                    .iter()
-                    .map(|uri| {
-                        queued
-                            .and_then(|rows| rows.iter().find(|item| item.uri() == uri))
-                            .cloned()
-                            .unwrap_or_else(|| self.optimistic_queue_item(uri, uri))
-                    })
-                    .map(crate::provider::ProviderQueueItem::spotify)
-                    .collect();
-                self.mixed_queue.extend(items);
-                if self.queue_locally_reorderable() {
-                    self.backend.player(PlayerCommand::ClearQueue);
-                }
-                self.manual_queue.clear();
-                self.resume_queue.clear();
-                self.pending_queue_adds.clear();
-            }
-            Some(crate::provider::Provider::Jellyfin) => {
-                let state = self.jellyfin_player.snapshot();
-                if let Some((source, _)) = self.jellyfin_player.context() {
-                    self.mixed_queue.extend(
-                        state.queued.iter().cloned().map(|item| {
-                            crate::provider::ProviderQueueItem::jellyfin(&source, item)
-                        }),
-                    );
-                    self.jellyfin_player.clear_queue();
-                }
-            }
-            None => {}
-        }
+        self.capture_provider_continuation();
+        let items = self.migrate_active_provider_queue();
+        self.mixed_queue.extend(items);
         self.session_dirty = true;
     }
 
@@ -3056,30 +3069,32 @@ impl App {
             return;
         }
         self.mixed_queue.extend(items);
-        self.jellyfin_player.set_external_queue_pending(true);
+        self.set_provider_handoff_pending();
         self.session_dirty = true;
         self.restore_provider_queue();
     }
 
     fn mixed_queue_can_handoff(&self) -> bool {
-        !self.mixed_queue.is_empty()
-            && (self.jellyfin_player.controls_output()
-                || self.targets_own_soloist()
-                || (self.local.is_active() && matches!(self.target(), Target::Local)))
+        (!self.mixed_queue.is_empty() || self.provider_continuation_waiting())
+            && self.active_provider_can_handoff()
     }
 
-    /// The Spotify implementation this app owns on the current computer.
-    /// Soloist presents as a Connect device, but it is still Tumlo's configured
-    /// local Spotify engine. An arbitrary remote Connect device is never a
-    /// mixed-queue target.
-    pub(crate) fn mixed_spotify_target(&self) -> Option<Target> {
-        if self.settings.soloist_enabled {
-            return (matches!(self.soloist_status, crate::soloist::Status::Ready { .. }))
-                .then(|| self.soloist_device_id.clone())
-                .flatten()
-                .map(|id| Target::Remote(Some(id)));
+    fn provider_continuation_waiting(&self) -> bool {
+        self.provider_continuation.is_some() && self.provider_continuation_suspended
+    }
+
+    pub(crate) fn provider_handoff_waiting(&self) -> bool {
+        !self.mixed_queue.is_empty() || self.provider_continuation_waiting()
+    }
+
+    fn play_provider_handoff_head(&mut self) {
+        if self.mixed_queue.is_empty() {
+            if self.provider_continuation_waiting() {
+                self.play_provider_continuation(0);
+            }
+        } else {
+            self.play_mixed_queue_item(0);
         }
-        (self.local_ready && self.local.connected).then_some(Target::Local)
     }
 
     fn play_mixed_queue_item(&mut self, mut index: usize) {
@@ -3087,6 +3102,9 @@ impl App {
             let Some(item) = self.mixed_queue.get(index).cloned() else {
                 return;
             };
+            if self.provider_continuation.is_none() {
+                self.capture_provider_continuation();
+            }
             match self.prepare_provider_queue_item(&item) {
                 crate::provider::QueueItemLifecycle::Preparing => {
                     // Keep the exact occurrence while its provider restores.
@@ -3097,21 +3115,26 @@ impl App {
                 }
                 crate::provider::QueueItemLifecycle::Failed(error) => {
                     self.mixed_queue.remove_through(index);
-                    self.jellyfin_player
-                        .set_external_queue_pending(!self.mixed_queue.is_empty());
                     self.session_dirty = true;
                     self.toast_error(error);
                     if self.mixed_queue.is_empty() {
+                        if self.provider_continuation_waiting() {
+                            self.play_provider_continuation(0);
+                        } else {
+                            self.provider_continuation = None;
+                            self.set_provider_handoff_pending();
+                        }
                         return;
                     }
+                    self.set_provider_handoff_pending();
                     // The failed occurrence is skipped. Continue with the row
                     // after it, whose provider gets the same lifecycle hook.
                     index = 0;
                 }
                 crate::provider::QueueItemLifecycle::Ready => {
                     self.mixed_queue.remove_through(index);
-                    self.jellyfin_player
-                        .set_external_queue_pending(!self.mixed_queue.is_empty());
+                    self.provider_continuation_suspended = self.provider_continuation.is_some();
+                    self.set_provider_handoff_pending();
                     self.session_dirty = true;
                     self.execute_provider_queue_item(item);
                     return;
@@ -3120,8 +3143,46 @@ impl App {
         }
     }
 
+    fn play_provider_continuation(&mut self, index: usize) {
+        let Some(continuation) = self.provider_continuation.clone() else {
+            return;
+        };
+        if !continuation.contains_index(index) {
+            return;
+        }
+        match self.prepare_provider_continuation(&continuation) {
+            crate::provider::QueueItemLifecycle::Preparing => {
+                self.provider_continuation_play_pending = Some((continuation, index));
+            }
+            crate::provider::QueueItemLifecycle::Failed(error) => {
+                self.provider_continuation = None;
+                self.provider_continuation_play_pending = None;
+                self.provider_continuation_suspended = false;
+                self.set_provider_handoff_pending();
+                self.session_dirty = true;
+                self.toast_error(error);
+            }
+            crate::provider::QueueItemLifecycle::Ready => {
+                self.provider_continuation = None;
+                self.provider_continuation_play_pending = None;
+                self.provider_continuation_suspended = false;
+                self.set_provider_handoff_pending();
+                self.session_dirty = true;
+                self.execute_provider_continuation(continuation, index);
+            }
+        }
+    }
+
     /// Resume the exact occurrence whose provider finished preparing.
     pub(crate) fn provider_queue_ready(&mut self, stamp: &crate::provider::ProviderStamp) -> bool {
+        if let Some((continuation, index)) = self.provider_continuation_play_pending.clone()
+            && continuation.stamp() == *stamp
+            && self.provider_continuation.as_ref() == Some(&continuation)
+        {
+            self.provider_continuation_play_pending = None;
+            self.play_provider_continuation(index);
+            return true;
+        }
         let Some((snapshot, index)) = self.provider_queue_play_pending.as_ref() else {
             return false;
         };
@@ -3143,6 +3204,19 @@ impl App {
         stamp: &crate::provider::ProviderStamp,
         error: String,
     ) {
+        if self
+            .provider_continuation_play_pending
+            .as_ref()
+            .is_some_and(|(continuation, _)| continuation.stamp() == *stamp)
+        {
+            self.provider_continuation_play_pending = None;
+            self.provider_continuation = None;
+            self.provider_continuation_suspended = false;
+            self.set_provider_handoff_pending();
+            self.session_dirty = true;
+            self.toast_error(error);
+            return;
+        }
         let Some((snapshot, index)) = self.provider_queue_play_pending.as_ref() else {
             return;
         };
@@ -3155,52 +3229,19 @@ impl App {
         let index = *index;
         self.provider_queue_play_pending = None;
         self.mixed_queue.remove_through(index);
-        self.jellyfin_player
-            .set_external_queue_pending(!self.mixed_queue.is_empty());
         self.session_dirty = true;
         self.toast_error(error);
-        if !self.mixed_queue.is_empty() {
+        if self.mixed_queue.is_empty() {
+            if self.provider_continuation_waiting() {
+                self.play_provider_continuation(0);
+            } else {
+                self.provider_continuation = None;
+                self.set_provider_handoff_pending();
+            }
+        } else {
+            self.set_provider_handoff_pending();
             self.play_mixed_queue_item(0);
         }
-    }
-
-    pub(crate) fn play_spotify_queue_item(&mut self, item: PlayableItem) {
-        let target = self
-            .mixed_spotify_target()
-            .expect("a prepared Spotify occurrence has an owned target");
-        if let Target::Remote(Some(device)) = &target
-            && self.soloist_device_id.as_deref() == Some(device.as_str())
-        {
-            self.selected_device = Some(device.clone());
-        }
-        self.play_request_on(
-            PlayRequest::tracks(vec![item.uri().to_owned()]).starting_at_index(0),
-            false,
-            target,
-        );
-    }
-
-    pub(crate) fn play_jellyfin_queue_item(
-        &mut self,
-        source: &str,
-        account: &str,
-        item: crate::jellyfin::Item,
-    ) {
-        let source = self
-            .jellyfin_source(source, account)
-            .expect("a prepared Jellyfin occurrence retains its source");
-        self.prepare_jellyfin_playback();
-        self.jellyfin_player.configure(engine_config(
-            &self.dirs,
-            &self.settings,
-            self.applied_jellyfin_proxy(),
-            self.winamp.tap.clone(),
-            self.winamp.eq.clone(),
-            self.local_output.clone(),
-        ));
-        let context = item.album_id.clone().unwrap_or_else(|| item.id.clone());
-        self.jellyfin_player
-            .play(source, context, item.clone(), Some(vec![item]));
     }
 
     fn spotify_remote_pause_device(&self) -> Option<Option<String>> {
@@ -3269,8 +3310,8 @@ impl App {
         let jellyfin_end = self.jellyfin_player.snapshot().end_sequence;
         if jellyfin_end != 0 && jellyfin_end != self.jellyfin_end_sequence {
             self.jellyfin_end_sequence = jellyfin_end;
-            if !self.mixed_queue.is_empty() {
-                self.play_mixed_queue_item(0);
+            if !self.mixed_queue.is_empty() || self.provider_continuation_waiting() {
+                self.play_provider_handoff_head();
             }
         }
         if self.jellyfin.edit_completed {
@@ -4402,7 +4443,7 @@ impl App {
     fn handle_local(&mut self, state: LocalState) {
         let mixed_handoff = state.end_sequence != 0
             && state.end_sequence != self.local.end_sequence
-            && !self.mixed_queue.is_empty()
+            && (!self.mixed_queue.is_empty() || self.provider_continuation_waiting())
             && matches!(self.target(), Target::Local);
         if self
             .local_transfer_sequence
@@ -4537,7 +4578,7 @@ impl App {
             self.request_user_names(unresolved);
         }
         if mixed_handoff {
-            self.play_mixed_queue_item(0);
+            self.play_provider_handoff_head();
         }
     }
 
@@ -7947,6 +7988,49 @@ impl App {
         }
     }
 
+    /// Legacy Spotify-controller bridge used only by its provider adapter.
+    /// The shared queue coordinator receives provider payloads and never reads
+    /// these engine-owned rows itself.
+    pub(crate) fn spotify_context_upcoming(&self) -> Vec<PlayableItem> {
+        let manual_len = self.queued_rows_len();
+        self.queue
+            .get()
+            .into_iter()
+            .flat_map(|queue| queue.queue.iter().skip(manual_len).cloned())
+            .collect()
+    }
+
+    pub(crate) fn spotify_shuffle_wanted(&self) -> bool {
+        self.shuffle_wanted
+    }
+
+    /// Drain Spotify's native manual rows when its adapter promotes them into
+    /// stamped shared occurrences.
+    pub(crate) fn take_spotify_manual_queue(&mut self) -> Vec<PlayableItem> {
+        let queued = self.queue.get().map(|queue| &queue.queue);
+        let manual = if self.manual_queue.is_empty() && self.resume_only() {
+            self.resume_queue.clone()
+        } else {
+            self.manual_queue.to_vec()
+        };
+        let items = manual
+            .iter()
+            .map(|uri| {
+                queued
+                    .and_then(|rows| rows.iter().find(|item| item.uri() == uri))
+                    .cloned()
+                    .unwrap_or_else(|| self.optimistic_queue_item(uri, uri))
+            })
+            .collect();
+        if self.queue_locally_reorderable() {
+            self.backend.player(PlayerCommand::ClearQueue);
+        }
+        self.manual_queue.clear();
+        self.resume_queue.clear();
+        self.pending_queue_adds.clear();
+        items
+    }
+
     /// Whether the local player is the active target, so its queue can be
     /// rewritten directly. Neither the Web API nor librespot can reorder or
     /// insert into a live queue; the only way to change one is to clear it
@@ -8844,6 +8928,7 @@ impl App {
                 self.remote_poll_pending = false;
                 match result {
                     Ok(mut state) => {
+                        let provider_handoff = self.provider_remote_natural_end(state.as_ref());
                         if let Some(pushed) = &self.pushed_remote_volume
                             && state
                                 .as_ref()
@@ -8933,6 +9018,10 @@ impl App {
                         }
                         if uri != previous_uri {
                             self.on_now_playing_changed();
+                        }
+                        if provider_handoff {
+                            self.remote_end_polled_at = None;
+                            self.play_provider_handoff_head();
                         }
                     }
                     Err(error) => log::debug!("playback state unavailable: {error}"),
@@ -11138,7 +11227,12 @@ impl App {
     /// Start Spotify through a specific engine Tumlo owns. Mixed-provider
     /// playback uses this to choose Soloist or the built-in engine without
     /// ever leaking a Jellyfin occurrence into an arbitrary Connect device.
-    fn play_request_on(&mut self, request: PlayRequest, shuffle_first: bool, target: Target) {
+    pub(crate) fn play_request_on(
+        &mut self,
+        request: PlayRequest,
+        shuffle_first: bool,
+        target: Target,
+    ) {
         if self.soloist_waiting() && !self.soloist_recovering() {
             return;
         }
@@ -13320,6 +13414,7 @@ impl App {
                 offset_uri,
                 offset_index,
             } => {
+                self.replace_provider_continuation();
                 let mut request = PlayRequest::context(uri);
                 request.offset_uri = offset_uri;
                 request.offset_position = offset_index;
@@ -13338,6 +13433,7 @@ impl App {
             }
             Action::PlaySearchMatch { uri, serial } => {
                 if serial == self.play_search_serial {
+                    self.replace_provider_continuation();
                     self.play_request(PlayRequest::context(uri), false);
                 }
             }
@@ -13345,11 +13441,13 @@ impl App {
                 if uris.is_empty() {
                     return;
                 }
+                self.replace_provider_continuation();
                 let (uris, index) = cap_uris(&uris, index);
                 let request = PlayRequest::tracks(uris).starting_at_index(index);
                 self.play_request(request, false);
             }
             Action::PlayEpisode { uri, resume_ms } => {
+                self.replace_provider_continuation();
                 // A started episode continues from the place the row or card
                 // showed as time left. The playing episode is left where it
                 // is playing, not sent back to a saved position older than it.
@@ -13369,6 +13467,7 @@ impl App {
                 RowContext::Context {
                     uri: context_uri, ..
                 } => {
+                    self.replace_provider_continuation();
                     // A song in the playlist more than once starts at the
                     // chosen copy; by URI Spotify would start the first.
                     let request = match self.repeated_row_position(&context_uri, &uri, index) {
@@ -13386,6 +13485,7 @@ impl App {
                     });
                 }
                 RowContext::Uris(uris) => {
+                    self.replace_provider_continuation();
                     // The click names a song. A row that plays a list of its
                     // own, as each Recent row does, still hands over its
                     // place in the list on screen; when that place holds
@@ -13405,6 +13505,7 @@ impl App {
                 RowContext::View {
                     uris, context_uri, ..
                 } => {
+                    self.replace_provider_continuation();
                     // The header's Play names no song. With shuffle on it
                     // starts at a random row, as a whole context does in
                     // `shuffle_start`; a clicked row still plays first.
@@ -13441,13 +13542,15 @@ impl App {
                 }
             },
             Action::ShufflePlay(uri) => {
+                self.replace_provider_continuation();
                 // The random starting song is picked in `play_request`,
                 // which every shuffled play goes through.
                 self.play_request(PlayRequest::context(uri), true);
             }
             Action::TogglePlay => self.toggle_play(),
-            Action::Next if self.mixed_queue_can_handoff() => self.play_mixed_queue_item(0),
+            Action::Next if self.mixed_queue_can_handoff() => self.play_provider_handoff_head(),
             Action::PlayMixedQueue(index) => self.play_mixed_queue_item(index),
+            Action::PlayProviderContinuation(index) => self.play_provider_continuation(index),
             Action::Next if self.jellyfin_player.controls_output() => {
                 self.jellyfin_player.step(true)
             }
@@ -13976,7 +14079,10 @@ impl App {
             }
             Action::ClearQueue if !self.mixed_queue.is_empty() => {
                 self.mixed_queue.clear();
-                self.jellyfin_player.set_external_queue_pending(false);
+                if !self.provider_continuation_suspended {
+                    self.provider_continuation = None;
+                }
+                self.set_provider_handoff_pending();
                 self.session_dirty = true;
             }
             Action::ClearQueue if self.jellyfin_player.controls_output() => {
@@ -15737,6 +15843,23 @@ impl App {
         due.checked_duration_since(self.remote_polled_at)
     }
 
+    pub(crate) fn remote_end_poll_recent(&self) -> bool {
+        self.remote_end_polled_at
+            .is_some_and(|at| at.elapsed() < REMOTE_POLL_MIN)
+    }
+
+    pub(crate) fn remote_command_recent(&self) -> bool {
+        self.remote_command_at
+            .is_some_and(|at| at.elapsed() < REMOTE_COMMAND_WINDOW)
+    }
+
+    pub(crate) fn expected_remote_track(&self) -> Option<&str> {
+        self.intent_track.as_ref().and_then(|intent| {
+            matches!(intent.confirmation, TrackConfirmation::Remote { .. })
+                .then_some(intent.uri.as_str())
+        })
+    }
+
     /// Persist state when a window closes (to the tray or for good).
     pub fn save_state(&mut self) {
         self.save_settings();
@@ -15796,6 +15919,8 @@ impl App {
                     .map(|queue| queue.queue.iter().take(30).cloned().collect())
                     .unwrap_or_default(),
                 mixed_queue: self.mixed_queue.clone().into_vec(),
+                provider_continuation: self.provider_continuation.clone(),
+                provider_continuation_suspended: self.provider_continuation_suspended,
                 shuffle_on: self.shuffle_wanted,
                 repeat: self.local_repeat().api_name().into(),
                 sorts: self
@@ -21155,6 +21280,279 @@ mod tests {
     }
 
     #[test]
+    fn jellyfin_detour_keeps_and_resumes_spotify_next_up_context() {
+        use crate::{jellyfin::browser::BrowserAction, provider::ProviderContinuation};
+
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:playing".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.queue = loaded_queue(
+            "spotify:track:playing",
+            &["spotify:track:next-one", "spotify:track:next-two"],
+        );
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:album:source".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let detour = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+
+        app.apply_jellyfin_action(BrowserAction::EnqueueItem {
+            source,
+            item: Box::new(detour.clone()),
+        });
+
+        assert!(matches!(
+            &app.provider_continuation,
+            Some(ProviderContinuation::Spotify { context_uri, rows, .. })
+                if context_uri.as_deref() == Some("spotify:album:source")
+                    && rows.iter().map(PlayableItem::uri).collect::<Vec<_>>()
+                        == ["spotify:track:next-one", "spotify:track:next-two"]
+        ));
+        app.apply(Action::Next, &egui::Context::default());
+        assert!(app.mixed_queue.is_empty());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|item| &item.id),
+            Some(&detour.id)
+        );
+        let shown = app.playback_queue();
+        assert_eq!(shown.manual_len, 0);
+        assert_eq!(shown.rows.len(), 2);
+        assert!(
+            shown
+                .rows
+                .iter()
+                .all(|row| row.stamp() == crate::provider::ProviderStamp::Spotify)
+        );
+
+        app.backend.take_player_commands();
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(app.provider_continuation.is_none());
+        assert!(app.backend.take_player_commands().iter().any(|command| {
+            matches!(command, PlayerCommand::Load(load)
+                if load.context_uri.as_deref() == Some("spotify:album:source")
+                    && load.offset_uri.as_deref() == Some("spotify:track:next-one"))
+        }));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn spotify_detour_keeps_and_resumes_jellyfin_next_up_context() {
+        use crate::{jellyfin::browser::BrowserAction, provider::ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let items = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items.clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.apply_jellyfin_action(BrowserAction::Play(items[0].id.clone()));
+        app.local_ready = true;
+        app.local.connected = true;
+        app.enqueue_mixed(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+            uri: "spotify:track:detour".into(),
+            name: "Spotify detour".into(),
+            ..Track::default()
+        })));
+
+        app.apply(Action::Next, &egui::Context::default());
+        assert!(app.mixed_queue.is_empty());
+        assert!(app.provider_continuation.is_some());
+        app.local.track = Some(crate::player::LocalTrack {
+            uri: "spotify:track:detour".into(),
+            ..Default::default()
+        });
+        app.local.playback = Playback::Playing;
+        let shown = app.playback_queue();
+        assert_eq!(shown.manual_len, 0);
+        assert_eq!(shown.rows.len(), items.len().saturating_sub(1));
+        assert!(
+            shown.rows.iter().all(|row| {
+                matches!(row.stamp(), crate::provider::ProviderStamp::Jellyfin { .. })
+            })
+        );
+
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(app.provider_continuation.is_none());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|item| &item.id),
+            items.get(1).map(|item| &item.id)
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn same_provider_detour_preserves_the_base_context() {
+        use crate::provider::{ProviderContinuation, ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:playing".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.queue = loaded_queue("spotify:track:playing", &["spotify:track:base-next"]);
+        app.assumed_context = Some(AssumedContext {
+            uri: "spotify:album:base".into(),
+            shuffle: None,
+            at: Instant::now(),
+        });
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:detour".into(),
+                ..Track::default()
+            })));
+
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(matches!(
+            &app.provider_continuation,
+            Some(ProviderContinuation::Spotify { context_uri, rows, .. })
+                if context_uri.as_deref() == Some("spotify:album:base")
+                    && rows.iter().map(PlayableItem::uri).collect::<Vec<_>>()
+                        == ["spotify:track:base-next"]
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn direct_play_replaces_the_base_but_keeps_manual_detours() {
+        use crate::provider::{ProviderContinuation, ProviderQueueItem};
+
+        let mut app = headless_app();
+        app.provider_continuation = Some(ProviderContinuation::spotify(
+            Some("spotify:album:old-base".into()),
+            false,
+            vec![PlayableItem::Track(Track {
+                uri: "spotify:track:old-next".into(),
+                ..Track::default()
+            })],
+        ));
+        app.mixed_queue
+            .push(ProviderQueueItem::spotify(PlayableItem::Track(Track {
+                uri: "spotify:track:manual".into(),
+                ..Track::default()
+            })));
+
+        app.apply(
+            Action::PlayContext {
+                uri: "spotify:album:new-base".into(),
+                offset_uri: None,
+                offset_index: None,
+            },
+            &egui::Context::default(),
+        );
+
+        assert!(app.provider_continuation.is_none());
+        assert_eq!(app.mixed_queue.len(), 1);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn unavailable_saved_provider_context_is_skipped() {
+        use crate::provider::ProviderContinuation;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let missing = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(crate::player::LocalTrack {
+                uri: "spotify:track:detour".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        app.provider_continuation = Some(ProviderContinuation::Jellyfin {
+            source: "missing-server".into(),
+            account: "missing-account".into(),
+            context: "missing-album".into(),
+            query: None,
+            rows: vec![missing],
+        });
+        app.provider_continuation_suspended = true;
+
+        app.apply(Action::Next, &egui::Context::default());
+
+        assert!(app.provider_continuation.is_none());
+        assert!(app.toasts.iter().any(|toast| {
+            toast.message.contains("no longer available") && toast.message.contains("Skipped")
+        }));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn selecting_a_provider_context_row_resumes_at_that_occurrence() {
+        use crate::provider::ProviderContinuation;
+
+        let mut app = headless_app();
+        app.local_ready = true;
+        app.local.connected = true;
+        app.provider_continuation = Some(ProviderContinuation::spotify(
+            Some("spotify:album:base".into()),
+            false,
+            vec![
+                PlayableItem::Track(Track {
+                    uri: "spotify:track:first".into(),
+                    ..Track::default()
+                }),
+                PlayableItem::Track(Track {
+                    uri: "spotify:track:chosen".into(),
+                    ..Track::default()
+                }),
+            ],
+        ));
+        app.provider_continuation_suspended = true;
+        app.backend.take_player_commands();
+
+        app.apply(
+            Action::PlayProviderContinuation(1),
+            &egui::Context::default(),
+        );
+
+        assert!(app.provider_continuation.is_none());
+        assert!(app.backend.take_player_commands().iter().any(|command| {
+            matches!(command, PlayerCommand::Load(load)
+                if load.context_uri.as_deref() == Some("spotify:album:base")
+                    && load.offset_uri.as_deref() == Some("spotify:track:chosen"))
+        }));
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn natural_spotify_end_hands_the_mixed_head_to_jellyfin() {
         use crate::provider::ProviderQueueItem;
 
@@ -21224,8 +21622,61 @@ mod tests {
     }
 
     #[test]
-    fn mixed_queue_round_trips_through_the_session() {
+    fn remote_provider_end_uses_the_provider_handoff_hook() {
         use crate::provider::ProviderQueueItem;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.settings.soloist_enabled = true;
+        app.soloist_device_id = Some("owned-soloist".into());
+        app.selected_device = app.soloist_device_id.clone();
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState {
+                is_playing: true,
+                progress_ms: Some(179_500),
+                item: Some(PlayableItem::Track(Track {
+                    uri: "spotify:track:ending".into(),
+                    duration_ms: 180_000,
+                    ..Track::default()
+                })),
+                device: Some(Device {
+                    id: app.soloist_device_id.clone(),
+                    ..Device::default()
+                }),
+                ..PlaybackState::default()
+            },
+            received_at: Instant::now(),
+        });
+        app.remote_poll_seq = 7;
+        app.remote_end_polled_at = Some(Instant::now());
+        app.mixed_queue
+            .push(ProviderQueueItem::jellyfin(&source, item.clone()));
+
+        app.handle_api(ApiResponse::PlaybackState {
+            seq: 7,
+            result: Ok(None),
+        });
+
+        assert!(app.mixed_queue.is_empty());
+        assert_eq!(
+            app.jellyfin_player
+                .snapshot()
+                .item
+                .as_ref()
+                .map(|playing| &playing.id),
+            Some(&item.id)
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn mixed_queue_round_trips_through_the_session() {
+        use crate::provider::{ProviderContinuation, ProviderQueueItem};
 
         let mut app = test_app("mixed-queue-session");
         app.mixed_queue
@@ -21234,10 +21685,21 @@ mod tests {
                 name: "One".into(),
                 ..Track::default()
             })));
+        app.provider_continuation = Some(ProviderContinuation::spotify(
+            Some("spotify:album:context".into()),
+            false,
+            vec![PlayableItem::Track(Track {
+                uri: "spotify:track:next".into(),
+                ..Track::default()
+            })],
+        ));
+        app.provider_continuation_suspended = true;
         app.save_session();
         app.flush_files();
         let saved = SessionState::load(&app.dirs.session_file());
         assert_eq!(saved.mixed_queue, app.mixed_queue.as_slice());
+        assert_eq!(saved.provider_continuation, app.provider_continuation);
+        assert!(saved.provider_continuation_suspended);
         app.backend.shutdown();
     }
 

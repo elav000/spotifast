@@ -1210,6 +1210,9 @@ pub enum Action {
     /// Play a provider-stamped occurrence from the mixed local manual queue.
     /// Rows before it are consumed with it, matching the ordinary queue.
     PlayMixedQueue(usize),
+    /// Resume the provider-owned context underneath the mixed manual queue at
+    /// one of its displayed upcoming rows.
+    PlayProviderContinuation(usize),
     Previous,
     Seek(u32),
     SeekBy(i64),

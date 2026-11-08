@@ -8,32 +8,6 @@ use crate::{
 };
 use std::sync::Arc;
 
-fn jellyfin_context_upcoming(state: &crate::jellyfin::transport::Snapshot) -> Vec<usize> {
-    let len = state.tracks.len();
-    let natural: Vec<_> = (0..len).collect();
-    let order = if crate::player::queue::PlaybackOrder::from(state.context_order.as_ref().clone())
-        .is_valid_for(len)
-    {
-        state.context_order.as_slice()
-    } else {
-        natural.as_slice()
-    };
-    if state.repeat == crate::player::RepeatMode::Track {
-        return (state.index < len)
-            .then_some(state.index)
-            .into_iter()
-            .collect();
-    }
-    let Some(position) = order.iter().position(|index| *index == state.index) else {
-        return Vec::new();
-    };
-    let mut upcoming = order[position + 1..].to_vec();
-    if state.repeat == crate::player::RepeatMode::Context {
-        upcoming.extend_from_slice(&order[..=position]);
-    }
-    upcoming
-}
-
 pub enum QueueEntry {
     Spotify(Box<PlayableItem>),
     Provider(Box<(TrackPresentation, ProviderRowActions)>),
@@ -354,7 +328,7 @@ impl App {
     }
 
     fn with_mixed_queue(&self, mut presentation: QueuePresentation) -> QueuePresentation {
-        if self.mixed_queue.is_empty() {
+        if self.mixed_queue.is_empty() && self.provider_continuation.is_none() {
             return presentation;
         }
         presentation.rows.drain(..presentation.manual_len);
@@ -365,11 +339,14 @@ impl App {
             .filter_map(|(index, item)| self.mixed_queue_entry(index, item))
             .collect();
         let manual_len = mixed.len();
+        if let Some(continuation) = &self.provider_continuation {
+            presentation.rows = self.provider_continuation_entries(continuation);
+        }
         mixed.append(&mut presentation.rows);
         presentation.rows = mixed;
         presentation.manual_len = manual_len;
         presentation.removal = None;
-        presentation.clear = Some(Action::ClearQueue);
+        presentation.clear = (!self.mixed_queue.is_empty()).then_some(Action::ClearQueue);
         presentation.save = None;
         presentation.drag = QueueDragPolicy::None;
         presentation
@@ -382,119 +359,166 @@ impl App {
     ) -> Option<QueueEntry> {
         match item {
             super::ProviderQueueItem::Spotify { item } => {
-                let reference = ItemReference::Spotify {
-                    uri: item.uri().to_owned(),
-                };
-                let (artists, album, number, disc_number) = match item {
-                    PlayableItem::Track(track) => (
-                        track
-                            .artists
-                            .iter()
-                            .map(|artist| artist.name.clone())
-                            .collect(),
-                        track
-                            .album
-                            .as_ref()
-                            .map(|album| album.name.clone())
-                            .unwrap_or_default(),
-                        track.track_number,
-                        track.disc_number,
-                    ),
-                    PlayableItem::Episode(episode) => (
-                        Vec::new(),
-                        episode
-                            .show
-                            .as_ref()
-                            .map(|show| show.name.clone())
-                            .unwrap_or_default(),
-                        None,
-                        None,
-                    ),
-                };
-                Some(QueueEntry::Provider(Box::new((
-                    TrackPresentation {
-                        reference: reference.clone(),
-                        title: item.name().to_owned(),
-                        artists,
-                        album,
-                        artwork: item.image(300).map(str::to_owned),
-                        duration_ms: u64::from(item.duration_ms()),
-                        number,
-                        disc_number,
-                    },
-                    ProviderRowActions {
-                        navigation: Vec::new(),
-                        artist_navigation: Vec::new(),
-                        stamp: ProviderStamp::Spotify,
-                        play: Action::PlayMixedQueue(index),
-                        enqueue: None,
-                        queue_label: String::new(),
-                        can_enqueue: false,
-                        queue_drag: None,
-                        current: false,
-                        playing: false,
-                        loading: false,
-                        menu: Vec::new(),
-                        playlists: Arc::default(),
-                        playlist_item: reference,
-                        playlist_loading: false,
-                        playlist_error: None,
-                        create_playlist: None,
-                    },
-                ))))
+                Some(self.spotify_handoff_entry(item, Action::PlayMixedQueue(index)))
             }
             super::ProviderQueueItem::Jellyfin {
                 source,
                 account,
                 item,
-            } => {
-                let resolved = self.jellyfin_source(source, account);
-                let reference = ItemReference::Jellyfin {
-                    source: source.clone(),
-                    account: account.clone(),
-                    item: item.id.clone(),
-                };
-                Some(QueueEntry::Provider(Box::new((
-                    TrackPresentation {
-                        reference: reference.clone(),
-                        title: item.name.clone().unwrap_or_else(|| "Untitled".into()),
-                        artists: item.artists.clone(),
-                        album: item.album.clone().unwrap_or_default(),
-                        artwork: resolved
-                            .as_ref()
-                            .and_then(|source| {
-                                crate::jellyfin::artwork::Reference::for_item(source, item)
-                            })
-                            .map(|art| art.uri()),
-                        duration_ms: item.duration_ms().unwrap_or_default(),
-                        number: item.index_number,
-                        disc_number: item.parent_index_number,
-                    },
-                    ProviderRowActions {
-                        navigation: Vec::new(),
-                        artist_navigation: Vec::new(),
-                        stamp: ProviderStamp::Jellyfin {
-                            source: source.clone(),
-                            account: account.clone(),
-                        },
-                        play: Action::PlayMixedQueue(index),
-                        enqueue: None,
-                        queue_label: String::new(),
-                        can_enqueue: false,
-                        queue_drag: None,
-                        current: false,
-                        playing: false,
-                        loading: false,
-                        menu: Vec::new(),
-                        playlists: Arc::default(),
-                        playlist_item: reference,
-                        playlist_loading: false,
-                        playlist_error: None,
-                        create_playlist: None,
-                    },
-                ))))
-            }
+            } => Some(self.jellyfin_handoff_entry(
+                source,
+                account,
+                item,
+                Action::PlayMixedQueue(index),
+            )),
         }
+    }
+
+    fn provider_continuation_entries(
+        &self,
+        continuation: &super::ProviderContinuation,
+    ) -> Vec<QueueEntry> {
+        match continuation {
+            super::ProviderContinuation::Spotify { rows, .. } => rows
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    self.spotify_handoff_entry(item, Action::PlayProviderContinuation(index))
+                })
+                .collect(),
+            super::ProviderContinuation::Jellyfin {
+                source,
+                account,
+                rows,
+                ..
+            } => rows
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    self.jellyfin_handoff_entry(
+                        source,
+                        account,
+                        item,
+                        Action::PlayProviderContinuation(index),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn spotify_handoff_entry(&self, item: &PlayableItem, play: Action) -> QueueEntry {
+        let reference = ItemReference::Spotify {
+            uri: item.uri().to_owned(),
+        };
+        let (artists, album, number, disc_number) = match item {
+            PlayableItem::Track(track) => (
+                track
+                    .artists
+                    .iter()
+                    .map(|artist| artist.name.clone())
+                    .collect(),
+                track
+                    .album
+                    .as_ref()
+                    .map(|album| album.name.clone())
+                    .unwrap_or_default(),
+                track.track_number,
+                track.disc_number,
+            ),
+            PlayableItem::Episode(episode) => (
+                Vec::new(),
+                episode
+                    .show
+                    .as_ref()
+                    .map(|show| show.name.clone())
+                    .unwrap_or_default(),
+                None,
+                None,
+            ),
+        };
+        QueueEntry::Provider(Box::new((
+            TrackPresentation {
+                reference: reference.clone(),
+                title: item.name().to_owned(),
+                artists,
+                album,
+                artwork: item.image(300).map(str::to_owned),
+                duration_ms: u64::from(item.duration_ms()),
+                number,
+                disc_number,
+            },
+            ProviderRowActions {
+                navigation: Vec::new(),
+                artist_navigation: Vec::new(),
+                stamp: ProviderStamp::Spotify,
+                play,
+                enqueue: None,
+                queue_label: String::new(),
+                can_enqueue: false,
+                queue_drag: None,
+                current: false,
+                playing: false,
+                loading: false,
+                menu: Vec::new(),
+                playlists: Arc::default(),
+                playlist_item: reference,
+                playlist_loading: false,
+                playlist_error: None,
+                create_playlist: None,
+            },
+        )))
+    }
+
+    fn jellyfin_handoff_entry(
+        &self,
+        source: &str,
+        account: &str,
+        item: &crate::jellyfin::Item,
+        play: Action,
+    ) -> QueueEntry {
+        let resolved = self.jellyfin_source(source, account);
+        let reference = ItemReference::Jellyfin {
+            source: source.to_owned(),
+            account: account.to_owned(),
+            item: item.id.clone(),
+        };
+        QueueEntry::Provider(Box::new((
+            TrackPresentation {
+                reference: reference.clone(),
+                title: item.name.clone().unwrap_or_else(|| "Untitled".into()),
+                artists: item.artists.clone(),
+                album: item.album.clone().unwrap_or_default(),
+                artwork: resolved
+                    .as_ref()
+                    .and_then(|source| crate::jellyfin::artwork::Reference::for_item(source, item))
+                    .map(|art| art.uri()),
+                duration_ms: item.duration_ms().unwrap_or_default(),
+                number: item.index_number,
+                disc_number: item.parent_index_number,
+            },
+            ProviderRowActions {
+                navigation: Vec::new(),
+                artist_navigation: Vec::new(),
+                stamp: ProviderStamp::Jellyfin {
+                    source: source.to_owned(),
+                    account: account.to_owned(),
+                },
+                play,
+                enqueue: None,
+                queue_label: String::new(),
+                can_enqueue: false,
+                queue_drag: None,
+                current: false,
+                playing: false,
+                loading: false,
+                menu: Vec::new(),
+                playlists: Arc::default(),
+                playlist_item: reference,
+                playlist_loading: false,
+                playlist_error: None,
+                create_playlist: None,
+            },
+        )))
     }
 
     fn jellyfin_queue_presentation(&self) -> QueuePresentation {
@@ -612,7 +636,7 @@ impl App {
                 },
             ))))
         };
-        let upcoming = jellyfin_context_upcoming(&state);
+        let upcoming = state.context_upcoming();
         let mut rows: Vec<_> = state
             .queued
             .iter()

@@ -380,11 +380,14 @@ pub struct App {
     /// Which configured catalogs discovery queries. This composes provider
     /// adapters; it is not itself a playback provider.
     pub(crate) catalog_scope: crate::provider::CatalogScope,
+    /// App-owned route within the composed catalog. Provider-native histories
+    /// remain untouched while this switches between Home and Search.
+    pub(crate) catalog_page: crate::provider::CatalogPage,
     /// Native destination entered from a composed catalog. It remains until
     /// Back crosses that edge, even if native navigation goes deeper first.
-    pub(crate) catalog_return: Option<crate::provider::CatalogDestination>,
+    pub(crate) catalog_return: Option<crate::provider::CatalogEdge>,
     /// The destination Back left, so Forward can cross the same edge again.
-    pub(crate) catalog_forward: Option<crate::provider::CatalogDestination>,
+    pub(crate) catalog_forward: Option<crate::provider::CatalogEdge>,
     pub jellyfin_player: crate::jellyfin::transport::Transport,
     jellyfin_epoch: u64,
     jellyfin_end_sequence: u64,
@@ -1284,6 +1287,7 @@ impl App {
                 options.restore_sign_in,
             ),
             catalog_scope,
+            catalog_page: crate::provider::CatalogPage::Home,
             catalog_return: None,
             catalog_forward: None,
             custom_themes: theme::Catalog::default(),
@@ -3300,6 +3304,11 @@ impl App {
         let events = self.backend.poll();
         self.handle_backend_events(events);
         self.jellyfin.poll(&self.applied_proxy);
+        if self.catalog_scope() == crate::provider::CatalogScope::All
+            && self.catalog_page == crate::provider::CatalogPage::Home
+        {
+            self.ensure_combined_home_loaded(false);
+        }
         self.stop_jellyfin_playback_for_inactive_source();
         self.jellyfin.report_playback(
             &self.jellyfin_player.snapshot(),
@@ -6093,6 +6102,14 @@ impl App {
             ),
             Err(error) => log::warn!("could not save catalog scope: {error}"),
         }
+    }
+
+    pub(crate) fn ensure_combined_home_loaded(&mut self, force: bool) {
+        if self.network_reachable {
+            self.load_home(force);
+        }
+        self.jellyfin
+            .load_all_home(force, &self.applied_jellyfin_proxy());
     }
 
     /// Called at launch or by the local reload command. Construction and window
@@ -13267,6 +13284,7 @@ impl App {
             return;
         }
         match action {
+            Action::RefreshCombinedHome => self.ensure_combined_home_loaded(true),
             Action::OpenCatalogResult(_) => {}
             Action::AddProviderPlaylist { .. } => {}
             Action::OpenProviderArtist { .. } => {}
@@ -26067,6 +26085,93 @@ mod tests {
         assert_eq!(app.selected_provider(), Provider::Spotify);
         assert!(matches!(app.soloist_status, Status::Failed(_)));
         assert!(app.soloist_retry_at.is_some());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn all_provider_scope_owns_home_and_search_without_mutating_provider_history() {
+        use crate::{
+            jellyfin::browser::BrowserAction,
+            model::{Action, Page},
+            provider::{CatalogPage, CatalogScope, CentralPage, Provider},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-catalog-home-search-route");
+        app.jellyfin.demo("jellyfin-albums");
+        app.open(Page::Home);
+        let spotify_history = app.history.clone();
+        let jellyfin_history = app.jellyfin.history.clone();
+
+        app.apply_jellyfin_action(BrowserAction::SelectAll);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.catalog_page, CatalogPage::Home);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::CombinedHome
+        );
+
+        app.apply(Action::FocusSearch, &ctx);
+        assert_eq!(app.catalog_page, CatalogPage::Search);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::CombinedSearch
+        );
+        app.apply(Action::Open(Page::Home), &ctx);
+        assert_eq!(app.catalog_page, CatalogPage::Home);
+        assert_eq!(app.history, spotify_history);
+        assert_eq!(app.jellyfin.history, jellyfin_history);
+
+        app.set_catalog_scope(CatalogScope::Separate);
+        app.jellyfin.provider = Provider::Spotify;
+        app.open(Page::Search);
+        app.apply_jellyfin_action(BrowserAction::SelectAll);
+        assert_eq!(app.catalog_page, CatalogPage::Search);
+
+        app.set_catalog_scope(CatalogScope::Separate);
+        app.open(Page::Album("spotify-album".into()));
+        app.apply_jellyfin_action(BrowserAction::SelectAll);
+        assert_eq!(app.catalog_page, CatalogPage::Home);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_home_back_restores_cached_route_and_refresh_forces_both_sources() {
+        use crate::{
+            model::{Action, Page},
+            provider::{CatalogDestination, CatalogPage, CatalogScope, CentralPage},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-home-back-and-refresh");
+        app.jellyfin.demo("jellyfin-albums");
+        app.set_catalog_scope(CatalogScope::All);
+        app.catalog_page = CatalogPage::Home;
+        app.ensure_combined_home_loaded(false);
+        let home_request = app.jellyfin.combined_home.request;
+        let spotify_generation = app.home.generation;
+
+        app.apply(
+            Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Album(
+                "spotify-album".into(),
+            ))),
+            &ctx,
+        );
+        app.apply(Action::Back, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.catalog_page, CatalogPage::Home);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::CombinedHome
+        );
+        assert_eq!(app.jellyfin.combined_home.request, home_request);
+
+        app.apply(Action::RefreshCombinedHome, &ctx);
+        assert_eq!(
+            app.jellyfin.combined_home.request,
+            home_request.wrapping_add(1)
+        );
+        assert!(app.home.generation > spotify_generation);
         app.backend.shutdown();
     }
 

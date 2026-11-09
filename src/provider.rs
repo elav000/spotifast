@@ -19,6 +19,13 @@ pub enum CatalogScope {
     All,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CatalogPage {
+    #[default]
+    Home,
+    Search,
+}
+
 /// One configured catalog occurrence. Provider stamps retain the exact
 /// source/account identity needed by navigation without exposing credentials
 /// or transport URLs.
@@ -39,6 +46,12 @@ pub enum CatalogDestination {
         source: Box<crate::jellyfin::browser::Source>,
         view: crate::jellyfin::browser::View,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CatalogEdge {
+    pub origin: CatalogPage,
+    pub destination: CatalogDestination,
 }
 
 impl Provider {
@@ -77,6 +90,7 @@ pub enum PlayerDeviceControl {
 pub enum CentralPage {
     Spotify(crate::model::Page),
     Search(Provider),
+    CombinedHome,
     CombinedSearch,
     Settings,
     Collection,
@@ -417,9 +431,13 @@ impl crate::app::App {
         use crate::model::Page;
 
         if self.catalog_scope() == CatalogScope::All {
+            let (route, key) = match self.catalog_page {
+                CatalogPage::Home => (CentralPage::CombinedHome, "combined:home"),
+                CatalogPage::Search => (CentralPage::CombinedSearch, "combined:search"),
+            };
             return CentralPagePresentation {
-                route: CentralPage::CombinedSearch,
-                key: "combined:search".into(),
+                route,
+                key: key.into(),
                 overview: true,
                 tint_artwork: None,
             };
@@ -472,7 +490,7 @@ impl crate::app::App {
                 provider: self.selected_provider(),
                 scope: CatalogScope::All,
                 query: self.search.query.clone(),
-                page_active: true,
+                page_active: self.catalog_page == CatalogPage::Search,
             };
         }
         match self.selected_provider() {
@@ -616,7 +634,16 @@ impl crate::app::App {
     }
 
     fn enter_catalog_destination(&mut self, destination: CatalogDestination) {
-        self.catalog_return = Some(destination.clone());
+        let edge = CatalogEdge {
+            origin: self.catalog_page,
+            destination: destination.clone(),
+        };
+        self.enter_catalog_edge(edge);
+    }
+
+    fn enter_catalog_edge(&mut self, edge: CatalogEdge) {
+        let destination = edge.destination.clone();
+        self.catalog_return = Some(edge);
         self.catalog_forward = None;
         self.set_catalog_scope(CatalogScope::Separate);
         match destination {
@@ -637,7 +664,7 @@ impl crate::app::App {
     pub(crate) fn can_return_to_composed_catalog(&self) -> bool {
         self.catalog_return
             .as_ref()
-            .is_some_and(|destination| self.catalog_destination_is_current(destination))
+            .is_some_and(|edge| self.catalog_destination_is_current(&edge.destination))
     }
 
     pub(crate) fn can_reenter_catalog_destination(&self) -> bool {
@@ -648,16 +675,21 @@ impl crate::app::App {
         if !self.can_return_to_composed_catalog() {
             return false;
         }
-        self.catalog_forward = self.catalog_return.take();
+        let edge = self
+            .catalog_return
+            .take()
+            .expect("return edge checked above");
+        self.catalog_page = edge.origin;
+        self.catalog_forward = Some(edge);
         self.set_catalog_scope(CatalogScope::All);
         true
     }
 
     fn reenter_catalog_destination(&mut self) -> bool {
-        let Some(destination) = self.catalog_forward.take() else {
+        let Some(edge) = self.catalog_forward.take() else {
             return false;
         };
-        self.enter_catalog_destination(destination);
+        self.enter_catalog_edge(edge);
         true
     }
 
@@ -972,6 +1004,84 @@ impl crate::app::App {
         }
     }
 
+    pub fn jellyfin_home_item(
+        &self,
+        source: &crate::jellyfin::browser::Source,
+        item: &crate::jellyfin::Item,
+        kind: crate::jellyfin::catalog::Kind,
+    ) -> LibraryItem {
+        let mut card = self.jellyfin_search_item(source, item, kind);
+        if kind == crate::jellyfin::catalog::Kind::Song {
+            card.play = Some(crate::model::Action::Jellyfin(
+                crate::jellyfin::browser::BrowserAction::PlayItem {
+                    source: source.clone(),
+                    item: Box::new(item.clone()),
+                    context: "combined-home".into(),
+                    query: None,
+                    index: None,
+                },
+            ));
+        }
+        card
+    }
+
+    pub fn jellyfin_home_library_item(
+        &self,
+        source: &crate::jellyfin::browser::Source,
+        library: &crate::jellyfin::MusicLibrary,
+    ) -> LibraryItem {
+        use crate::jellyfin::browser::View;
+
+        LibraryItem {
+            reference: ItemReference::Jellyfin {
+                source: source.id.clone(),
+                account: source.user_id.clone(),
+                item: library.id.clone(),
+            },
+            name: library.name.clone(),
+            subtitle: "Music library".into(),
+            artwork: crate::jellyfin::artwork::Reference::for_library(source, library)
+                .map(|art| art.uri()),
+            open: crate::model::Action::OpenCatalogResult(CatalogDestination::Jellyfin {
+                source: Box::new(source.clone()),
+                view: View::Albums {
+                    library_id: library.id.clone(),
+                    name: library.name.clone(),
+                },
+            }),
+            play: None,
+            menu: Vec::new(),
+            kind: MediaKind::Album,
+            round: false,
+            selected: false,
+            current: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn combined_jellyfin_home_items(
+        &self,
+        kind: crate::jellyfin::catalog::Kind,
+    ) -> Vec<LibraryItem> {
+        use crate::jellyfin::{browser::Rows, catalog::Kind};
+        self.jellyfin
+            .combined_home
+            .sources
+            .iter()
+            .filter_map(|entry| match (&entry.rows, kind) {
+                (Some(Rows::Home { recently_added, .. }), Kind::Album) => {
+                    Some((&entry.source, recently_added.items.as_slice()))
+                }
+                _ => None,
+            })
+            .flat_map(|(source, items)| {
+                items
+                    .iter()
+                    .map(|item| self.jellyfin_home_item(source, item, kind))
+            })
+            .collect()
+    }
+
     pub fn spotify_search_items(
         &self,
         results: &crate::api::models::SearchResults,
@@ -1133,12 +1243,14 @@ impl crate::app::App {
         if self.catalog_scope() == CatalogScope::All {
             match action {
                 Action::Open(Page::Search) | Action::FocusSearch => {
+                    self.catalog_page = CatalogPage::Search;
                     if matches!(action, Action::FocusSearch) {
                         self.search.focus_requested = true;
                     }
                     return true;
                 }
                 Action::Search(query) => {
+                    self.catalog_page = CatalogPage::Search;
                     self.catalog_forward = None;
                     let typed = query == &self.search.query;
                     self.search.query = query.clone();
@@ -1169,6 +1281,7 @@ impl crate::app::App {
                     return true;
                 }
                 Action::SetSearchFilter(filter) => {
+                    self.catalog_page = CatalogPage::Search;
                     self.catalog_forward = None;
                     self.search.filter = *filter;
                     self.jellyfin.search_kind = match filter {
@@ -1190,12 +1303,17 @@ impl crate::app::App {
                     }
                     return true;
                 }
+                Action::Open(Page::Home) => {
+                    self.catalog_page = CatalogPage::Home;
+                    self.ensure_combined_home_loaded(false);
+                    return true;
+                }
                 Action::Open(page) => {
                     self.enter_catalog_destination(CatalogDestination::Spotify(page.clone()));
                     return true;
                 }
                 Action::Back | Action::Forward => {
-                    self.set_catalog_scope(CatalogScope::Separate);
+                    return true;
                 }
                 _ => {}
             }

@@ -41,6 +41,12 @@ history below is not a list of tasks to repeat.
   exact provider-native page, while Back and Forward restore the composed query,
   filter and results. Live macOS validation covered Spotify and Jellyfin album
   navigation, playback and return to Search.
+- All-provider Home composes Spotify shelves with every saved Jellyfin account
+  in one source-labelled page while leaving each provider's separate Home
+  unchanged. Sources load and fail independently, successful empty sections are
+  omitted, cached shelves survive until an explicit refresh, and every card
+  retains its exact provider/source/account action. Live macOS validation
+  covered the interleaved page and navigation into a Jellyfin music library.
 - The playback provider now supplies the shared player bar's album, show and
   artist destinations. Jellyfin keeps source/account identity in its actions
   and linked artist IDs in now-playing metadata, while Spotify retains its

@@ -3131,6 +3131,64 @@ fn home_shelf(
     }
 }
 
+pub(crate) fn combined_jellyfin_home_shelf(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    id: &str,
+    title: &str,
+    source: &crate::jellyfin::browser::Source,
+    shelf: &crate::jellyfin::browser::HomeShelf,
+    kind: crate::jellyfin::catalog::Kind,
+) {
+    const CARDS: usize = 12;
+    let palette = app.palette;
+    if shelf.items.is_empty() {
+        if let Some(error) = &shelf.error {
+            widgets::shelf(ui, &palette, id, title, |ui| {
+                widgets::error_row(ui, app, error, None);
+            });
+        }
+        return;
+    }
+    let cards: Vec<_> = shelf
+        .items
+        .iter()
+        .take(CARDS)
+        .map(|item| app.jellyfin_home_item(source, item, kind))
+        .collect();
+    widgets::shelf(ui, &palette, id, title, |ui| {
+        for card in &cards {
+            super::library::item_card(app, ui, card);
+        }
+    });
+    if let Some(error) = &shelf.error {
+        widgets::error_row(ui, app, error, None);
+    }
+}
+
+pub(crate) fn combined_jellyfin_library_shelf(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    id: &str,
+    title: &str,
+    source: &crate::jellyfin::browser::Source,
+    libraries: &[crate::jellyfin::MusicLibrary],
+) {
+    if libraries.is_empty() {
+        return;
+    }
+    let cards: Vec<_> = libraries
+        .iter()
+        .map(|library| app.jellyfin_home_library_item(source, library))
+        .collect();
+    let palette = app.palette;
+    widgets::shelf(ui, &palette, id, title, |ui| {
+        for card in &cards {
+            super::library::item_card(app, ui, card);
+        }
+    });
+}
+
 pub fn provider_paging(
     app: &mut App,
     ui: &mut egui::Ui,

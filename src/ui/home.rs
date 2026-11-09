@@ -47,16 +47,165 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(16.0);
 
     if app.settings.home.made_for_you.visible {
-        made_for_you(app, ui);
-        top_mixes(app, ui);
+        let title = gettext(app.locale, "Made for you").into_owned();
+        made_for_you(app, ui, &title);
+        let title = gettext(app.locale, "Your top mixes").into_owned();
+        top_mixes(app, ui, &title);
     }
-    new_releases(app, ui);
-    recently_played(app, ui);
-    podcasts(app, ui);
-    top_artists(app, ui);
-    top_tracks(app, ui);
+    let title = gettext(app.locale, "New releases").into_owned();
+    new_releases(app, ui, &title);
+    let title = gettext(app.locale, "Recently played").into_owned();
+    recently_played(app, ui, &title);
+    let title = gettext(app.locale, "Your podcasts").into_owned();
+    podcasts(app, ui, &title);
+    let title = gettext(app.locale, "Your top artists").into_owned();
+    top_artists(app, ui, &title);
+    let title = gettext(app.locale, "Your top songs").into_owned();
+    top_tracks(app, ui, &title);
     if app.settings.home.recommendations.visible {
-        recommendations(app, ui);
+        let title = gettext(app.locale, "Recommended for you").into_owned();
+        recommendations(app, ui, &title);
+    }
+}
+
+fn sourced_title(app: &App, title: &str, source: &str) -> String {
+    gettext(app.locale, "{title} · {source}")
+        .replace("{title}", title)
+        .replace("{source}", source)
+}
+
+fn jellyfin_source_label(source: &crate::jellyfin::browser::Source) -> &str {
+    let nickname = source.nickname.trim();
+    if nickname.is_empty() {
+        &source.server_url
+    } else {
+        nickname
+    }
+}
+
+/// The app-owned discovery page for All providers. It composes existing
+/// provider shelves but never changes playback ownership or native histories.
+pub fn combined(app: &mut App, ui: &mut egui::Ui) {
+    use crate::jellyfin::{browser::Rows, catalog::Kind};
+
+    ui.add_space(6.0);
+    let greeting = crate::util::greeting(app.locale);
+    theme::text(ui, greeting.as_ref(), theme::bold(30.0), app.palette.text);
+    ui.add_space(8.0);
+    if ui.button(gettext(app.locale, "Refresh").as_ref()).clicked() {
+        app.actions.push(Action::RefreshCombinedHome);
+    }
+    ui.add_space(12.0);
+
+    let spotify = "Spotify";
+    let title = sourced_title(app, &gettext(app.locale, "Quick access"), spotify);
+    theme::section_title(ui, &app.palette, &title);
+    quick_access(app, ui);
+    ui.add_space(16.0);
+
+    let sources = app.jellyfin.combined_home.sources.clone();
+    for entry in sources.iter().filter(|entry| entry.rows.is_none()) {
+        let label = jellyfin_source_label(&entry.source);
+        theme::section_title(ui, &app.palette, label);
+        if entry.loading {
+            widgets::loading_row(ui, &app.palette, app.locale);
+        } else if let Some(error) = &entry.error {
+            widgets::error_row(ui, app, error, None);
+        }
+        ui.add_space(12.0);
+    }
+
+    for entry in &sources {
+        if let Some(Rows::Home {
+            recently_played, ..
+        }) = &entry.rows
+        {
+            let label = jellyfin_source_label(&entry.source);
+            let title = sourced_title(app, &gettext(app.locale, "Recently played"), label);
+            super::collection::combined_jellyfin_home_shelf(
+                app,
+                ui,
+                &format!("combined-home-recent-{}", entry.source.id),
+                &title,
+                &entry.source,
+                recently_played,
+                Kind::Song,
+            );
+        }
+    }
+
+    if app.settings.home.made_for_you.visible {
+        let title = sourced_title(app, &gettext(app.locale, "Made for you"), spotify);
+        made_for_you(app, ui, &title);
+    }
+    for entry in &sources {
+        if let Some(Rows::Home { recently_added, .. }) = &entry.rows {
+            let label = jellyfin_source_label(&entry.source);
+            let title = sourced_title(app, &gettext(app.locale, "Recently added"), label);
+            super::collection::combined_jellyfin_home_shelf(
+                app,
+                ui,
+                &format!("combined-home-added-{}", entry.source.id),
+                &title,
+                &entry.source,
+                recently_added,
+                Kind::Album,
+            );
+        }
+    }
+    if app.settings.home.made_for_you.visible {
+        let title = sourced_title(app, &gettext(app.locale, "Your top mixes"), spotify);
+        top_mixes(app, ui, &title);
+    }
+    for entry in &sources {
+        if let Some(Rows::Home {
+            frequently_played, ..
+        }) = &entry.rows
+        {
+            let label = jellyfin_source_label(&entry.source);
+            let title = sourced_title(app, &gettext(app.locale, "Frequently played"), label);
+            super::collection::combined_jellyfin_home_shelf(
+                app,
+                ui,
+                &format!("combined-home-frequent-{}", entry.source.id),
+                &title,
+                &entry.source,
+                frequently_played,
+                Kind::Song,
+            );
+        }
+    }
+
+    if app.network_reachable {
+        let title = sourced_title(app, &gettext(app.locale, "New releases"), spotify);
+        new_releases(app, ui, &title);
+        let title = sourced_title(app, &gettext(app.locale, "Recently played"), spotify);
+        recently_played(app, ui, &title);
+        let title = sourced_title(app, &gettext(app.locale, "Your podcasts"), spotify);
+        podcasts(app, ui, &title);
+        let title = sourced_title(app, &gettext(app.locale, "Your top artists"), spotify);
+        top_artists(app, ui, &title);
+        let title = sourced_title(app, &gettext(app.locale, "Your top songs"), spotify);
+        top_tracks(app, ui, &title);
+        if app.settings.home.recommendations.visible {
+            let title = sourced_title(app, &gettext(app.locale, "Recommended for you"), spotify);
+            recommendations(app, ui, &title);
+        }
+    }
+
+    for entry in &sources {
+        if let Some(Rows::Home { libraries, .. }) = &entry.rows {
+            let label = jellyfin_source_label(&entry.source);
+            let title = sourced_title(app, &gettext(app.locale, "Music libraries"), label);
+            super::collection::combined_jellyfin_library_shelf(
+                app,
+                ui,
+                &format!("combined-home-libraries-{}", entry.source.id),
+                &title,
+                &entry.source,
+                libraries,
+            );
+        }
     }
 }
 
@@ -330,7 +479,7 @@ fn quick_access(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// Renders session Home cards or approximate fallback cards in the same shelf.
-fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
+fn made_for_you(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let (playlists, loading, failure) = match &app.home.made_for_you {
         Loadable::Loaded(playlists) => (playlists.clone(), false, None),
@@ -340,25 +489,19 @@ fn made_for_you(app: &mut App, ui: &mut egui::Ui) {
     if playlists.is_empty() && !loading && failure.is_none() {
         return;
     }
-    widgets::shelf(
-        ui,
-        &palette,
-        "made-for-you",
-        &gettext(app.locale, "Made for you"),
-        |ui| {
-            if playlists.is_empty() && loading {
-                widgets::skeleton_cards(ui, &palette, app.locale, 7, false);
-            } else if playlists.is_empty()
-                && let Some(message) = &failure
-            {
-                widgets::error_row(ui, app, message, Some(Page::Home));
-            }
-            playlist_cards(app, ui, "home-made_for_you-menu", &playlists);
-        },
-    );
+    widgets::shelf(ui, &palette, "made-for-you", title, |ui| {
+        if playlists.is_empty() && loading {
+            widgets::skeleton_cards(ui, &palette, app.locale, 7, false);
+        } else if playlists.is_empty()
+            && let Some(message) = &failure
+        {
+            widgets::error_row(ui, app, message, Some(Page::Home));
+        }
+        playlist_cards(app, ui, "home-made_for_you-menu", &playlists);
+    });
 }
 
-fn top_mixes(app: &mut App, ui: &mut egui::Ui) {
+fn top_mixes(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let Some(playlists) = app
         .home
@@ -369,18 +512,14 @@ fn top_mixes(app: &mut App, ui: &mut egui::Ui) {
     else {
         return;
     };
-    widgets::shelf(
-        ui,
-        &palette,
-        "top-mixes",
-        &gettext(app.locale, "Your top mixes"),
-        |ui| playlist_cards(app, ui, "home-top_mixes-menu", &playlists),
-    );
+    widgets::shelf(ui, &palette, "top-mixes", title, |ui| {
+        playlist_cards(app, ui, "home-top_mixes-menu", &playlists)
+    });
 }
 
 /// The latest releases from followed artists. A card opens its release;
 /// the title opens the page that plays all their songs, newest first.
-fn new_releases(app: &mut App, ui: &mut egui::Ui) {
+fn new_releases(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let (albums, loading, failure) = match &app.home.new_releases {
         Loadable::Loaded(albums) => (albums.clone(), false, None),
@@ -390,24 +529,18 @@ fn new_releases(app: &mut App, ui: &mut egui::Ui) {
     if albums.is_empty() && !loading && failure.is_none() {
         return;
     }
-    let open = widgets::linked_shelf(
-        ui,
-        &palette,
-        "new-releases",
-        &gettext(app.locale, "New releases"),
-        |ui| {
-            if albums.is_empty() && loading {
-                widgets::loading_row(ui, &palette, app.locale);
-            } else if albums.is_empty()
-                && let Some(message) = &failure
-            {
-                widgets::error_row(ui, app, message, Some(Page::Home));
-            }
-            for album in &albums {
-                release_card(app, ui, album);
-            }
-        },
-    );
+    let open = widgets::linked_shelf(ui, &palette, "new-releases", title, |ui| {
+        if albums.is_empty() && loading {
+            widgets::loading_row(ui, &palette, app.locale);
+        } else if albums.is_empty()
+            && let Some(message) = &failure
+        {
+            widgets::error_row(ui, app, message, Some(Page::Home));
+        }
+        for album in &albums {
+            release_card(app, ui, album);
+        }
+    });
     if open {
         app.actions.push(Action::Open(Page::NewReleases));
     }
@@ -510,30 +643,20 @@ fn playlist_cards(app: &mut App, ui: &mut egui::Ui, menu: &str, playlists: &[Pla
     }
 }
 
-fn recently_played(app: &mut App, ui: &mut egui::Ui) {
+fn recently_played(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let history = match app.home.recently_played.clone() {
         Loadable::Loaded(history) => history,
         Loadable::Loading | Loadable::NotLoaded => {
-            widgets::shelf(
-                ui,
-                &palette,
-                "recent",
-                &gettext(app.locale, "Recently played"),
-                |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, false),
-            );
+            widgets::shelf(ui, &palette, "recent", title, |ui| {
+                widgets::skeleton_cards(ui, &palette, app.locale, 7, false)
+            });
             return;
         }
         Loadable::Failed(message) => {
-            widgets::shelf(
-                ui,
-                &palette,
-                "recent",
-                &gettext(app.locale, "Recently played"),
-                |ui| {
-                    widgets::error_row(ui, app, &message, Some(Page::Home));
-                },
-            );
+            widgets::shelf(ui, &palette, "recent", title, |ui| {
+                widgets::error_row(ui, app, &message, Some(Page::Home));
+            });
             return;
         }
     };
@@ -552,51 +675,39 @@ fn recently_played(app: &mut App, ui: &mut egui::Ui) {
     if tracks.is_empty() {
         return;
     }
-    widgets::shelf(
-        ui,
-        &palette,
-        "recent",
-        &gettext(app.locale, "Recently played"),
-        |ui| {
-            for entry in &tracks {
-                let track = &entry.track;
-                let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
-                    app,
-                    track.image(card_art),
-                    &track.name,
-                    &track.artist_names(),
-                    widgets::CardCover::square(false),
-                );
-                if card.play {
-                    app.actions.push(Action::PlayUris {
-                        uris: vec![track.uri.clone()],
-                        index: 0,
-                    });
-                }
-                if card.clicked
-                    && let Some(album) = &track.album
-                    && !album.id.is_empty()
-                {
-                    app.actions
-                        .push(Action::Open(Page::Album(album.id.clone())));
-                }
-                egui::Popup::context_menu(&card.response)
-                    .id(ui.make_persistent_id(("home-recently_played-menu", &track.uri)))
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        widgets::item_menu(
-                            ui,
-                            app,
-                            &PlayableItem::Track(track.clone()),
-                            None,
-                            None,
-                        );
-                    });
+    widgets::shelf(ui, &palette, "recent", title, |ui| {
+        for entry in &tracks {
+            let track = &entry.track;
+            let card_art = app.art_px(widgets::CARD_ART);
+            let card = widgets::card(
+                ui,
+                app,
+                track.image(card_art),
+                &track.name,
+                &track.artist_names(),
+                widgets::CardCover::square(false),
+            );
+            if card.play {
+                app.actions.push(Action::PlayUris {
+                    uris: vec![track.uri.clone()],
+                    index: 0,
+                });
             }
-        },
-    );
+            if card.clicked
+                && let Some(album) = &track.album
+                && !album.id.is_empty()
+            {
+                app.actions
+                    .push(Action::Open(Page::Album(album.id.clone())));
+            }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-recently_played-menu", &track.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::item_menu(ui, app, &PlayableItem::Track(track.clone()), None, None);
+                });
+        }
+    });
 }
 
 /// Why an episode is on the podcast shelf.
@@ -679,7 +790,7 @@ pub(crate) fn podcast_episodes(
         .collect()
 }
 
-fn podcasts(app: &mut App, ui: &mut egui::Ui) {
+fn podcasts(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let episodes = podcast_episodes(
         &app.home.podcasts,
@@ -689,139 +800,116 @@ fn podcasts(app: &mut App, ui: &mut egui::Ui) {
     if episodes.is_empty() {
         return;
     }
-    widgets::shelf(
-        ui,
-        &palette,
-        "podcasts",
-        &gettext(app.locale, "Your podcasts"),
-        |ui| {
-            for (show, episode, reason) in &episodes {
-                let subtitle = match reason {
-                    EpisodeReason::Continue { left_ms } => {
-                        // Translators: {time} is the time left in an episode, such as 12 min; {show} is the podcast's name.
-                        gettext(app.locale, "{time} left • {show}")
-                            .replace(
-                                "{time}",
-                                &crate::util::format_episode_ms(app.locale, *left_ms),
-                            )
-                            .replace("{show}", &show.name)
-                    }
-                    EpisodeReason::New => {
-                        // Translators: {show} is the podcast's name.
-                        gettext(app.locale, "New • {show}").replace("{show}", &show.name)
-                    }
-                };
-                let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
-                    app,
-                    pick_image(&episode.images, card_art)
-                        .or_else(|| pick_image(&show.images, card_art)),
-                    &episode.name,
-                    &subtitle,
-                    widgets::CardCover::square(false),
-                );
-                if card.play {
-                    app.actions.push(Action::PlayEpisode {
-                        uri: episode.uri.clone(),
-                        resume_ms: episode.resume_ms(),
-                    });
+    widgets::shelf(ui, &palette, "podcasts", title, |ui| {
+        for (show, episode, reason) in &episodes {
+            let subtitle = match reason {
+                EpisodeReason::Continue { left_ms } => {
+                    // Translators: {time} is the time left in an episode, such as 12 min; {show} is the podcast's name.
+                    gettext(app.locale, "{time} left • {show}")
+                        .replace(
+                            "{time}",
+                            &crate::util::format_episode_ms(app.locale, *left_ms),
+                        )
+                        .replace("{show}", &show.name)
                 }
-                if card.clicked && !show.id.is_empty() {
-                    app.actions.push(Action::Open(Page::Show(show.id.clone())));
+                EpisodeReason::New => {
+                    // Translators: {show} is the podcast's name.
+                    gettext(app.locale, "New • {show}").replace("{show}", &show.name)
                 }
-                egui::Popup::context_menu(&card.response)
-                    .id(ui.make_persistent_id(("home-podcasts-menu", &episode.uri)))
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        widgets::item_menu(
-                            ui,
-                            app,
-                            &PlayableItem::Episode(episode.clone()),
-                            None,
-                            None,
-                        );
-                    });
+            };
+            let card_art = app.art_px(widgets::CARD_ART);
+            let card = widgets::card(
+                ui,
+                app,
+                pick_image(&episode.images, card_art)
+                    .or_else(|| pick_image(&show.images, card_art)),
+                &episode.name,
+                &subtitle,
+                widgets::CardCover::square(false),
+            );
+            if card.play {
+                app.actions.push(Action::PlayEpisode {
+                    uri: episode.uri.clone(),
+                    resume_ms: episode.resume_ms(),
+                });
             }
-        },
-    );
+            if card.clicked && !show.id.is_empty() {
+                app.actions.push(Action::Open(Page::Show(show.id.clone())));
+            }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-podcasts-menu", &episode.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::item_menu(
+                        ui,
+                        app,
+                        &PlayableItem::Episode(episode.clone()),
+                        None,
+                        None,
+                    );
+                });
+        }
+    });
 }
 
-fn top_artists(app: &mut App, ui: &mut egui::Ui) {
+fn top_artists(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
     let artists = match app.home.top_artists.clone() {
         Loadable::Loaded(artists) => artists,
         Loadable::Loading | Loadable::NotLoaded => {
-            widgets::shelf(
-                ui,
-                &palette,
-                "top-artists",
-                &gettext(app.locale, "Your top artists"),
-                |ui| widgets::skeleton_cards(ui, &palette, app.locale, 7, true),
-            );
+            widgets::shelf(ui, &palette, "top-artists", title, |ui| {
+                widgets::skeleton_cards(ui, &palette, app.locale, 7, true)
+            });
             return;
         }
         Loadable::Failed(message) => {
-            widgets::shelf(
-                ui,
-                &palette,
-                "top-artists",
-                &gettext(app.locale, "Your top artists"),
-                |ui| {
-                    widgets::error_row(ui, app, &message, Some(Page::Home));
-                },
-            );
+            widgets::shelf(ui, &palette, "top-artists", title, |ui| {
+                widgets::error_row(ui, app, &message, Some(Page::Home));
+            });
             return;
         }
     };
     if artists.is_empty() {
         return;
     }
-    widgets::shelf(
-        ui,
-        &palette,
-        "top-artists",
-        &gettext(app.locale, "Your top artists"),
-        |ui| {
-            for artist in &artists {
-                let context_here =
-                    app.playing_context_uri().as_deref() == Some(artist.uri.as_str());
-                let playing_here = context_here && app.believed_playing();
-                let card_art = app.art_px(widgets::CARD_ART);
-                let card = widgets::card(
-                    ui,
-                    app,
-                    pick_image(&artist.images, card_art),
-                    &artist.name,
-                    &gettext(app.locale, "Artist"),
-                    widgets::CardCover::portrait(playing_here),
-                );
-                if card.play {
-                    if context_here {
-                        app.actions.push(Action::TogglePlay);
-                    } else {
-                        app.actions.push(Action::PlayContext {
-                            uri: artist.uri.clone(),
-                            offset_uri: None,
-                            offset_index: None,
-                        });
-                    }
-                }
-                if card.clicked {
-                    app.actions.push(crate::provider::spotify_artist_action(
-                        &artist.id,
-                        artist.name.clone(),
-                    ));
-                }
-                egui::Popup::context_menu(&card.response)
-                    .id(ui.make_persistent_id(("home-top_artists-menu", &artist.uri)))
-                    .frame(widgets::menu_frame(&palette))
-                    .show(|ui| {
-                        widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None);
+    widgets::shelf(ui, &palette, "top-artists", title, |ui| {
+        for artist in &artists {
+            let context_here = app.playing_context_uri().as_deref() == Some(artist.uri.as_str());
+            let playing_here = context_here && app.believed_playing();
+            let card_art = app.art_px(widgets::CARD_ART);
+            let card = widgets::card(
+                ui,
+                app,
+                pick_image(&artist.images, card_art),
+                &artist.name,
+                &gettext(app.locale, "Artist"),
+                widgets::CardCover::portrait(playing_here),
+            );
+            if card.play {
+                if context_here {
+                    app.actions.push(Action::TogglePlay);
+                } else {
+                    app.actions.push(Action::PlayContext {
+                        uri: artist.uri.clone(),
+                        offset_uri: None,
+                        offset_index: None,
                     });
+                }
             }
-        },
-    );
+            if card.clicked {
+                app.actions.push(crate::provider::spotify_artist_action(
+                    &artist.id,
+                    artist.name.clone(),
+                ));
+            }
+            egui::Popup::context_menu(&card.response)
+                .id(ui.make_persistent_id(("home-top_artists-menu", &artist.uri)))
+                .frame(widgets::menu_frame(&palette))
+                .show(|ui| {
+                    widgets::context_menu_items(ui, app, &artist.uri, &artist.name, None);
+                });
+        }
+    });
 }
 
 fn track_list(
@@ -907,13 +995,12 @@ fn track_list(
     ui.add_space(16.0);
 }
 
-fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
+fn top_tracks(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let palette = app.palette;
-    let title = gettext(app.locale, "Your top songs");
     let more = gettext(app.locale, "Show more top songs");
     let tracks = app.home.top_tracks.clone();
 
-    if theme::link(ui, &*title, theme::bold(17.0), palette.text).clicked() {
+    if theme::link(ui, title, theme::bold(17.0), palette.text).clicked() {
         app.actions.push(Action::Open(Page::TopSongs));
     }
     ui.add_space(4.0);
@@ -985,10 +1072,9 @@ fn top_tracks(app: &mut App, ui: &mut egui::Ui) {
     ui.add_space(16.0);
 }
 
-fn recommendations(app: &mut App, ui: &mut egui::Ui) {
+fn recommendations(app: &mut App, ui: &mut egui::Ui, title: &str) {
     let tracks = app.home.recommendations.clone();
-    let title = gettext(app.locale, "Recommended for you");
-    track_list(app, ui, &title, tracks, 20, None, None);
+    track_list(app, ui, title, tracks, 20, None, None);
 }
 
 #[cfg(test)]

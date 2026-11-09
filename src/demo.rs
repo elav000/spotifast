@@ -14901,7 +14901,7 @@ mod tests {
         assert_eq!(app.selected_provider(), Provider::Jellyfin);
         assert_eq!(
             app.central_page_presentation().route,
-            CentralPage::CombinedSearch
+            CentralPage::CombinedHome
         );
         app.backend.shutdown();
     }
@@ -14940,6 +14940,157 @@ mod tests {
         assert!(labels.iter().any(|(label, _)| label == "Spotify"));
         assert!(labels.iter().any(|(label, _)| label == "Music server"));
         assert!(labels.iter().any(|(label, _)| label == "Rosewood"));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_home_interleaves_source_shelves_and_isolates_failures() {
+        use crate::{
+            jellyfin::{
+                browser::{CombinedHomeSource, HomeShelf, Rows},
+                catalog::Kind,
+            },
+            provider::{CatalogPage, CatalogScope},
+        };
+        let (ctx, mut app) = accessible_app("combined-provider-home");
+        app.jellyfin.demo("jellyfin-albums");
+        let source = app.jellyfin.source.clone().unwrap();
+        let albums = app.jellyfin.catalog.items.clone();
+        let recent = albums[0].clone();
+        let added = albums[1].clone();
+        let frequent = albums[2].clone();
+        let rows = Rows::Home {
+            libraries: app.jellyfin.libraries.clone(),
+            recently_added: HomeShelf {
+                items: vec![added],
+                error: None,
+            },
+            recently_played: HomeShelf {
+                items: vec![recent],
+                error: None,
+            },
+            frequently_played: HomeShelf {
+                items: vec![frequent],
+                error: None,
+            },
+        };
+        let mut offline = source.clone();
+        offline.id = "fedcba9876543210fedcba9876543210".into();
+        offline.user_id = "offline-user".into();
+        offline.nickname = "Upstairs".into();
+        let mut empty = source.clone();
+        empty.id = "00112233445566778899aabbccddeeff".into();
+        empty.user_id = "empty-user".into();
+        empty.nickname = "Empty".into();
+        app.jellyfin.combined_home.sources = vec![
+            CombinedHomeSource {
+                source,
+                rows: Some(rows),
+                error: None,
+                loading: false,
+            },
+            CombinedHomeSource {
+                source: offline,
+                rows: None,
+                error: Some("Upstairs is offline".into()),
+                loading: false,
+            },
+            CombinedHomeSource {
+                source: empty,
+                rows: Some(Rows::Home {
+                    libraries: Vec::new(),
+                    recently_added: HomeShelf::default(),
+                    recently_played: HomeShelf::default(),
+                    frequently_played: HomeShelf::default(),
+                }),
+                error: None,
+                loading: false,
+            },
+        ];
+        app.set_catalog_scope(CatalogScope::All);
+        app.catalog_page = CatalogPage::Home;
+        app.settings.home.made_for_you.visible = true;
+        app.settings.home.recommendations.visible = false;
+
+        let labels = view_frame_sized(
+            &ctx,
+            &mut app,
+            vec![],
+            crate::ui::home::combined,
+            egui::vec2(1280.0, 4200.0),
+        );
+        let heading_y = |heading: &str| {
+            labels
+                .iter()
+                .find(|(label, _)| label == heading)
+                .map(|(_, rect)| rect.top())
+                .unwrap_or_else(|| panic!("missing {heading}"))
+        };
+        let order = [
+            "Quick access · Spotify",
+            "Recently played · Music server",
+            "Made for you · Spotify",
+            "Recently added · Music server",
+            "Your top mixes · Spotify",
+            "Frequently played · Music server",
+            "Music libraries · Music server",
+        ];
+        assert!(
+            order
+                .windows(2)
+                .all(|pair| heading_y(pair[0]) < heading_y(pair[1]))
+        );
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|(label, _)| label == "Upstairs is offline")
+                .count(),
+            1
+        );
+        let greeting = crate::util::greeting(app.locale);
+        assert_eq!(
+            labels
+                .iter()
+                .filter(|(label, _)| label == greeting.as_ref())
+                .count(),
+            1
+        );
+        assert!(!labels.iter().any(|(label, _)| label.contains("· Empty")));
+        assert!(
+            !labels
+                .iter()
+                .any(|(label, _)| label == "Recommended for you · Spotify")
+        );
+        assert!(
+            app.combined_jellyfin_home_items(Kind::Album)
+                .iter()
+                .all(|item| matches!(item.open, crate::model::Action::OpenCatalogResult(_)))
+        );
+        let library = &app.jellyfin.libraries[0];
+        let library_card =
+            app.jellyfin_home_library_item(&app.jellyfin.combined_home.sources[0].source, library);
+        assert!(matches!(
+            library_card.open,
+            crate::model::Action::OpenCatalogResult(
+                crate::provider::CatalogDestination::Jellyfin { source, view }
+            ) if source.same_identity(&app.jellyfin.combined_home.sources[0].source)
+                && matches!(&view, crate::jellyfin::browser::View::Albums { library_id, .. }
+                    if library_id == &library.id)
+        ));
+
+        app.network_reachable = false;
+        let offline_labels = view_frame_sized(
+            &ctx,
+            &mut app,
+            vec![],
+            crate::ui::home::combined,
+            egui::vec2(1280.0, 4200.0),
+        );
+        assert!(
+            offline_labels
+                .iter()
+                .any(|(label, _)| label == "Recently played · Music server")
+        );
         app.backend.shutdown();
     }
 

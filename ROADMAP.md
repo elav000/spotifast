@@ -197,16 +197,34 @@ and Forward cross that composed-to-native edge without losing the query,
 filter or results. Live macOS validation covered Spotify and Jellyfin album
 navigation, playback and return to the composed search.
 
+## Completed all-provider Home milestone
+
+Home now composes Spotify shelves with every saved Jellyfin server/account in
+one app-owned, source-labelled page. Provider-native single-catalog Home pages
+remain unchanged. Each source loads and fails independently, successful empty
+sections are omitted, cached shelves remain visible until an explicit refresh,
+and cards retain their exact provider/source/account actions. Opening or
+playing a card does not retarget an unrelated playback provider. Live macOS
+validation covered the interleaved page and navigation into a Jellyfin music
+library.
+
 ## Next implementation sequence
 
 All-provider catalog browsing continues without changing the playback contracts
 that are now stable:
 
-1. Apply the same app-owned catalog scope to Home shelves without copying
-   provider pages or flattening unsupported actions into inert controls.
-2. Compose Library after its grouping, sorting and duplicate rules are explicit.
+1. Keep **All providers** as the user-owned catalog scope while an exact
+   provider/source detail page is open. Provider-native rendering may prepare
+   that source internally, but must not make the profile menu or global Home
+   behave as though the user switched catalogs. Back returns to the composed
+   origin, and Home returns to the composed Home without reloading it.
+2. Refine the all-provider Search **All** tab into a compact ranked result list,
+   with one row per result and an explicit media type and source. Keep the
+   dedicated Songs, Artists, Albums and Playlists tabs on their existing richer
+   layouts; this is a presentation change, not a new search or ranking policy.
+3. Compose Library after its grouping, sorting and duplicate rules are explicit.
    Separate mode remains the default and must retain its existing behavior.
-3. Keep playback, queue handoff, links, devices and controls owned by the active
+4. Keep playback, queue handoff, links, devices and controls owned by the active
    entry. Browsing combined results must not select an output or initialize an
    unrelated provider runtime.
 
@@ -217,6 +235,14 @@ Spotify and Jellyfin metadata, artwork or credentials interchangeable.
 
 - Plex or other sources can follow Combined provider browsing through the same
   identity and capability contracts.
+- Report Tumlo's configured brand name in Jellyfin client sessions instead of
+  the legacy Spotifast name, while preserving the stable device/session identity
+  Jellyfin uses for activity and playback continuity.
+- On macOS, investigate exposing AirPlay and other system media routes beside
+  CoreAudio devices through the shared playback-output capability. Keep route
+  discovery and selection platform-specific, apply it only to app-owned local
+  audio, preserve provider-owned remote device routing, and validate latency,
+  disappearing routes and multi-room destinations on real hardware.
 - Jellyfin offline downloads are a separate later feature. Design storage
   limits, eviction, server transcoding profiles (including an MP3 compatibility
   option), original-file downloads, availability indicators and offline account

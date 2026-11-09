@@ -43,7 +43,8 @@ pub fn spawn(
                 return;
             };
             let mut catalog_tasks: [Option<tokio::task::JoinHandle<()>>; 2] = [None, None];
-            let mut combined_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+            let mut combined_search_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+            let mut combined_home_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
             let mut worker = Worker {
                 dirs,
                 events,
@@ -81,34 +82,65 @@ pub fn spawn(
                             task.abort();
                         }
                     }
-                    for task in combined_tasks.drain(..) {
+                    for task in combined_search_tasks.drain(..) {
+                        task.abort();
+                    }
+                    for task in combined_home_tasks.drain(..) {
                         task.abort();
                     }
                 }
-                if let Command::SearchAll {
-                    request,
-                    sources,
-                    term,
-                    kind,
-                } = &job.command
-                {
-                    for task in combined_tasks.drain(..) {
-                        task.abort();
-                    }
-                    for source in sources.iter().cloned() {
-                        let task = CombinedSearchTask {
-                            events: worker.events.clone(),
-                            waker: worker.waker.clone(),
-                            generation: job.generation,
-                            request: *request,
-                            source,
-                            proxy: job.proxy.clone(),
-                            term: term.clone(),
-                            kind: *kind,
+                match combined_lane(&job.command) {
+                    Some(CombinedLane::Search) => {
+                        let Command::SearchAll {
+                            request,
+                            sources,
+                            term,
+                            kind,
+                        } = &job.command
+                        else {
+                            unreachable!();
                         };
-                        combined_tasks.push(catalog_runtime.spawn(run_combined_search(task)));
+                        for task in combined_search_tasks.drain(..) {
+                            task.abort();
+                        }
+                        for source in sources.iter().cloned() {
+                            let task = CombinedSearchTask {
+                                events: worker.events.clone(),
+                                waker: worker.waker.clone(),
+                                generation: job.generation,
+                                request: *request,
+                                source,
+                                proxy: job.proxy.clone(),
+                                term: term.clone(),
+                                kind: *kind,
+                            };
+                            combined_search_tasks
+                                .push(catalog_runtime.spawn(run_combined_search(task)));
+                        }
+                        continue;
                     }
-                    continue;
+                    Some(CombinedLane::Home) => {
+                        let Command::HomeAll { request, sources } = &job.command else {
+                            unreachable!();
+                        };
+                        for task in combined_home_tasks.drain(..) {
+                            task.abort();
+                        }
+                        for source in sources.iter().cloned() {
+                            let task = CombinedHomeTask {
+                                events: worker.events.clone(),
+                                waker: worker.waker.clone(),
+                                generation: job.generation,
+                                request: *request,
+                                source,
+                                proxy: job.proxy.clone(),
+                            };
+                            combined_home_tasks
+                                .push(catalog_runtime.spawn(run_combined_home(task)));
+                        }
+                        continue;
+                    }
+                    None => {}
                 }
                 if let Some(lane) = catalog_lane(&job.command, job.catalog_request) {
                     let Command::Browse { view, start } = &job.command else {
@@ -177,6 +209,20 @@ fn cancels_catalog(command: &Command) -> bool {
     )
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CombinedLane {
+    Search,
+    Home,
+}
+
+fn combined_lane(command: &Command) -> Option<CombinedLane> {
+    match command {
+        Command::SearchAll { .. } => Some(CombinedLane::Search),
+        Command::HomeAll { .. } => Some(CombinedLane::Home),
+        _ => None,
+    }
+}
+
 struct CatalogTask {
     dirs: AppDirs,
     events: mpsc::Sender<Event>,
@@ -203,6 +249,15 @@ struct CombinedSearchTask {
     kind: Option<crate::jellyfin::catalog::Kind>,
 }
 
+struct CombinedHomeTask {
+    events: mpsc::Sender<Event>,
+    waker: Waker,
+    generation: u64,
+    request: u64,
+    source: Source,
+    proxy: crate::settings::ProxyConfig,
+}
+
 impl CombinedSearchTask {
     fn emit(
         self,
@@ -211,6 +266,20 @@ impl CombinedSearchTask {
         let _ = self.events.send(Event {
             generation: self.generation,
             reply: Reply::CombinedSearch {
+                request: self.request,
+                source: self.source,
+                result,
+            },
+        });
+        self.waker.wake();
+    }
+}
+
+impl CombinedHomeTask {
+    fn emit(self, result: Result<Rows, String>) {
+        let _ = self.events.send(Event {
+            generation: self.generation,
+            reply: Reply::CombinedHome {
                 request: self.request,
                 source: self.source,
                 result,
@@ -804,7 +873,7 @@ impl Worker {
                 );
                 self.emit(generation, Reply::Connected(source));
             }
-            Command::Browse { .. } | Command::SearchAll { .. } => {
+            Command::Browse { .. } | Command::SearchAll { .. } | Command::HomeAll { .. } => {
                 unreachable!("catalog reads use the cancellable runtime")
             }
             Command::Recent {
@@ -934,6 +1003,66 @@ async fn run_combined_search(task: CombinedSearchTask) {
     task.emit(result);
 }
 
+async fn run_combined_home(task: CombinedHomeTask) {
+    let source = task.source.clone();
+    let credential_source = source.clone();
+    let result = async {
+        let token =
+            tokio::task::spawn_blocking(move || credentials(credential_source, CredentialOp::Read))
+                .await
+                .map_err(|_| "Could not read the saved Jellyfin sign-in.".to_owned())??
+                .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
+        let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
+            .map_err(|error| error.to_string())?;
+        load_home(&client, &source, &token).await
+    }
+    .await;
+    task.emit(result);
+}
+
+async fn load_home(client: &Client, source: &Source, token: &Token) -> Result<Rows, String> {
+    let libraries = client
+        .music_libraries(&source.user_id, token)
+        .await
+        .map_err(|error| error.to_string())?;
+    let (added, recent, frequent) = tokio::join!(
+        client.query(
+            &source.user_id,
+            &crate::jellyfin::catalog::Query::RecentlyAdded,
+            0,
+            token,
+        ),
+        client.query(
+            &source.user_id,
+            &crate::jellyfin::catalog::Query::Recent,
+            0,
+            token,
+        ),
+        client.query(
+            &source.user_id,
+            &crate::jellyfin::catalog::Query::FrequentlyPlayed,
+            0,
+            token,
+        ),
+    );
+    let shelf = |result: Result<crate::jellyfin::Page<Item>, Error>| match result {
+        Ok(page) => HomeShelf {
+            items: page.items,
+            error: None,
+        },
+        Err(error) => HomeShelf {
+            items: Vec::new(),
+            error: Some(error.to_string()),
+        },
+    };
+    Ok(Rows::Home {
+        libraries,
+        recently_added: shelf(added),
+        recently_played: shelf(recent),
+        frequently_played: shelf(frequent),
+    })
+}
+
 async fn run_catalog(task: &CatalogTask) -> Result<(), String> {
     if !task.current() || matches!(task.view, View::Settings) {
         return Ok(());
@@ -1026,52 +1155,11 @@ async fn run_catalog(task: &CatalogTask) -> Result<(), String> {
             )
         }
         View::Libraries => {
-            let libraries = client
-                .music_libraries(&source.user_id, token)
-                .await
-                .map_err(|error| error.to_string())?;
+            let rows = load_home(&client, source, token).await?;
             if !task.current() {
                 return Ok(());
             }
-            let (added, recent, frequent) = tokio::join!(
-                client.query(
-                    &source.user_id,
-                    &crate::jellyfin::catalog::Query::RecentlyAdded,
-                    0,
-                    token,
-                ),
-                client.query(
-                    &source.user_id,
-                    &crate::jellyfin::catalog::Query::Recent,
-                    0,
-                    token,
-                ),
-                client.query(
-                    &source.user_id,
-                    &crate::jellyfin::catalog::Query::FrequentlyPlayed,
-                    0,
-                    token,
-                ),
-            );
-            let shelf = |result: Result<crate::jellyfin::Page<Item>, Error>| match result {
-                Ok(page) => crate::jellyfin::browser::HomeShelf {
-                    items: page.items,
-                    error: None,
-                },
-                Err(error) => crate::jellyfin::browser::HomeShelf {
-                    items: Vec::new(),
-                    error: Some(error.to_string()),
-                },
-            };
-            (
-                Rows::Home {
-                    libraries,
-                    recently_added: shelf(added),
-                    recently_played: shelf(recent),
-                    frequently_played: shelf(frequent),
-                },
-                None,
-            )
+            (rows, None)
         }
         View::Albums { library_id, .. } => {
             let page = client
@@ -1377,6 +1465,25 @@ mod tests {
         )));
         assert!(!cancels_catalog(&Command::RenameServer(source())));
         assert!(!cancels_catalog(&Command::Select(Provider::Spotify)));
+    }
+
+    #[test]
+    fn combined_home_and_search_have_independent_cancellation_lanes() {
+        let home = Command::HomeAll {
+            request: 1,
+            sources: vec![source()],
+        };
+        let search = Command::SearchAll {
+            request: 2,
+            sources: vec![source()],
+            term: "Bonobo".into(),
+            kind: None,
+        };
+
+        assert_eq!(combined_lane(&home), Some(CombinedLane::Home));
+        assert_eq!(combined_lane(&search), Some(CombinedLane::Search));
+        assert_ne!(combined_lane(&home), combined_lane(&search));
+        assert_eq!(combined_lane(&Command::Select(Provider::Spotify)), None);
     }
 
     #[test]

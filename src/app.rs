@@ -2406,7 +2406,7 @@ impl App {
     }
 
     pub fn playing_context_shuffle(&self) -> bool {
-        self.shuffle_wanted
+        self.active_provider_shuffle()
     }
 
     /// Current item for menus, using cached track details when available.
@@ -21887,6 +21887,38 @@ mod tests {
     }
 
     #[test]
+    fn active_jellyfin_shuffle_is_the_mode_shown_to_controls() {
+        use crate::jellyfin::browser::BrowserAction;
+
+        let mut app = headless_app();
+        app.jellyfin.demo("jellyfin-tracks");
+        let expected_next = match app.jellyfin.rows.as_ref().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[1].id.clone(),
+            _ => panic!("demo tracks"),
+        };
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.jellyfin_player.set_shuffle(true);
+
+        assert!(!app.shuffle_wanted, "Spotify's saved mode remains separate");
+        assert!(
+            app.playing_context_shuffle(),
+            "controls must show the active Jellyfin playback mode"
+        );
+
+        app.apply(Action::SetShuffle(false), &egui::Context::default());
+        assert!(!app.playing_context_shuffle());
+        assert!(!app.jellyfin_player.snapshot().shuffle);
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.jellyfin_player.step(true);
+        assert_eq!(
+            app.jellyfin_player.snapshot().item.unwrap().id,
+            expected_next,
+            "ordinary album Play advances in provider order after shuffle is off"
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn spotify_page_play_replaces_jellyfin_despite_a_stale_spotify_context() {
         use crate::jellyfin::browser::BrowserAction;
 
@@ -35228,6 +35260,65 @@ mod tests {
             .1;
         assert_eq!(shuffle_node.toggled(), Some(Toggled::False));
         assert!(app.backend.take_remote_shuffle_requests().is_empty());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn player_bar_can_turn_off_active_jellyfin_shuffle() {
+        use crate::jellyfin::browser::BrowserAction;
+        use egui::accesskit::{Action as AccessibleAction, ActionRequest, TreeId};
+
+        fn draw_player_bar(
+            ctx: &egui::Context,
+            app: &mut App,
+            events: Vec<egui::Event>,
+        ) -> egui::accesskit::TreeUpdate {
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    events,
+                    ..Default::default()
+                },
+                |ui| crate::ui::player_bar::show(app, ui),
+            );
+            output.textures_delta.clear();
+            app.apply_actions(ctx);
+            output.platform_output.accesskit_update.unwrap()
+        }
+
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut app = headless_app();
+        app.attach(&ctx);
+        app.jellyfin.demo("jellyfin-tracks");
+        app.apply_jellyfin_action(BrowserAction::Play("track0".into()));
+        app.jellyfin_player.set_shuffle(true);
+
+        let tree = draw_player_bar(&ctx, &mut app, Vec::new());
+        let shuffle_id = tree
+            .nodes
+            .iter()
+            .find(|(_, node)| node.label() == Some("Shuffle"))
+            .map(|(id, _)| *id)
+            .expect("player-bar Shuffle button");
+        draw_player_bar(
+            &ctx,
+            &mut app,
+            vec![egui::Event::AccessKitActionRequest(ActionRequest {
+                target_tree: TreeId::ROOT,
+                target_node: shuffle_id,
+                action: AccessibleAction::Click,
+                data: None,
+            })],
+        );
+
+        assert!(
+            !app.jellyfin_player.snapshot().shuffle,
+            "the active provider's shuffle control must accept the click"
+        );
         app.backend.shutdown();
     }
 

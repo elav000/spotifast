@@ -19,6 +19,31 @@ pub(crate) enum QueueItemLifecycle {
 }
 
 impl App {
+    /// The shuffle mode shown by shared controls belongs to the provider that
+    /// owns playback. Before anything owns output, the selected catalog's
+    /// provider supplies the mode a subsequent Play will use.
+    pub(crate) fn active_provider_shuffle(&self) -> bool {
+        match self
+            .playback_provider()
+            .unwrap_or_else(|| self.selected_provider())
+        {
+            Provider::Spotify => spotify::shuffle(self),
+            Provider::Jellyfin => jellyfin::shuffle(self),
+        }
+    }
+
+    /// Whether the active provider exposes a mutable shuffle mode to shared
+    /// transport controls.
+    pub(crate) fn active_provider_can_shuffle(&self) -> bool {
+        match self
+            .playback_provider()
+            .unwrap_or_else(|| self.selected_provider())
+        {
+            Provider::Spotify => spotify::can_shuffle(),
+            Provider::Jellyfin => jellyfin::can_shuffle(),
+        }
+    }
+
     /// Capture the active provider's remaining automatic context. The shared
     /// coordinator stores the opaque result but never inspects engine state.
     pub(crate) fn capture_active_provider_continuation(&self) -> Option<ProviderContinuation> {

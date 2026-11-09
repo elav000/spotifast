@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use egui::{Align, CornerRadius, Layout, Rect, Sense, Vec2, pos2, vec2};
+use egui::{Align, CornerRadius, Layout, Rect, Sense, UiBuilder, Vec2, pos2, vec2};
 
 use crate::api::models::{Artist, ArtistRef, PlayableItem, SearchResults, pick_image};
 use crate::app::App;
@@ -58,6 +58,10 @@ pub fn combined(app: &mut App, ui: &mut egui::Ui) {
     }
     if let Loadable::Loaded(results) = app.search.results.clone() {
         ui.push_id("combined-spotify", |ui| match app.search.filter {
+            SearchFilter::All => {
+                let items = app.spotify_search_items(&results, SearchFilter::All);
+                combined_result_rows(app, ui, &items, "Spotify");
+            }
             SearchFilter::Podcasts => shows_grid(app, ui, &results),
             SearchFilter::Episodes => episodes(app, ui, &results, 12),
             filter => {
@@ -104,9 +108,164 @@ pub fn combined(app: &mut App, ui: &mut egui::Ui) {
             .map(|(kind, item)| app.jellyfin_search_item(&source.source, &item, kind))
             .collect();
         ui.push_id(("combined-source", &source.source.id), |ui| {
-            super::library::item_grid(app, ui, &cards)
+            if app.search.filter == SearchFilter::All {
+                combined_result_rows(app, ui, &cards, label);
+            } else {
+                super::library::item_grid(app, ui, &cards);
+            }
         });
     }
+}
+
+fn combined_result_rows(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    items: &[crate::provider::LibraryItem],
+    source: &str,
+) {
+    for item in items {
+        ui.push_id(("combined-result", item.reference.uri()), |ui| {
+            combined_result_row(app, ui, item, source);
+        });
+    }
+}
+
+fn combined_result_row(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    item: &crate::provider::LibraryItem,
+    source: &str,
+) {
+    const HEIGHT: f32 = 64.0;
+    const ART: f32 = 48.0;
+    let palette = app.palette;
+    let kind = match item.kind {
+        crate::provider::MediaKind::Album => gettext(app.locale, "Album"),
+        crate::provider::MediaKind::Artist => gettext(app.locale, "Artist"),
+        crate::provider::MediaKind::Playlist => gettext(app.locale, "Playlist"),
+        crate::provider::MediaKind::Song => gettext(app.locale, "Song"),
+    };
+    let accessibility_label = format!("{}, {}, {source}", item.name, kind);
+    let metadata =
+        if item.subtitle.trim().is_empty() || item.subtitle == kind || item.subtitle == source {
+            format!("{kind} • {source}")
+        } else {
+            format!("{kind} • {} • {source}", item.subtitle)
+        };
+    let (rect, response) =
+        ui.allocate_exact_size(vec2(ui.available_width(), HEIGHT), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            accessibility_label.clone(),
+        )
+    });
+    if response.gained_focus() {
+        response.scroll_to_me(None);
+    }
+    if ui.is_rect_visible(rect) {
+        if response.hovered() || response.has_focus() {
+            ui.painter().rect_filled(
+                rect,
+                CornerRadius::same(theme::RADIUS),
+                palette.surface_hover,
+            );
+        }
+        let art = Rect::from_center_size(
+            pos2(rect.left() + 8.0 + ART / 2.0, rect.center().y),
+            Vec2::splat(ART),
+        );
+        widgets::paint_cover(
+            ui,
+            &palette,
+            item.artwork.as_deref(),
+            art,
+            if item.round { ART / 2.0 } else { 4.0 },
+            Icon::Music,
+            Some(app.backend.art()),
+        );
+        let left = art.right() + 12.0;
+        let right = rect.right() - if item.play.is_some() { 48.0 } else { 12.0 };
+        let title = widgets::ellipsized(
+            ui,
+            &item.name,
+            theme::semibold(15.0),
+            palette.text,
+            (right - left).max(1.0),
+            1,
+        );
+        let subtitle = widgets::ellipsized(
+            ui,
+            &metadata,
+            theme::regular(12.5),
+            palette.secondary,
+            (right - left).max(1.0),
+            1,
+        );
+        ui.painter().galley(
+            pos2(left, rect.center().y - title.size().y - 1.0),
+            title,
+            palette.text,
+        );
+        ui.painter().galley(
+            pos2(left, rect.center().y + 3.0),
+            subtitle,
+            palette.secondary,
+        );
+    }
+
+    let mut played = false;
+    if let Some(play) = &item.play {
+        let play_rect = Rect::from_center_size(
+            pos2(rect.right() - 24.0, rect.center().y),
+            Vec2::splat(36.0),
+        );
+        let mut child = ui.new_child(
+            UiBuilder::new()
+                .max_rect(play_rect)
+                .layout(Layout::centered_and_justified(egui::Direction::LeftToRight)),
+        );
+        let playing = item.current && app.believed_playing();
+        let tooltip = gettext(app.locale, if playing { "Pause" } else { "Play" });
+        if theme::icon_button(
+            &mut child,
+            if playing {
+                Icon::PauseFilled
+            } else {
+                Icon::PlayFilled
+            },
+            17.0,
+            palette.secondary,
+            palette.text,
+            &tooltip,
+        )
+        .clicked()
+        {
+            app.actions.push(if item.current {
+                Action::TogglePlay
+            } else {
+                play.clone()
+            });
+            played = true;
+        }
+    }
+    if response.clicked() && !played {
+        app.actions.push(item.open.clone());
+    }
+    if !item.menu.is_empty() {
+        egui::Popup::context_menu(&response)
+            .id(ui.make_persistent_id(("combined-result-menu", item.reference.uri())))
+            .frame(widgets::menu_frame(&palette))
+            .show(|ui| {
+                for (label, action) in &item.menu {
+                    if widgets::menu_item(ui, &palette, None, label) {
+                        app.actions.push(action.clone());
+                    }
+                }
+            });
+    }
+    theme::focus_ring(ui, &response);
 }
 
 pub fn show_for_provider(app: &mut App, ui: &mut egui::Ui, source: crate::provider::Provider) {

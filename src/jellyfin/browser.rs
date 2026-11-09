@@ -199,6 +199,10 @@ pub enum Command {
         term: String,
         kind: Option<Kind>,
     },
+    HomeAll {
+        request: u64,
+        sources: Vec<Source>,
+    },
 }
 
 pub struct Job {
@@ -244,6 +248,11 @@ pub enum Reply {
         request: u64,
         source: Source,
         result: Result<Vec<(Kind, Page<Item>)>, String>,
+    },
+    CombinedHome {
+        request: u64,
+        source: Source,
+        result: Result<Rows, String>,
     },
     Recent {
         request: u64,
@@ -310,10 +319,25 @@ pub struct CombinedSearch {
     pub sources: Vec<CombinedSearchSource>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CombinedHomeSource {
+    pub source: Source,
+    pub rows: Option<Rows>,
+    pub error: Option<String>,
+    pub loading: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CombinedHome {
+    pub request: u64,
+    pub sources: Vec<CombinedHomeSource>,
+}
+
 pub struct Browser {
     pub enabled: bool,
     pub provider: Provider,
     pub combined_search: CombinedSearch,
+    pub combined_home: CombinedHome,
     pub server_input: String,
     pub source: Option<Source>,
     pub servers: Vec<Source>,
@@ -392,6 +416,7 @@ impl Browser {
                 Provider::Spotify
             },
             combined_search: CombinedSearch::default(),
+            combined_home: CombinedHome::default(),
             server_input: String::new(),
             source: None,
             servers: Vec::new(),
@@ -466,6 +491,7 @@ impl Browser {
                 Reply::Catalog { .. }
                     | Reply::CatalogError { .. }
                     | Reply::CombinedSearch { .. }
+                    | Reply::CombinedHome { .. }
                     | Reply::Edited { .. }
                     | Reply::Favorited { .. }
                     | Reply::Playlists { .. }
@@ -689,6 +715,34 @@ impl Browser {
                     Err(error) => entry.error = Some(error),
                 }
             }
+            Reply::CombinedHome {
+                request,
+                source,
+                result,
+            } => {
+                if request != self.combined_home.request {
+                    return;
+                }
+                let Some(entry) = self
+                    .combined_home
+                    .sources
+                    .iter_mut()
+                    .find(|entry| entry.source.same_identity(&source))
+                else {
+                    return;
+                };
+                entry.loading = false;
+                match result {
+                    Ok(rows @ Rows::Home { .. }) => {
+                        entry.rows = Some(rows);
+                        entry.error = None;
+                    }
+                    Ok(_) => {
+                        entry.error = Some("Jellyfin returned an unexpected Home page.".into())
+                    }
+                    Err(error) => entry.error = Some(error),
+                }
+            }
             Reply::Recent {
                 request,
                 source,
@@ -769,6 +823,9 @@ impl Browser {
             }
             Reply::ServersChanged { servers, active } => {
                 self.servers = servers;
+                if self.combined_home.request != 0 {
+                    self.load_all_home(true, proxy);
+                }
                 let changed = self.source.as_ref().map(|source| &source.id)
                     != active.as_ref().map(|source| &source.id);
                 if changed {
@@ -1128,6 +1185,49 @@ impl Browser {
         self.combined_search.term = term;
         self.combined_search.kind = None;
         self.combined_search.sources.clear();
+    }
+
+    pub fn load_all_home(&mut self, force: bool, proxy: &ProxyConfig) {
+        let unchanged = self.combined_home.sources.len() == self.servers.len()
+            && self
+                .combined_home
+                .sources
+                .iter()
+                .zip(&self.servers)
+                .all(|(entry, source)| entry.source.same_identity(source));
+        if !force
+            && unchanged
+            && (self.servers.is_empty() || !self.combined_home.sources.is_empty())
+        {
+            return;
+        }
+
+        self.combined_home.request = self.combined_home.request.wrapping_add(1);
+        self.combined_home.sources = self
+            .servers
+            .iter()
+            .cloned()
+            .map(|source| {
+                let previous = self
+                    .combined_home
+                    .sources
+                    .iter()
+                    .find(|entry| entry.source.same_identity(&source));
+                CombinedHomeSource {
+                    source,
+                    rows: previous.and_then(|entry| entry.rows.clone()),
+                    error: None,
+                    loading: true,
+                }
+            })
+            .collect();
+        self.send(
+            proxy,
+            Command::HomeAll {
+                request: self.combined_home.request,
+                sources: self.servers.clone(),
+            },
+        );
     }
 
     pub fn open_source_view(&mut self, source: Source, view: View, proxy: &ProxyConfig) {
@@ -1602,13 +1702,30 @@ impl crate::app::App {
             }
             BrowserAction::Select(provider) => self.select_provider(provider),
             BrowserAction::SelectAll => {
+                let catalog_page = match self.selected_provider() {
+                    Provider::Spotify if matches!(self.page(), crate::model::Page::Search) => {
+                        crate::provider::CatalogPage::Search
+                    }
+                    Provider::Spotify if matches!(self.page(), crate::model::Page::Home) => {
+                        crate::provider::CatalogPage::Home
+                    }
+                    Provider::Jellyfin if matches!(self.jellyfin.view, View::Search { .. }) => {
+                        crate::provider::CatalogPage::Search
+                    }
+                    Provider::Jellyfin if matches!(self.jellyfin.view, View::Libraries) => {
+                        crate::provider::CatalogPage::Home
+                    }
+                    _ => crate::provider::CatalogPage::Home,
+                };
                 let query = self.global_search_presentation().query;
                 self.catalog_return = None;
                 self.catalog_forward = None;
                 self.set_catalog_scope(crate::provider::CatalogScope::All);
+                self.catalog_page = catalog_page;
                 self.search.query = query.clone();
                 self.jellyfin.search_input = query.clone();
-                if !query.trim().is_empty() {
+                if catalog_page == crate::provider::CatalogPage::Search && !query.trim().is_empty()
+                {
                     self.run_search(query.trim().to_owned());
                     if matches!(
                         self.search.filter,
@@ -1623,7 +1740,9 @@ impl crate::app::App {
                         );
                     }
                 }
-                self.open(crate::model::Page::Search);
+                if catalog_page == crate::provider::CatalogPage::Home {
+                    self.ensure_combined_home_loaded(false);
+                }
             }
             BrowserAction::OpenSettings => {
                 self.select_provider(Provider::Jellyfin);
@@ -2994,6 +3113,123 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert!(model.combined_search.sources[0].error.is_none());
+    }
+
+    #[test]
+    fn combined_home_keeps_each_sources_result_and_discards_old_replies() {
+        let mut model = model();
+        let first = model.source.clone().unwrap();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        model.servers.push(second.clone());
+
+        model.load_all_home(false, &ProxyConfig::Off);
+        let request = model.combined_home.request;
+        model.apply(
+            Reply::CombinedHome {
+                request,
+                source: first.clone(),
+                result: Ok(Rows::Home {
+                    libraries: vec![],
+                    recently_added: HomeShelf::default(),
+                    recently_played: HomeShelf::default(),
+                    frequently_played: HomeShelf::default(),
+                }),
+            },
+            &ProxyConfig::Off,
+        );
+        model.apply(
+            Reply::CombinedHome {
+                request,
+                source: second,
+                result: Err("Upstairs is offline".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.combined_home.sources[0].rows.is_some());
+        assert_eq!(
+            model.combined_home.sources[1].error.as_deref(),
+            Some("Upstairs is offline")
+        );
+
+        model.apply(
+            Reply::CombinedHome {
+                request: request.wrapping_sub(1),
+                source: first,
+                result: Err("stale".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.combined_home.sources[0].error.is_none());
+    }
+
+    #[test]
+    fn combined_home_reuses_received_rows_until_forced() {
+        let mut model = model();
+        let source = model.source.clone().unwrap();
+        model.load_all_home(false, &ProxyConfig::Off);
+        let request = model.combined_home.request;
+        model.apply(
+            Reply::CombinedHome {
+                request,
+                source,
+                result: Ok(Rows::Home {
+                    libraries: vec![],
+                    recently_added: HomeShelf::default(),
+                    recently_played: HomeShelf::default(),
+                    frequently_played: HomeShelf::default(),
+                }),
+            },
+            &ProxyConfig::Off,
+        );
+
+        model.load_all_home(false, &ProxyConfig::Off);
+        assert_eq!(model.combined_home.request, request);
+        assert!(!model.combined_home.sources[0].loading);
+        assert!(model.combined_home.sources[0].rows.is_some());
+
+        model.load_all_home(true, &ProxyConfig::Off);
+        assert_eq!(model.combined_home.request, request.wrapping_add(1));
+        assert!(model.combined_home.sources[0].loading);
+        assert!(model.combined_home.sources[0].rows.is_some());
+    }
+
+    #[test]
+    fn combined_home_removing_pending_source_refans_remaining_sources() {
+        let mut model = model();
+        let first = model.source.clone().unwrap();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        model.servers.push(second.clone());
+        model.load_all_home(false, &ProxyConfig::Off);
+        let old_request = model.combined_home.request;
+
+        model.apply(
+            Reply::ServersChanged {
+                servers: vec![first.clone()],
+                active: model.source.clone(),
+            },
+            &ProxyConfig::Off,
+        );
+
+        assert_eq!(model.combined_home.sources.len(), 1);
+        assert!(model.combined_home.sources[0].source.same_identity(&first));
+        assert!(model.combined_home.sources[0].loading);
+        assert_eq!(model.combined_home.request, old_request.wrapping_add(1));
+        let request = model.combined_home.request;
+        model.apply(
+            Reply::CombinedHome {
+                request,
+                source: first,
+                result: Err("Still reachable, but failed this request".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(!model.combined_home.sources[0].loading);
     }
 
     #[test]

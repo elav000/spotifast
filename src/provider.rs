@@ -430,7 +430,7 @@ impl crate::app::App {
         use crate::jellyfin::browser::View;
         use crate::model::Page;
 
-        if self.catalog_scope() == CatalogScope::All {
+        if self.catalog_scope() == CatalogScope::All && self.catalog_return.is_none() {
             let (route, key) = match self.catalog_page {
                 CatalogPage::Home => (CentralPage::CombinedHome, "combined:home"),
                 CatalogPage::Search => (CentralPage::CombinedSearch, "combined:search"),
@@ -490,7 +490,8 @@ impl crate::app::App {
                 provider: self.selected_provider(),
                 scope: CatalogScope::All,
                 query: self.search.query.clone(),
-                page_active: self.catalog_page == CatalogPage::Search,
+                page_active: self.catalog_return.is_none()
+                    && self.catalog_page == CatalogPage::Search,
             };
         }
         match self.selected_provider() {
@@ -645,7 +646,6 @@ impl crate::app::App {
         let destination = edge.destination.clone();
         self.catalog_return = Some(edge);
         self.catalog_forward = None;
-        self.set_catalog_scope(CatalogScope::Separate);
         match destination {
             CatalogDestination::Spotify(page) => {
                 self.jellyfin
@@ -1240,7 +1240,20 @@ impl crate::app::App {
         {
             return true;
         }
-        if self.catalog_scope() == CatalogScope::All {
+        if self.catalog_scope() == CatalogScope::All
+            && self.catalog_return.is_some()
+            && matches!(
+                action,
+                Action::Open(Page::Home | Page::Search)
+                    | Action::FocusSearch
+                    | Action::Search(_)
+                    | Action::SetSearchFilter(_)
+            )
+        {
+            self.catalog_return = None;
+            self.catalog_forward = None;
+        }
+        if self.catalog_scope() == CatalogScope::All && self.catalog_return.is_none() {
             match action {
                 Action::Open(Page::Search) | Action::FocusSearch => {
                     self.catalog_page = CatalogPage::Search;

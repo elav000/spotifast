@@ -7,6 +7,14 @@ use crate::{
     provider::{ProviderContinuation, ProviderQueueItem, QueueItemLifecycle},
 };
 
+pub(super) fn shuffle(app: &App) -> bool {
+    app.jellyfin_player.snapshot().shuffle
+}
+
+pub(super) fn can_shuffle() -> bool {
+    true
+}
+
 pub(super) fn capture_continuation(app: &App) -> Option<ProviderContinuation> {
     let state = app.jellyfin_player.snapshot();
     let rows: Vec<_> = state

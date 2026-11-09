@@ -9,6 +9,14 @@ use crate::{
     soloist::Status,
 };
 
+pub(super) fn shuffle(app: &App) -> bool {
+    app.spotify_shuffle_wanted()
+}
+
+pub(super) fn can_shuffle() -> bool {
+    true
+}
+
 pub(super) fn capture_continuation(app: &App) -> Option<ProviderContinuation> {
     let rows = app.spotify_context_upcoming();
     (!rows.is_empty()).then(|| {

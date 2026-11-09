@@ -28,13 +28,13 @@ msgstr "暂停 {name}"
 msgid "Play {name}"
 msgstr "播放 {name}"
 
-#: src/ui/sidebar.rs:320 src/app.rs:4725 src/app.rs:28957
+#: src/ui/sidebar.rs:320 src/app.rs:4725 src/app.rs:28989
 #: src/ui/collection.rs:2484 src/ui/collection.rs:2670 src/ui/search.rs:145
 msgid "Playlist"
 msgstr "歌单"
 
 #: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/ui/widgets.rs:1125
-#: src/app.rs:4699 src/app.rs:28962 src/ui/collection.rs:2663
+#: src/app.rs:4699 src/app.rs:28994 src/ui/collection.rs:2663
 #: src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
 msgstr "已点赞的歌曲"
@@ -842,7 +842,7 @@ msgstr "Spotifast 已是最新版本"
 msgid "Couldn't check for updates: {error}"
 msgstr "无法检查更新：{error}"
 
-#: src/app.rs:3857 src/provider/playback/spotify.rs:91
+#: src/app.rs:3857 src/provider/playback/spotify.rs:99
 msgid ""
 "The configured Spotify player could not start. Skipped this queued song."
 msgstr "无法启动已配置的 Spotify 播放器。已跳过播放队列中的这首歌曲。"
@@ -959,7 +959,7 @@ msgid "Queue cleared"
 msgstr "播放队列已清空"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:8316 src/app.rs:28947
+#: src/app.rs:8316 src/app.rs:28979
 #, rust-format
 msgid "Queue {date}"
 msgstr "队列 {date}"
@@ -1286,7 +1286,7 @@ msgstr "无法上传封面：{error}。请重试。"
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:28967 src/app/radio.rs:38
+#: src/app.rs:28999 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} 电台"
@@ -4230,14 +4230,14 @@ msgstr ""
 "有提供。请安装显卡驱动程序，或为虚拟机开启 GPU 加速。要打开 {url} 了解更多"
 "吗？"
 
-#: src/provider/playback/jellyfin.rs:85
+#: src/provider/playback/jellyfin.rs:93
 msgid ""
 "This queued song's Jellyfin server or account is no longer available. "
 "Skipped it."
 msgstr ""
 "播放队列中这首歌曲对应的 Jellyfin 服务器或帐户已不可用。已跳过这首歌曲。"
 
-#: src/provider/playback/spotify.rs:82
+#: src/provider/playback/spotify.rs:90
 msgid "The configured Spotify player is not ready. Skipped this queued song."
 msgstr "已配置的 Spotify 播放器尚未就绪。已跳过播放队列中的这首歌曲。"
 

@@ -29,13 +29,13 @@ msgstr "Приостановить {name}"
 msgid "Play {name}"
 msgstr "Воспроизвести {name}"
 
-#: src/ui/sidebar.rs:320 src/app.rs:4725 src/app.rs:28957
+#: src/ui/sidebar.rs:320 src/app.rs:4725 src/app.rs:28989
 #: src/ui/collection.rs:2484 src/ui/collection.rs:2670 src/ui/search.rs:145
 msgid "Playlist"
 msgstr "Плейлист"
 
 #: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/ui/widgets.rs:1125
-#: src/app.rs:4699 src/app.rs:28962 src/ui/collection.rs:2663
+#: src/app.rs:4699 src/app.rs:28994 src/ui/collection.rs:2663
 #: src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
 msgstr "Любимые треки"
@@ -863,7 +863,7 @@ msgstr "Установлена последняя версия Spotifast"
 msgid "Couldn't check for updates: {error}"
 msgstr "Не удалось проверить обновления: {error}"
 
-#: src/app.rs:3857 src/provider/playback/spotify.rs:91
+#: src/app.rs:3857 src/provider/playback/spotify.rs:99
 msgid ""
 "The configured Spotify player could not start. Skipped this queued song."
 msgstr ""
@@ -991,7 +991,7 @@ msgid "Queue cleared"
 msgstr "Очередь очищена"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:8316 src/app.rs:28947
+#: src/app.rs:8316 src/app.rs:28979
 #, rust-format
 msgid "Queue {date}"
 msgstr "Очередь {date}"
@@ -1334,7 +1334,7 @@ msgstr "Не удалось загрузить обложку: {error}. Попр
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:28967 src/app/radio.rs:38
+#: src/app.rs:28999 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Радио по треку «{track}»"
@@ -4419,7 +4419,7 @@ msgstr ""
 "драйвер или включите GPU-ускорение для виртуальной машины. Открыть {url}, "
 "чтобы узнать больше?"
 
-#: src/provider/playback/jellyfin.rs:85
+#: src/provider/playback/jellyfin.rs:93
 msgid ""
 "This queued song's Jellyfin server or account is no longer available. "
 "Skipped it."
@@ -4427,7 +4427,7 @@ msgstr ""
 "Сервер или учётная запись Jellyfin для этой песни в очереди больше "
 "недоступны. Песня пропущена."
 
-#: src/provider/playback/spotify.rs:82
+#: src/provider/playback/spotify.rs:90
 msgid "The configured Spotify player is not ready. Skipped this queued song."
 msgstr ""
 "Настроенный проигрыватель Spotify не готов. Эта песня в очереди пропущена."

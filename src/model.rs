@@ -1140,6 +1140,7 @@ pub struct Toast {
 /// Actions emitted while drawing and applied afterward to avoid borrow conflicts.
 #[derive(Clone, Debug)]
 pub enum Action {
+    OpenCatalogResult(crate::provider::CatalogDestination),
     AddProviderPlaylist {
         playlist: crate::provider::ItemReference,
         item: crate::provider::ItemReference,

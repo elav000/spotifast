@@ -193,6 +193,12 @@ pub enum Command {
     RemoveServer(String),
     SignOut,
     Select(Provider),
+    SearchAll {
+        request: u64,
+        sources: Vec<Source>,
+        term: String,
+        kind: Option<Kind>,
+    },
 }
 
 pub struct Job {
@@ -233,6 +239,11 @@ pub enum Reply {
     CatalogError {
         request: u64,
         error: String,
+    },
+    CombinedSearch {
+        request: u64,
+        source: Source,
+        result: Result<Vec<(Kind, Page<Item>)>, String>,
     },
     Recent {
         request: u64,
@@ -283,9 +294,26 @@ pub struct Catalog {
     pub sort: Option<crate::settings::LibrarySort>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CombinedSearchSource {
+    pub source: Source,
+    pub sections: Option<Vec<(Kind, Page<Item>)>>,
+    pub error: Option<String>,
+    pub loading: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CombinedSearch {
+    pub request: u64,
+    pub term: String,
+    pub kind: Option<Kind>,
+    pub sources: Vec<CombinedSearchSource>,
+}
+
 pub struct Browser {
     pub enabled: bool,
     pub provider: Provider,
+    pub combined_search: CombinedSearch,
     pub server_input: String,
     pub source: Option<Source>,
     pub servers: Vec<Source>,
@@ -330,6 +358,7 @@ pub struct Browser {
     pub search_input: String,
     pub search_kind: Option<Kind>,
     pub search_typed_at: Option<Instant>,
+    activation_view: Option<View>,
     pub history: Vec<(View, u32)>,
     pub history_index: usize,
     generation: Arc<AtomicU64>,
@@ -362,6 +391,7 @@ impl Browser {
             } else {
                 Provider::Spotify
             },
+            combined_search: CombinedSearch::default(),
             server_input: String::new(),
             source: None,
             servers: Vec::new(),
@@ -406,6 +436,7 @@ impl Browser {
             search_input: String::new(),
             search_kind: None,
             search_typed_at: None,
+            activation_view: None,
             history: vec![(View::Libraries, 0)],
             history_index: 0,
             generation,
@@ -434,6 +465,7 @@ impl Browser {
                 &event.reply,
                 Reply::Catalog { .. }
                     | Reply::CatalogError { .. }
+                    | Reply::CombinedSearch { .. }
                     | Reply::Edited { .. }
                     | Reply::Favorited { .. }
                     | Reply::Playlists { .. }
@@ -632,6 +664,31 @@ impl Browser {
                 self.catalog.busy = false;
             }
             Reply::Catalog { .. } | Reply::CatalogError { .. } => {}
+            Reply::CombinedSearch {
+                request,
+                source,
+                result,
+            } => {
+                if request != self.combined_search.request {
+                    return;
+                }
+                let Some(entry) = self
+                    .combined_search
+                    .sources
+                    .iter_mut()
+                    .find(|entry| entry.source.same_identity(&source))
+                else {
+                    return;
+                };
+                entry.loading = false;
+                match result {
+                    Ok(sections) => {
+                        entry.sections = Some(sections);
+                        entry.error = None;
+                    }
+                    Err(error) => entry.error = Some(error),
+                }
+            }
             Reply::Recent {
                 request,
                 source,
@@ -731,7 +788,8 @@ impl Browser {
                 self.source = Some(source.clone());
                 self.server_input = source.server_url.clone();
                 self.reset_for_server_switch();
-                self.browse(View::Libraries, 0, proxy);
+                let view = self.activation_view.take().unwrap_or(View::Libraries);
+                self.browse(view, 0, proxy);
                 self.load_playlists(proxy);
             }
             Reply::Challenge(code) => {
@@ -1033,6 +1091,63 @@ impl Browser {
         self.selection_changed = true;
         self.provider = provider;
         self.send(proxy, Command::Select(provider));
+    }
+
+    pub fn search_all(&mut self, term: String, kind: Option<Kind>, proxy: &ProxyConfig) {
+        if term.trim().is_empty() {
+            self.clear_combined_search(term);
+            return;
+        }
+        self.combined_search.request = self.combined_search.request.wrapping_add(1);
+        self.combined_search.term = term.trim().to_owned();
+        self.combined_search.kind = kind;
+        self.combined_search.sources = self
+            .servers
+            .iter()
+            .cloned()
+            .map(|source| CombinedSearchSource {
+                source,
+                sections: None,
+                error: None,
+                loading: true,
+            })
+            .collect();
+        self.send(
+            proxy,
+            Command::SearchAll {
+                request: self.combined_search.request,
+                sources: self.servers.clone(),
+                term: self.combined_search.term.clone(),
+                kind,
+            },
+        );
+    }
+
+    pub fn clear_combined_search(&mut self, term: String) {
+        self.combined_search.request = self.combined_search.request.wrapping_add(1);
+        self.combined_search.term = term;
+        self.combined_search.kind = None;
+        self.combined_search.sources.clear();
+    }
+
+    pub fn open_source_view(&mut self, source: Source, view: View, proxy: &ProxyConfig) {
+        if !self
+            .servers
+            .iter()
+            .any(|saved| saved.same_identity(&source))
+        {
+            return;
+        }
+        if self
+            .source
+            .as_ref()
+            .is_some_and(|active| active.same_identity(&source))
+        {
+            self.browse(view, 0, proxy);
+        } else {
+            self.activation_view = Some(view);
+            self.activate_server(source.id, proxy);
+        }
     }
 
     pub fn connect(&mut self, proxy: &ProxyConfig) {
@@ -1362,6 +1477,7 @@ pub enum BrowserAction {
         favorite: bool,
     },
     Select(Provider),
+    SelectAll,
     ServerInput(String),
     Filter(String),
     Connect,
@@ -1485,6 +1601,30 @@ impl crate::app::App {
                 }
             }
             BrowserAction::Select(provider) => self.select_provider(provider),
+            BrowserAction::SelectAll => {
+                let query = self.global_search_presentation().query;
+                self.catalog_return = None;
+                self.catalog_forward = None;
+                self.set_catalog_scope(crate::provider::CatalogScope::All);
+                self.search.query = query.clone();
+                self.jellyfin.search_input = query.clone();
+                if !query.trim().is_empty() {
+                    self.run_search(query.trim().to_owned());
+                    if matches!(
+                        self.search.filter,
+                        crate::model::SearchFilter::Podcasts | crate::model::SearchFilter::Episodes
+                    ) {
+                        self.jellyfin.clear_combined_search(query);
+                    } else {
+                        self.jellyfin.search_all(
+                            query,
+                            self.jellyfin.search_kind,
+                            &self.applied_jellyfin_proxy(),
+                        );
+                    }
+                }
+                self.open(crate::model::Page::Search);
+            }
             BrowserAction::OpenSettings => {
                 self.select_provider(Provider::Jellyfin);
                 self.jellyfin
@@ -1538,9 +1678,9 @@ impl crate::app::App {
             } => {
                 if !self
                     .jellyfin
-                    .source
-                    .as_ref()
-                    .is_some_and(|current| current.same_identity(&source))
+                    .servers
+                    .iter()
+                    .any(|saved| saved.same_identity(&source))
                 {
                     return;
                 }
@@ -2798,6 +2938,100 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert!(model.error.is_none());
+    }
+
+    #[test]
+    fn combined_search_keeps_each_sources_result_and_discards_old_replies() {
+        let mut model = model();
+        let first = model.source.clone().unwrap();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        model.servers.push(second.clone());
+        model.search_all("Bonobo".into(), None, &ProxyConfig::Off);
+        let request = model.combined_search.request;
+        let song = serde_json::from_value(serde_json::json!({
+            "Id": "track1",
+            "Name": "Kerala"
+        }))
+        .unwrap();
+        model.apply(
+            Reply::CombinedSearch {
+                request,
+                source: first.clone(),
+                result: Ok(vec![(
+                    Kind::Song,
+                    Page {
+                        items: vec![song],
+                        start_index: 0,
+                        total_record_count: 1,
+                    },
+                )]),
+            },
+            &ProxyConfig::Off,
+        );
+        model.apply(
+            Reply::CombinedSearch {
+                request,
+                source: second,
+                result: Err("Upstairs is offline".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.combined_search.sources[0].sections.is_some());
+        assert_eq!(
+            model.combined_search.sources[1].error.as_deref(),
+            Some("Upstairs is offline")
+        );
+
+        model.apply(
+            Reply::CombinedSearch {
+                request: request.wrapping_sub(1),
+                source: first,
+                result: Err("stale".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.combined_search.sources[0].error.is_none());
+    }
+
+    #[test]
+    fn empty_combined_search_clears_results_without_loading_sources() {
+        let mut model = model();
+        model.search_all("Bonobo".into(), None, &ProxyConfig::Off);
+        let request = model.combined_search.request;
+        assert!(!model.combined_search.sources.is_empty());
+
+        model.search_all("   ".into(), Some(Kind::Song), &ProxyConfig::Off);
+
+        assert_eq!(model.combined_search.request, request.wrapping_add(1));
+        assert_eq!(model.combined_search.term, "   ");
+        assert!(model.combined_search.kind.is_none());
+        assert!(model.combined_search.sources.is_empty());
+    }
+
+    #[test]
+    fn combined_result_navigation_prepares_the_exact_saved_source() {
+        let mut model = model();
+        let mut upstairs = model.source.clone().unwrap();
+        upstairs.id = "fedcba9876543210fedcba9876543210".into();
+        upstairs.user_id = "upstairs-user".into();
+        upstairs.nickname = "Upstairs".into();
+        model.servers.push(upstairs.clone());
+        let view = View::Tracks {
+            library_id: String::new(),
+            library_name: String::new(),
+            album_id: "album-upstairs".into(),
+            name: "Upstairs album".into(),
+        };
+
+        model.open_source_view(upstairs.clone(), view.clone(), &ProxyConfig::Off);
+        assert_ne!(model.source.as_ref(), Some(&upstairs));
+        model.apply(Reply::Activated(upstairs.clone()), &ProxyConfig::Off);
+
+        assert_eq!(model.source, Some(upstairs));
+        assert_eq!(model.view, view);
     }
 
     #[test]

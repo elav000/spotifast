@@ -43,6 +43,7 @@ pub fn spawn(
                 return;
             };
             let mut catalog_tasks: [Option<tokio::task::JoinHandle<()>>; 2] = [None, None];
+            let mut combined_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
             let mut worker = Worker {
                 dirs,
                 events,
@@ -80,6 +81,34 @@ pub fn spawn(
                             task.abort();
                         }
                     }
+                    for task in combined_tasks.drain(..) {
+                        task.abort();
+                    }
+                }
+                if let Command::SearchAll {
+                    request,
+                    sources,
+                    term,
+                    kind,
+                } = &job.command
+                {
+                    for task in combined_tasks.drain(..) {
+                        task.abort();
+                    }
+                    for source in sources.iter().cloned() {
+                        let task = CombinedSearchTask {
+                            events: worker.events.clone(),
+                            waker: worker.waker.clone(),
+                            generation: job.generation,
+                            request: *request,
+                            source,
+                            proxy: job.proxy.clone(),
+                            term: term.clone(),
+                            kind: *kind,
+                        };
+                        combined_tasks.push(catalog_runtime.spawn(run_combined_search(task)));
+                    }
+                    continue;
                 }
                 if let Some(lane) = catalog_lane(&job.command, job.catalog_request) {
                     let Command::Browse { view, start } = &job.command else {
@@ -161,6 +190,34 @@ struct CatalogTask {
     proxy: crate::settings::ProxyConfig,
     view: View,
     start: u32,
+}
+
+struct CombinedSearchTask {
+    events: mpsc::Sender<Event>,
+    waker: Waker,
+    generation: u64,
+    request: u64,
+    source: Source,
+    proxy: crate::settings::ProxyConfig,
+    term: String,
+    kind: Option<crate::jellyfin::catalog::Kind>,
+}
+
+impl CombinedSearchTask {
+    fn emit(
+        self,
+        result: Result<Vec<(crate::jellyfin::catalog::Kind, crate::jellyfin::Page<Item>)>, String>,
+    ) {
+        let _ = self.events.send(Event {
+            generation: self.generation,
+            reply: Reply::CombinedSearch {
+                request: self.request,
+                source: self.source,
+                result,
+            },
+        });
+        self.waker.wake();
+    }
 }
 
 impl CatalogTask {
@@ -747,7 +804,9 @@ impl Worker {
                 );
                 self.emit(generation, Reply::Connected(source));
             }
-            Command::Browse { .. } => unreachable!("catalog reads use the cancellable runtime"),
+            Command::Browse { .. } | Command::SearchAll { .. } => {
+                unreachable!("catalog reads use the cancellable runtime")
+            }
             Command::Recent {
                 source,
                 request,
@@ -831,6 +890,48 @@ impl Worker {
         }
         Ok(())
     }
+}
+
+async fn run_combined_search(task: CombinedSearchTask) {
+    let source = task.source.clone();
+    let credential_source = source.clone();
+    let result = async {
+        let token =
+            tokio::task::spawn_blocking(move || credentials(credential_source, CredentialOp::Read))
+                .await
+                .map_err(|_| "Could not read the saved Jellyfin sign-in.".to_owned())??
+                .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
+        let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
+            .map_err(|error| error.to_string())?;
+        let mut sections = Vec::new();
+        for category in [
+            crate::jellyfin::catalog::Kind::Song,
+            crate::jellyfin::catalog::Kind::Artist,
+            crate::jellyfin::catalog::Kind::Album,
+            crate::jellyfin::catalog::Kind::Playlist,
+        ] {
+            if task.kind.is_some_and(|kind| kind != category) {
+                continue;
+            }
+            let page = client
+                .query(
+                    &source.user_id,
+                    &crate::jellyfin::catalog::Query::Search {
+                        library: None,
+                        term: task.term.clone(),
+                        kind: category,
+                    },
+                    0,
+                    &token,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            sections.push((category, page));
+        }
+        Ok(sections)
+    }
+    .await;
+    task.emit(result);
 }
 
 async fn run_catalog(task: &CatalogTask) -> Result<(), String> {

@@ -14,13 +14,16 @@ Accepted work and completed live validation are recorded in the
   receive bespoke layouts merely because their capabilities differ. Put
   secondary provider actions in the shared overflow pattern and omit unsupported
   actions rather than rearranging the page around them.
-- Keep Spotify and Jellyfin catalogs separate for now. Switching the catalog
-  being browsed preserves the current playback provider and its queue; starting
-  a song transfers output ownership. Switching active Jellyfin server/accounts
-  still stops that server's transport and clears its queue. Queue actions must
-  never be retargeted across a provider or account boundary.
-- Use the term **Combined provider** for future catalog composition. This is a
-  later feature, potentially including Plex, not the current separate-catalog UI.
+- Keep separate catalogs as the default and offer **All providers** as an
+  explicit discovery scope. Catalog scope is app-owned composition, not a
+  synthetic provider: it injects the same query into concrete provider
+  adapters and groups their stamped answers. Selecting it does not initialize
+  playback, choose an output or overwrite the last separate provider/server.
+  Switching the catalog being browsed preserves the current playback provider
+  and its queue; starting a song transfers output ownership. Switching active
+  Jellyfin server/accounts still stops that server's transport and clears its
+  queue. Queue actions must never be retargeted across a provider or account
+  boundary.
 - Entries retain provider/source/account/item identity. Do not invent Spotify
   identities for Jellyfin, or send Jellyfin entries to Spotify services.
 - Share local playback policy where practical, while keeping service transports
@@ -182,16 +185,27 @@ browsed catalog or starting playback. Spotify restores the last explicitly
 chosen app-owned output when Soloist binds, while the shared lifecycle remains
 provider-neutral.
 
+## Completed all-provider Search milestone
+
+Search is the first completed all-provider vertical slice. The profile menu
+exposes **All providers** only when another configured catalog exists. Spotify
+and every saved Jellyfin server/account run independently, retain
+`ProviderStamp` identity and render in source-labelled sections. One source's
+error does not hide another source's results. Opening a result prepares its
+exact provider-native destination without changing playback ownership. Back
+and Forward cross that composed-to-native edge without losing the query,
+filter or results. Live macOS validation covered Spotify and Jellyfin album
+navigation, playback and return to the composed search.
+
 ## Next implementation sequence
 
-Combined provider catalog browsing is next. It composes discovery without
-changing the playback contracts that are now stable:
+All-provider catalog browsing continues without changing the playback contracts
+that are now stable:
 
-1. Define provider-neutral result groups and identity-preserving navigation for
-   Home, Search and Library. Every card and row keeps its original
-   `ProviderStamp` and provider-native destination.
-2. Compose available providers into shared shelves and result sections without
-   copying provider pages or flattening unsupported actions into inert controls.
+1. Apply the same app-owned catalog scope to Home shelves without copying
+   provider pages or flattening unsupported actions into inert controls.
+2. Compose Library after its grouping, sorting and duplicate rules are explicit.
+   Separate mode remains the default and must retain its existing behavior.
 3. Keep playback, queue handoff, links, devices and controls owned by the active
    entry. Browsing combined results must not select an output or initialize an
    unrelated provider runtime.

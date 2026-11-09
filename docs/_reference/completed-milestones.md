@@ -35,6 +35,12 @@ history below is not a list of tasks to repeat.
   identity, overview/tint behavior and global-search state. The shared top bar,
   sidebar and debounce path no longer read Jellyfin search fields or browser
   routes directly, while Spotify and Jellyfin retain independent queries.
+- All-provider Search composes Spotify and every saved Jellyfin account without
+  creating a synthetic playback provider. Results stay grouped and stamped by
+  source; one source can load or fail independently. Opening a result enters its
+  exact provider-native page, while Back and Forward restore the composed query,
+  filter and results. Live macOS validation covered Spotify and Jellyfin album
+  navigation, playback and return to Search.
 - The playback provider now supplies the shared player bar's album, show and
   artist destinations. Jellyfin keeps source/account identity in its actions
   and linked artist IDs in now-playing metadata, while Spotify retains its

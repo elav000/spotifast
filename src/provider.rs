@@ -9,6 +9,38 @@ pub enum Provider {
     Jellyfin,
 }
 
+/// Which catalogs the browsing surface composes. This is deliberately
+/// separate from `Provider`: a combined catalog owns no playback engine,
+/// device controls or queue lifecycle.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CatalogScope {
+    #[default]
+    Separate,
+    All,
+}
+
+/// One configured catalog occurrence. Provider stamps retain the exact
+/// source/account identity needed by navigation without exposing credentials
+/// or transport URLs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogSource {
+    pub stamp: ProviderStamp,
+    pub provider: Provider,
+    pub label: String,
+}
+
+/// A provider-native page reached from a composed catalog. The destination
+/// retains the exact source identity needed to enter and later revisit it;
+/// the app shell only records the reversible navigation edge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CatalogDestination {
+    Spotify(crate::model::Page),
+    Jellyfin {
+        source: Box<crate::jellyfin::browser::Source>,
+        view: crate::jellyfin::browser::View,
+    },
+}
+
 impl Provider {
     /// Spotify connection and playback state belongs only to Spotify's view.
     pub fn uses_spotify_connection(self) -> bool {
@@ -45,6 +77,7 @@ pub enum PlayerDeviceControl {
 pub enum CentralPage {
     Spotify(crate::model::Page),
     Search(Provider),
+    CombinedSearch,
     Settings,
     Collection,
 }
@@ -64,6 +97,7 @@ pub struct CentralPagePresentation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GlobalSearchPresentation {
     pub provider: Provider,
+    pub scope: CatalogScope,
     pub query: String,
     pub page_active: bool,
 }
@@ -382,6 +416,15 @@ impl crate::app::App {
         use crate::jellyfin::browser::View;
         use crate::model::Page;
 
+        if self.catalog_scope() == CatalogScope::All {
+            return CentralPagePresentation {
+                route: CentralPage::CombinedSearch,
+                key: "combined:search".into(),
+                overview: true,
+                tint_artwork: None,
+            };
+        }
+
         if self.selected_provider() == Provider::Jellyfin {
             let route = match self.jellyfin.view {
                 View::Settings => CentralPage::Settings,
@@ -424,14 +467,24 @@ impl crate::app::App {
     }
 
     pub fn global_search_presentation(&self) -> GlobalSearchPresentation {
+        if self.catalog_scope() == CatalogScope::All {
+            return GlobalSearchPresentation {
+                provider: self.selected_provider(),
+                scope: CatalogScope::All,
+                query: self.search.query.clone(),
+                page_active: true,
+            };
+        }
         match self.selected_provider() {
             Provider::Spotify => GlobalSearchPresentation {
                 provider: Provider::Spotify,
+                scope: self.catalog_scope(),
                 query: self.search.query.clone(),
                 page_active: matches!(self.page(), crate::model::Page::Search),
             },
             Provider::Jellyfin => GlobalSearchPresentation {
                 provider: Provider::Jellyfin,
+                scope: self.catalog_scope(),
                 query: self.jellyfin.search_input.clone(),
                 page_active: matches!(
                     self.jellyfin.view,
@@ -442,6 +495,11 @@ impl crate::app::App {
     }
 
     pub fn set_global_search_query(&mut self, query: String) {
+        if self.catalog_scope() == CatalogScope::All {
+            self.search.query = query.clone();
+            self.jellyfin.search_input = query;
+            return;
+        }
         match self.selected_provider() {
             Provider::Spotify => self.search.query = query,
             Provider::Jellyfin => self.jellyfin.search_input = query,
@@ -450,6 +508,11 @@ impl crate::app::App {
 
     pub fn mark_global_search_typed(&mut self) {
         let now = std::time::Instant::now();
+        if self.catalog_scope() == CatalogScope::All {
+            self.search.typed_at = Some(now);
+            self.jellyfin.search_typed_at = None;
+            return;
+        }
         match self.selected_provider() {
             Provider::Spotify => self.search.typed_at = Some(now),
             Provider::Jellyfin => self.jellyfin.search_typed_at = Some(now),
@@ -499,10 +562,103 @@ impl crate::app::App {
         }
     }
 
+    pub fn catalog_scope(&self) -> CatalogScope {
+        self.catalog_scope
+    }
+
+    /// Snapshot every configured catalog occurrence. Spotify has one
+    /// app-scoped identity; each saved Jellyfin server/account is independent.
+    pub fn catalog_sources(&self) -> Vec<CatalogSource> {
+        let mut sources = vec![CatalogSource {
+            stamp: ProviderStamp::Spotify,
+            provider: Provider::Spotify,
+            label: "Spotify".into(),
+        }];
+        sources.extend(self.jellyfin.servers.iter().map(|source| {
+            let nickname = source.nickname.trim();
+            CatalogSource {
+                stamp: ProviderStamp::jellyfin(source),
+                provider: Provider::Jellyfin,
+                label: if nickname.is_empty() {
+                    source.server_url.clone()
+                } else {
+                    nickname.to_owned()
+                },
+            }
+        }));
+        sources
+    }
+
     pub(crate) fn select_provider(&mut self, provider: Provider) {
+        self.catalog_return = None;
+        self.catalog_forward = None;
+        self.set_catalog_scope(CatalogScope::Separate);
         self.jellyfin
             .select(provider, &self.applied_jellyfin_proxy());
         self.activate_selected_provider();
+    }
+
+    fn catalog_destination_is_current(&self, destination: &CatalogDestination) -> bool {
+        match destination {
+            CatalogDestination::Spotify(page) => {
+                self.selected_provider() == Provider::Spotify && self.page() == page
+            }
+            CatalogDestination::Jellyfin { source, view } => {
+                self.selected_provider() == Provider::Jellyfin
+                    && self
+                        .jellyfin
+                        .source
+                        .as_ref()
+                        .is_some_and(|current| current.same_identity(source))
+                    && &self.jellyfin.view == view
+            }
+        }
+    }
+
+    fn enter_catalog_destination(&mut self, destination: CatalogDestination) {
+        self.catalog_return = Some(destination.clone());
+        self.catalog_forward = None;
+        self.set_catalog_scope(CatalogScope::Separate);
+        match destination {
+            CatalogDestination::Spotify(page) => {
+                self.jellyfin
+                    .select(Provider::Spotify, &self.applied_jellyfin_proxy());
+                self.open(page);
+            }
+            CatalogDestination::Jellyfin { source, view } => {
+                self.jellyfin
+                    .select(Provider::Jellyfin, &self.applied_jellyfin_proxy());
+                self.jellyfin
+                    .open_source_view(*source, view, &self.applied_jellyfin_proxy());
+            }
+        }
+    }
+
+    pub(crate) fn can_return_to_composed_catalog(&self) -> bool {
+        self.catalog_return
+            .as_ref()
+            .is_some_and(|destination| self.catalog_destination_is_current(destination))
+    }
+
+    pub(crate) fn can_reenter_catalog_destination(&self) -> bool {
+        self.catalog_scope() == CatalogScope::All && self.catalog_forward.is_some()
+    }
+
+    fn return_to_composed_catalog(&mut self) -> bool {
+        if !self.can_return_to_composed_catalog() {
+            return false;
+        }
+        self.catalog_forward = self.catalog_return.take();
+        self.set_catalog_scope(CatalogScope::All);
+        true
+    }
+
+    fn reenter_catalog_destination(&mut self) -> bool {
+        let Some(destination) = self.catalog_forward.take() else {
+            return false;
+        };
+        self.enter_catalog_destination(destination);
+        true
     }
 
     /// Playback remains visible while another provider's catalog is open.
@@ -731,6 +887,217 @@ impl crate::app::App {
         }
     }
 
+    pub fn jellyfin_search_item(
+        &self,
+        source: &crate::jellyfin::browser::Source,
+        item: &crate::jellyfin::Item,
+        kind: crate::jellyfin::catalog::Kind,
+    ) -> LibraryItem {
+        use crate::{
+            jellyfin::{
+                browser::{BrowserAction, View},
+                catalog::{Kind, Query},
+            },
+            model::Action,
+        };
+        let name = item.name.clone().unwrap_or_else(|| "Untitled".into());
+        let view = match kind {
+            Kind::Artist => View::Catalog {
+                query: Query::ArtistAlbums {
+                    library: None,
+                    artist: item.id.clone(),
+                },
+                name: name.clone(),
+            },
+            Kind::Playlist => View::Catalog {
+                query: Query::PlaylistSongs {
+                    playlist: item.id.clone(),
+                },
+                name: name.clone(),
+            },
+            Kind::Song => View::Tracks {
+                library_id: String::new(),
+                library_name: String::new(),
+                album_id: item.album_id.clone().unwrap_or_else(|| item.id.clone()),
+                name: item.album.clone().unwrap_or_else(|| name.clone()),
+            },
+            Kind::Album => View::Tracks {
+                library_id: String::new(),
+                library_name: String::new(),
+                album_id: item.id.clone(),
+                name: name.clone(),
+            },
+        };
+        let play = (kind == Kind::Song).then(|| {
+            Action::Jellyfin(BrowserAction::PlayItem {
+                source: source.clone(),
+                item: Box::new(item.clone()),
+                context: "combined-search".into(),
+                query: Some(Query::Search {
+                    library: None,
+                    term: self.jellyfin.combined_search.term.clone(),
+                    kind,
+                }),
+                index: None,
+            })
+        });
+        let context = self.jellyfin_player.context();
+        LibraryItem {
+            reference: ItemReference::Jellyfin {
+                source: source.id.clone(),
+                account: source.user_id.clone(),
+                item: item.id.clone(),
+            },
+            name,
+            subtitle: match kind {
+                Kind::Artist => "Artist".into(),
+                Kind::Playlist => "Playlist".into(),
+                _ => item.artists.join(", "),
+            },
+            artwork: crate::jellyfin::artwork::Reference::for_item(source, item)
+                .map(|art| art.uri()),
+            open: Action::OpenCatalogResult(CatalogDestination::Jellyfin {
+                source: Box::new(source.clone()),
+                view,
+            }),
+            play,
+            kind,
+            menu: Vec::new(),
+            round: kind == Kind::Artist,
+            selected: false,
+            current: self.jellyfin_player.controls_output()
+                && context.as_ref().is_some_and(|(current, context)| {
+                    current.same_identity(source) && context == &item.id
+                }),
+        }
+    }
+
+    pub fn spotify_search_items(
+        &self,
+        results: &crate::api::models::SearchResults,
+        filter: crate::model::SearchFilter,
+    ) -> Vec<LibraryItem> {
+        use crate::{
+            api::models::{join_names, pick_image},
+            model::{Action, Page, SearchFilter},
+        };
+
+        let limit = if filter == SearchFilter::All { 1 } else { 12 };
+        let mut items = Vec::new();
+        if matches!(filter, SearchFilter::All | SearchFilter::Songs)
+            && let Some(page) = &results.tracks
+        {
+            items.extend(page.items.iter().take(limit).map(|track| {
+                let uri = track.uri.clone();
+                let album = track.album.as_ref();
+                LibraryItem {
+                    reference: ItemReference::Spotify { uri: uri.clone() },
+                    name: track.name.clone(),
+                    subtitle: join_names(track.artists.iter().map(|artist| artist.name.as_str())),
+                    artwork: album
+                        .and_then(|album| pick_image(&album.images, self.art_px(320.0)))
+                        .map(str::to_owned),
+                    open: album.map_or_else(
+                        || Action::PlayUris {
+                            uris: vec![uri.clone()],
+                            index: 0,
+                        },
+                        |album| {
+                            Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Album(
+                                album.id.clone(),
+                            )))
+                        },
+                    ),
+                    play: Some(Action::PlayUris {
+                        uris: vec![uri],
+                        index: 0,
+                    }),
+                    kind: MediaKind::Song,
+                    menu: Vec::new(),
+                    round: false,
+                    selected: false,
+                    current: self.now_playing().is_some_and(|now| now.uri == track.uri),
+                }
+            }));
+        }
+        if matches!(filter, SearchFilter::All | SearchFilter::Artists)
+            && let Some(page) = &results.artists
+        {
+            items.extend(page.items.iter().take(limit).map(|artist| LibraryItem {
+                reference: ItemReference::Spotify {
+                    uri: artist.uri.clone(),
+                },
+                name: artist.name.clone(),
+                subtitle: "Artist".into(),
+                artwork: pick_image(&artist.images, self.art_px(320.0)).map(str::to_owned),
+                open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Artist(
+                    artist.id.clone(),
+                ))),
+                play: Some(Action::PlayContext {
+                    uri: artist.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                }),
+                kind: MediaKind::Artist,
+                menu: Vec::new(),
+                round: true,
+                selected: false,
+                current: self.playing_context_uri().as_deref() == Some(artist.uri.as_str()),
+            }));
+        }
+        if matches!(filter, SearchFilter::All | SearchFilter::Albums)
+            && let Some(page) = &results.albums
+        {
+            items.extend(page.items.iter().take(limit).map(|album| LibraryItem {
+                reference: ItemReference::Spotify {
+                    uri: album.uri.clone(),
+                },
+                name: album.name.clone(),
+                subtitle: join_names(album.artists.iter().map(|artist| artist.name.as_str())),
+                artwork: pick_image(&album.images, self.art_px(320.0)).map(str::to_owned),
+                open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Album(
+                    album.id.clone(),
+                ))),
+                play: Some(Action::PlayContext {
+                    uri: album.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                }),
+                kind: MediaKind::Album,
+                menu: Vec::new(),
+                round: false,
+                selected: false,
+                current: self.playing_context_uri().as_deref() == Some(album.uri.as_str()),
+            }));
+        }
+        if matches!(filter, SearchFilter::All | SearchFilter::Playlists)
+            && let Some(page) = &results.playlists
+        {
+            items.extend(page.items.iter().take(limit).map(|playlist| LibraryItem {
+                reference: ItemReference::Spotify {
+                    uri: playlist.uri.clone(),
+                },
+                name: playlist.name.clone(),
+                subtitle: playlist.owner_name().to_owned(),
+                artwork: pick_image(&playlist.images, self.art_px(320.0)).map(str::to_owned),
+                open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Playlist(
+                    playlist.id.clone(),
+                ))),
+                play: Some(Action::PlayContext {
+                    uri: playlist.uri.clone(),
+                    offset_uri: None,
+                    offset_index: None,
+                }),
+                kind: MediaKind::Playlist,
+                menu: Vec::new(),
+                round: false,
+                selected: false,
+                current: self.playing_context_uri().as_deref() == Some(playlist.uri.as_str()),
+            }));
+        }
+        items
+    }
+
     pub(crate) fn submit_provider_search(&mut self, query: String) {
         let library = match &self.jellyfin.view {
             crate::jellyfin::browser::View::Search { library, .. } => library.clone(),
@@ -750,6 +1117,89 @@ impl crate::app::App {
             jellyfin::{browser::View, catalog::Kind},
             model::{Action, Page, SearchFilter},
         };
+        if let Action::OpenCatalogResult(destination) = action {
+            self.enter_catalog_destination(destination.clone());
+            return true;
+        }
+        if matches!(action, Action::Back) && self.return_to_composed_catalog() {
+            return true;
+        }
+        if matches!(action, Action::Forward)
+            && self.catalog_scope() == CatalogScope::All
+            && self.reenter_catalog_destination()
+        {
+            return true;
+        }
+        if self.catalog_scope() == CatalogScope::All {
+            match action {
+                Action::Open(Page::Search) | Action::FocusSearch => {
+                    if matches!(action, Action::FocusSearch) {
+                        self.search.focus_requested = true;
+                    }
+                    return true;
+                }
+                Action::Search(query) => {
+                    self.catalog_forward = None;
+                    let typed = query == &self.search.query;
+                    self.search.query = query.clone();
+                    self.jellyfin.search_input = query.clone();
+                    self.search.typed_at = None;
+                    if typed && let Some(uri) = crate::link::parse(query) {
+                        self.actions.push(Action::OpenLink(uri));
+                        return true;
+                    }
+                    if typed {
+                        self.submit_typed_search(query.trim().to_owned());
+                    } else {
+                        self.search.edit_run += 1;
+                        self.run_search(query.trim().to_owned());
+                    }
+                    if matches!(
+                        self.search.filter,
+                        SearchFilter::Podcasts | SearchFilter::Episodes
+                    ) {
+                        self.jellyfin.clear_combined_search(query.clone());
+                    } else {
+                        self.jellyfin.search_all(
+                            query.clone(),
+                            self.jellyfin.search_kind,
+                            &self.applied_jellyfin_proxy(),
+                        );
+                    }
+                    return true;
+                }
+                Action::SetSearchFilter(filter) => {
+                    self.catalog_forward = None;
+                    self.search.filter = *filter;
+                    self.jellyfin.search_kind = match filter {
+                        SearchFilter::Songs => Some(Kind::Song),
+                        SearchFilter::Artists => Some(Kind::Artist),
+                        SearchFilter::Albums => Some(Kind::Album),
+                        SearchFilter::Playlists => Some(Kind::Playlist),
+                        _ => None,
+                    };
+                    if matches!(filter, SearchFilter::Podcasts | SearchFilter::Episodes) {
+                        self.jellyfin
+                            .clear_combined_search(self.search.query.clone());
+                    } else {
+                        self.jellyfin.search_all(
+                            self.search.query.clone(),
+                            self.jellyfin.search_kind,
+                            &self.applied_jellyfin_proxy(),
+                        );
+                    }
+                    return true;
+                }
+                Action::Open(page) => {
+                    self.enter_catalog_destination(CatalogDestination::Spotify(page.clone()));
+                    return true;
+                }
+                Action::Back | Action::Forward => {
+                    self.set_catalog_scope(CatalogScope::Separate);
+                }
+                _ => {}
+            }
+        }
         if let Action::OpenProviderArtist {
             artist,
             name,
@@ -974,6 +1424,33 @@ impl crate::app::App {
         ctx: &egui::Context,
         debounce: std::time::Duration,
     ) {
+        if self.catalog_scope() == CatalogScope::All {
+            let Some(typed) = self.search.typed_at else {
+                return;
+            };
+            if typed.elapsed() < debounce {
+                ctx.request_repaint_after(debounce - typed.elapsed());
+                return;
+            }
+            self.search.typed_at = None;
+            let query = self.search.query.trim().to_owned();
+            if crate::link::parse(&query).is_none() {
+                self.run_typed_search(query.clone());
+                if matches!(
+                    self.search.filter,
+                    crate::model::SearchFilter::Podcasts | crate::model::SearchFilter::Episodes
+                ) {
+                    self.jellyfin.clear_combined_search(query);
+                } else {
+                    self.jellyfin.search_all(
+                        query,
+                        self.jellyfin.search_kind,
+                        &self.applied_jellyfin_proxy(),
+                    );
+                }
+            }
+            return;
+        }
         let typed = match self.selected_provider() {
             Provider::Spotify => self.search.typed_at,
             Provider::Jellyfin => self.jellyfin.search_typed_at,

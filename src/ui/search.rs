@@ -17,6 +17,98 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     show_for_provider(app, ui, provider);
 }
 
+pub fn combined(app: &mut App, ui: &mut egui::Ui) {
+    let query = app.search.query.trim().to_owned();
+    if query.is_empty() && app.search.typed_at.is_none() {
+        widgets::empty_state(
+            ui,
+            &app.palette,
+            Icon::Search,
+            &gettext(app.locale, "Search"),
+            &gettext(
+                app.locale,
+                "Find songs, artists, albums, playlists, and podcasts.",
+            ),
+        );
+        return;
+    }
+
+    let palette = app.palette;
+    let labels: Vec<_> = SearchFilter::ALL
+        .iter()
+        .map(|filter| (*filter, filter.label(app.locale)))
+        .collect();
+    let options: Vec<(SearchFilter, &str)> = labels
+        .iter()
+        .map(|(filter, label)| (*filter, label.as_ref()))
+        .collect();
+    if let Some(filter) = widgets::chips(ui, &palette, &options, app.search.filter) {
+        app.actions.push(Action::SetSearchFilter(filter));
+    }
+    ui.add_space(16.0);
+
+    theme::section_title(ui, &app.palette, "Spotify");
+    ui.add_space(6.0);
+    let pending = app.search.catalogue_pending || app.search.playlists_pending;
+    if pending {
+        widgets::loading_row(ui, &palette, app.locale);
+    }
+    if let Some(error) = app.search.error.clone() {
+        widgets::error_row(ui, app, &error, None);
+    }
+    if let Loadable::Loaded(results) = app.search.results.clone() {
+        ui.push_id("combined-spotify", |ui| match app.search.filter {
+            SearchFilter::Podcasts => shows_grid(app, ui, &results),
+            SearchFilter::Episodes => episodes(app, ui, &results, 12),
+            filter => {
+                let items = app.spotify_search_items(&results, filter);
+                super::library::item_grid(app, ui, &items);
+            }
+        });
+    } else if !pending && app.search.error.is_none() {
+        widgets::skeleton_rows(ui, &palette, app.locale, 3);
+    }
+
+    let sources = app.jellyfin.combined_search.sources.clone();
+    for source in sources {
+        ui.add_space(28.0);
+        let label = if source.source.nickname.trim().is_empty() {
+            source.source.server_url.as_str()
+        } else {
+            source.source.nickname.trim()
+        };
+        theme::section_title(ui, &app.palette, label);
+        ui.add_space(6.0);
+        if source.loading {
+            widgets::loading_row(ui, &app.palette, app.locale);
+        }
+        if let Some(error) = &source.error {
+            widgets::error_row(ui, app, error, None);
+        }
+        let Some(sections) = source.sections else {
+            continue;
+        };
+        let limit = if app.search.filter == SearchFilter::All {
+            1
+        } else {
+            12
+        };
+        let cards: Vec<_> = sections
+            .into_iter()
+            .flat_map(|(kind, page)| {
+                page.items
+                    .into_iter()
+                    .take(limit)
+                    .map(move |item| (kind, item))
+            })
+            .map(|(kind, item)| app.jellyfin_search_item(&source.source, &item, kind))
+            .collect();
+        ui.push_id(("combined-source", &source.source.id), |ui| {
+            super::library::item_grid(app, ui, &cards)
+        });
+    }
+}
+
 pub fn show_for_provider(app: &mut App, ui: &mut egui::Ui, source: crate::provider::Provider) {
     if source == crate::provider::Provider::Jellyfin {
         provider(app, ui);

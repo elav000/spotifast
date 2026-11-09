@@ -1281,6 +1281,31 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             }
         }
     }
+    if page == Some("combined-search") {
+        app.jellyfin.demo("jellyfin-tracks");
+        seed_jellyfin_artwork(app);
+        app.set_catalog_scope(crate::provider::CatalogScope::All);
+        let source = app.jellyfin.source.clone().unwrap();
+        let items = match app.jellyfin.rows.clone().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items,
+            _ => unreachable!(),
+        };
+        app.jellyfin.combined_search.term = app.search.query.clone();
+        app.jellyfin.combined_search.sources =
+            vec![crate::jellyfin::browser::CombinedSearchSource {
+                source,
+                sections: Some(vec![(
+                    crate::jellyfin::catalog::Kind::Song,
+                    crate::jellyfin::Page {
+                        total_record_count: items.len() as u32,
+                        start_index: 0,
+                        items,
+                    },
+                )]),
+                error: None,
+                loading: false,
+            }];
+    }
     if let Some(page) = page.and_then(Page::decode) {
         app.open(page);
     }
@@ -14646,6 +14671,88 @@ mod tests {
             vec![accessible_action(spotify, AccessibleAction::Click, None)],
         );
         assert_eq!(app.jellyfin.provider, Provider::Spotify);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn account_menu_combines_catalogs_without_replacing_the_concrete_provider() {
+        use crate::provider::{CatalogScope, CentralPage, Provider};
+        use egui::accesskit::{Action as AccessibleAction, Role};
+        let (ctx, mut app) = accessible_app("account-combined-provider-switcher");
+        app.jellyfin.demo("jellyfin-tracks");
+        let account = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Music server",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(account, AccessibleAction::Click, None)],
+        );
+        let provider = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "Provider",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(provider, AccessibleAction::Click, None)],
+        );
+        let all = accessible_node(
+            &accessible_frame(&ctx, &mut app, vec![]),
+            "All providers",
+            Role::Button,
+        );
+        accessible_frame(
+            &ctx,
+            &mut app,
+            vec![accessible_action(all, AccessibleAction::Click, None)],
+        );
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.selected_provider(), Provider::Jellyfin);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::CombinedSearch
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_search_keeps_saved_sources_visibly_separate() {
+        use crate::{
+            jellyfin::{Page, browser::CombinedSearchSource, catalog::Kind},
+            provider::CatalogScope,
+        };
+        let (ctx, mut app) = accessible_app("combined-provider-search");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.set_catalog_scope(CatalogScope::All);
+        app.search.query = "Rosewood".into();
+        app.search.committed = "Rosewood".into();
+        let source = app.jellyfin.source.clone().unwrap();
+        let item = match app.jellyfin.rows.clone().unwrap() {
+            crate::jellyfin::browser::Rows::Items { items, .. } => items[0].clone(),
+            _ => unreachable!(),
+        };
+        app.jellyfin.combined_search.sources = vec![CombinedSearchSource {
+            source,
+            sections: Some(vec![(
+                Kind::Song,
+                Page {
+                    items: vec![item],
+                    total_record_count: 1,
+                    start_index: 0,
+                },
+            )]),
+            error: None,
+            loading: false,
+        }];
+
+        let labels = view_frame(&ctx, &mut app, vec![], crate::ui::search::combined);
+        assert!(labels.iter().any(|(label, _)| label == "Spotify"));
+        assert!(labels.iter().any(|(label, _)| label == "Music server"));
+        assert!(labels.iter().any(|(label, _)| label == "Rosewood"));
         app.backend.shutdown();
     }
 

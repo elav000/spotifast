@@ -470,7 +470,8 @@ Builds made with `cargo build --features demo` accept `--demo`, which loads
 sample data for screenshots and interface work. Demo mode never writes
 settings.
 
-`--demo-page` opens a page, such as `home`, `playlist:pl1`, or `artist:art0`,
+`--demo-page` opens a page, such as `home`, `playlist:pl1`, `artist:art0`, or
+`combined-search`,
 and `--demo-show` adds surfaces on top of it: a comma separated list of
 `queue`, `playing-next`, `devices`, `home-loading`, `audio-outputs`, `shortcuts`, `premium`, `create`, `duplicate`, `light`, `system-light`, `system-dark`,
 `focus`, `winamp`, `playlist`, `eq`, `eq-shade`, `compact`, `update`, `personal-app`, `slow-banner`, `audio-key-banner`,

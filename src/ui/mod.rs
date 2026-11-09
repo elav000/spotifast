@@ -429,6 +429,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
                             widgets::error_row(ui, app, &error, None);
                         }
                         match route {
+                            CentralPage::CombinedSearch => search::combined(app, ui),
                             CentralPage::Search(provider) => {
                                 search::show_for_provider(app, ui, provider)
                             }

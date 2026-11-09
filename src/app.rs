@@ -26227,7 +26227,7 @@ mod tests {
     fn back_and_forward_cross_the_combined_spotify_result_edge() {
         use crate::{
             model::{Action, Page, SearchFilter},
-            provider::{CatalogDestination, CatalogScope, Provider},
+            provider::{CatalogDestination, CatalogScope, CentralPage, Provider},
         };
 
         let ctx = egui::Context::default();
@@ -26243,9 +26243,13 @@ mod tests {
             Action::OpenCatalogResult(CatalogDestination::Spotify(album.clone())),
             &ctx,
         );
-        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.selected_provider(), Provider::Spotify);
         assert_eq!(app.page(), &album);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::Spotify(album.clone())
+        );
         assert!(app.can_go_back());
 
         app.apply(Action::Back, &ctx);
@@ -26255,14 +26259,14 @@ mod tests {
         assert!(app.can_go_forward());
 
         app.apply(Action::Forward, &ctx);
-        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.selected_provider(), Provider::Spotify);
         assert_eq!(app.page(), &album);
 
         let artist = Page::Artist("spotify-artist".into());
         app.apply(Action::Open(artist.clone()), &ctx);
         app.apply(Action::Back, &ctx);
-        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.page(), &album);
         app.apply(Action::Back, &ctx);
         assert_eq!(app.catalog_scope(), CatalogScope::All);
@@ -26275,7 +26279,7 @@ mod tests {
         use crate::{
             jellyfin::browser::View,
             model::{Action, SearchFilter},
-            provider::{CatalogDestination, CatalogScope, Provider},
+            provider::{CatalogDestination, CatalogScope, CentralPage, Provider},
         };
 
         let ctx = egui::Context::default();
@@ -26300,16 +26304,60 @@ mod tests {
             }),
             &ctx,
         );
-        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.selected_provider(), Provider::Jellyfin);
         assert!(app.jellyfin.source.as_ref().unwrap().same_identity(&source));
         assert_eq!(app.jellyfin.view, view);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::Collection
+        );
         assert!(app.can_go_back());
 
         app.apply(Action::Back, &ctx);
         assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.search.query, "Billy Joel");
         assert_eq!(app.search.filter, SearchFilter::Albums);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn home_from_an_all_owned_detail_returns_to_combined_home() {
+        use crate::{
+            jellyfin::browser::View,
+            model::{Action, Page},
+            provider::{CatalogDestination, CatalogPage, CatalogScope, CentralPage, Provider},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-detail-global-home");
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        app.jellyfin.provider = Provider::Spotify;
+        app.set_catalog_scope(CatalogScope::All);
+        app.catalog_page = CatalogPage::Search;
+
+        app.apply(
+            Action::OpenCatalogResult(CatalogDestination::Jellyfin {
+                source: Box::new(source),
+                view: View::Tracks {
+                    library_id: String::new(),
+                    library_name: String::new(),
+                    album_id: "jellyfin-album".into(),
+                    name: "Album".into(),
+                },
+            }),
+            &ctx,
+        );
+        app.apply(Action::Open(Page::Home), &ctx);
+
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.catalog_page, CatalogPage::Home);
+        assert_eq!(
+            app.central_page_presentation().route,
+            CentralPage::CombinedHome
+        );
+        assert!(!app.can_return_to_composed_catalog());
         app.backend.shutdown();
     }
 

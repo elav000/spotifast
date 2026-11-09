@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 19:26-0800\n"
+"POT-Creation-Date: 2026-11-08 20:31-0800\n"
 "PO-Revision-Date: 2026-09-23 20:00+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Russian\n"
@@ -29,12 +29,12 @@ msgstr "Приостановить {name}"
 msgid "Play {name}"
 msgstr "Воспроизвести {name}"
 
-#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28500
-#: src/ui/collection.rs:2484 src/ui/collection.rs:2670
+#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28548
+#: src/ui/collection.rs:2484 src/ui/collection.rs:2670 src/ui/search.rs:145
 msgid "Playlist"
 msgstr "Плейлист"
 
-#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28505
+#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28553
 #: src/ui/collection.rs:2663 src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
 msgstr "Любимые треки"
@@ -70,7 +70,7 @@ msgid "Folder"
 msgstr "Папка"
 
 #. Translators: {owner} is the name of the playlist's owner.
-#: src/ui/sidebar.rs:1018 src/ui/search.rs:329
+#: src/ui/sidebar.rs:1018 src/ui/search.rs:488
 #, rust-format
 msgid "Playlist • {owner}"
 msgstr "Плейлист • {owner}"
@@ -114,22 +114,22 @@ msgid "Library"
 msgstr "Медиатека"
 
 #: src/ui/sidebar.rs:1248 src/app.rs:10200 src/model.rs:807
-#: src/ui/search.rs:774
+#: src/ui/search.rs:933
 msgid "Playlists"
 msgstr "Плейлисты"
 
 #: src/ui/sidebar.rs:1249 src/model.rs:806 src/model.rs:940
-#: src/ui/library.rs:17 src/ui/search.rs:701
+#: src/ui/library.rs:17 src/ui/search.rs:860
 msgid "Albums"
 msgstr "Альбомы"
 
 #: src/ui/sidebar.rs:1250 src/model.rs:805 src/ui/library.rs:22
-#: src/ui/search.rs:633
+#: src/ui/search.rs:792
 msgid "Artists"
 msgstr "Исполнители"
 
 #: src/ui/sidebar.rs:1251 src/model.rs:808 src/ui/library.rs:27
-#: src/ui/search.rs:825
+#: src/ui/search.rs:984
 msgid "Podcasts"
 msgstr "Подкасты"
 
@@ -144,13 +144,13 @@ msgstr "Искать в медиатеке"
 
 #: src/ui/sidebar.rs:1460 src/ui/widgets.rs:1317 src/app.rs:4714
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
-#: src/ui/library.rs:99 src/ui/search.rs:260 src/ui/search.rs:595
-#: src/ui/winamp/playlist.rs:837
+#: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
+#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:837
 msgid "Artist"
 msgstr "Исполнитель"
 
 #. Translators: {publisher} is the podcast's publisher.
-#: src/ui/sidebar.rs:1496 src/ui/search.rs:354
+#: src/ui/sidebar.rs:1496 src/ui/search.rs:513
 #, rust-format
 msgid "Podcast • {publisher}"
 msgstr "Подкаст • {publisher}"
@@ -167,7 +167,7 @@ msgstr "Ничего не найдено."
 #: src/ui/widgets.rs:1364 src/ui/widgets.rs:2447 src/provider/detail.rs:178
 #: src/provider/detail.rs:199 src/provider/detail.rs:256
 #: src/provider/detail.rs:389 src/provider/detail.rs:499
-#: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:509
+#: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:668
 #: src/ui/show.rs:390
 msgid "Play"
 msgstr "Воспроизвести"
@@ -433,7 +433,7 @@ msgstr "Включи трек, чтобы увидеть его текст."
 #: src/ui/collection.rs:2194 src/ui/collection.rs:2220
 #: src/ui/collection.rs:2284 src/ui/collection.rs:2401
 #: src/ui/collection.rs:2427 src/ui/collection.rs:2643 src/ui/home.rs:25
-#: src/ui/library.rs:255 src/ui/search.rs:192 src/ui/show.rs:66
+#: src/ui/library.rs:255 src/ui/search.rs:351 src/ui/show.rs:66
 #: src/ui/show.rs:112 src/ui/show.rs:142
 msgid "You're offline"
 msgstr "Нет подключения к сети"
@@ -905,7 +905,7 @@ msgid "Radio"
 msgstr "Радио"
 
 #: src/app.rs:4695 src/api/models.rs:299 src/ui/artist.rs:373
-#: src/ui/prerelease.rs:78
+#: src/ui/prerelease.rs:78 src/ui/search.rs:143
 msgid "Album"
 msgstr "Альбом"
 
@@ -973,7 +973,7 @@ msgid "Queue cleared"
 msgstr "Очередь очищена"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:8238 src/app.rs:28490
+#: src/app.rs:8238 src/app.rs:28538
 #, rust-format
 msgid "Queue {date}"
 msgstr "Очередь {date}"
@@ -1321,7 +1321,7 @@ msgstr "Не удалось загрузить обложку: {error}. Попр
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:28510 src/app/radio.rs:38
+#: src/app.rs:28558 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "Радио по треку «{track}»"
@@ -2760,11 +2760,11 @@ msgctxt "filter"
 msgid "All"
 msgstr "Все"
 
-#: src/model.rs:804 src/provider/detail.rs:549 src/ui/search.rs:547
+#: src/model.rs:804 src/provider/detail.rs:549 src/ui/search.rs:706
 msgid "Songs"
 msgstr "Треки"
 
-#: src/model.rs:809 src/ui/library.rs:32 src/ui/search.rs:387
+#: src/model.rs:809 src/ui/library.rs:32 src/ui/search.rs:546
 msgid "Episodes"
 msgstr "Выпуски"
 
@@ -3295,7 +3295,7 @@ msgid "Music libraries"
 msgstr "Музыкальные библиотеки"
 
 #. Translators: {owner} is the name of the playlist's owner.
-#: src/ui/home.rs:602 src/ui/search.rs:729
+#: src/ui/home.rs:602 src/ui/search.rs:888
 #, rust-format
 msgid "By {owner}"
 msgstr "Автор: {owner}"
@@ -3792,57 +3792,61 @@ msgstr "С участием {first}, {second} и {third}"
 msgid "With {first}, {second}, {third} and more"
 msgstr "С участием {first}, {second}, {third} и других"
 
-#: src/ui/search.rs:30 src/ui/search.rs:208
+#: src/ui/search.rs:30 src/ui/search.rs:367
 msgid "Find songs, artists, albums, playlists, and podcasts."
 msgstr "Ищи треки, исполнителей, альбомы, плейлисты и подкасты."
 
+#: src/ui/search.rs:146
+msgid "Song"
+msgstr "Трек"
+
 #. Translators: {query} is the text the user searched for.
-#: src/ui/search.rs:167
+#: src/ui/search.rs:326
 #, rust-format
 msgid "No results for “{query}”"
 msgstr "Ничего не найдено по запросу «{query}»"
 
-#: src/ui/search.rs:169
+#: src/ui/search.rs:328
 msgid "Check the spelling, or try fewer words."
 msgstr "Проверь написание или попробуй меньше слов."
 
-#: src/ui/search.rs:195
+#: src/ui/search.rs:354
 msgid "Connect to the internet to search songs, artists, and playlists."
 msgstr ""
 "Подключитесь к интернету, чтобы искать треки, исполнителей и плейлисты."
 
-#: src/ui/search.rs:205
+#: src/ui/search.rs:364
 msgid "Search Spotify"
 msgstr "Поиск в Spotify"
 
-#: src/ui/search.rs:213
+#: src/ui/search.rs:372
 msgid "Recent searches"
 msgstr "Недавние запросы"
 
-#: src/ui/search.rs:252
+#: src/ui/search.rs:411
 msgid "Top result"
 msgstr "Лучший результат"
 
 #. Translators: {artists} is the album's artist names.
-#: src/ui/search.rs:303
+#: src/ui/search.rs:462
 #, rust-format
 msgid "Album • {artists}"
 msgstr "Альбом • {artists}"
 
 #. Translators: Precedes the song's artist names, which follow as links.
-#: src/ui/search.rs:468
+#: src/ui/search.rs:627
 msgid "Song • "
 msgstr "Трек • "
 
-#: src/ui/search.rs:896
+#: src/ui/search.rs:1055
 msgid "All collections"
 msgstr "Все коллекции"
 
-#: src/ui/search.rs:908
+#: src/ui/search.rs:1067
 msgid "Search in"
 msgstr "Искать в"
 
-#: src/ui/search.rs:934
+#: src/ui/search.rs:1093
 msgid "Search collection"
 msgstr "Поиск по коллекции"
 

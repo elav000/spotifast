@@ -1285,6 +1285,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
         app.jellyfin.demo("jellyfin-tracks");
         seed_jellyfin_artwork(app);
         app.set_catalog_scope(crate::provider::CatalogScope::All);
+        app.catalog_page = crate::provider::CatalogPage::Search;
         let source = app.jellyfin.source.clone().unwrap();
         let items = match app.jellyfin.rows.clone().unwrap() {
             crate::jellyfin::browser::Rows::Items { items, .. } => items,
@@ -14723,11 +14724,13 @@ mod tests {
     fn combined_search_keeps_saved_sources_visibly_separate() {
         use crate::{
             jellyfin::{Page, browser::CombinedSearchSource, catalog::Kind},
-            provider::CatalogScope,
+            provider::{CatalogPage, CatalogScope},
         };
+        use egui::accesskit::Role;
         let (ctx, mut app) = accessible_app("combined-provider-search");
         app.jellyfin.demo("jellyfin-tracks");
         app.set_catalog_scope(CatalogScope::All);
+        app.catalog_page = CatalogPage::Search;
         app.search.query = "Rosewood".into();
         app.search.committed = "Rosewood".into();
         let source = app.jellyfin.source.clone().unwrap();
@@ -14749,10 +14752,33 @@ mod tests {
             loading: false,
         }];
 
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Rosewood, Song, Spotify", Role::Button);
+        accessible_node(&tree, "Rosewood, Song, Music server", Role::Button);
         let labels = view_frame(&ctx, &mut app, vec![], crate::ui::search::combined);
-        assert!(labels.iter().any(|(label, _)| label == "Spotify"));
-        assert!(labels.iter().any(|(label, _)| label == "Music server"));
-        assert!(labels.iter().any(|(label, _)| label == "Rosewood"));
+        assert!(
+            labels
+                .iter()
+                .any(|(label, _)| label == "Playlist • Spotify")
+        );
+        assert!(
+            !labels
+                .iter()
+                .any(|(label, _)| label == "Playlist • Spotify • Spotify")
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    #[cfg(feature = "demo")]
+    fn combined_search_demo_flag_opens_the_combined_search_page() {
+        let (_ctx, mut app) = accessible_app("combined-search-demo-page");
+        apply_flags(&mut app, Some("combined-search"), None);
+
+        assert_eq!(
+            app.central_page_presentation().route,
+            crate::provider::CentralPage::CombinedSearch
+        );
         app.backend.shutdown();
     }
 

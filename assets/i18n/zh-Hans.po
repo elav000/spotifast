@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 19:26-0800\n"
+"POT-Creation-Date: 2026-11-08 20:31-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Simplified Chinese\n"
@@ -28,12 +28,12 @@ msgstr "暂停 {name}"
 msgid "Play {name}"
 msgstr "播放 {name}"
 
-#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28500
-#: src/ui/collection.rs:2484 src/ui/collection.rs:2670
+#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28548
+#: src/ui/collection.rs:2484 src/ui/collection.rs:2670 src/ui/search.rs:145
 msgid "Playlist"
 msgstr "歌单"
 
-#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28505
+#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28553
 #: src/ui/collection.rs:2663 src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
 msgstr "已点赞的歌曲"
@@ -69,7 +69,7 @@ msgid "Folder"
 msgstr "文件夹"
 
 #. Translators: {owner} is the name of the playlist's owner.
-#: src/ui/sidebar.rs:1018 src/ui/search.rs:329
+#: src/ui/sidebar.rs:1018 src/ui/search.rs:488
 #, rust-format
 msgid "Playlist • {owner}"
 msgstr "歌单 • {owner}"
@@ -113,22 +113,22 @@ msgid "Library"
 msgstr "音乐库"
 
 #: src/ui/sidebar.rs:1248 src/app.rs:10200 src/model.rs:807
-#: src/ui/search.rs:774
+#: src/ui/search.rs:933
 msgid "Playlists"
 msgstr "歌单"
 
 #: src/ui/sidebar.rs:1249 src/model.rs:806 src/model.rs:940
-#: src/ui/library.rs:17 src/ui/search.rs:701
+#: src/ui/library.rs:17 src/ui/search.rs:860
 msgid "Albums"
 msgstr "专辑"
 
 #: src/ui/sidebar.rs:1250 src/model.rs:805 src/ui/library.rs:22
-#: src/ui/search.rs:633
+#: src/ui/search.rs:792
 msgid "Artists"
 msgstr "艺人"
 
 #: src/ui/sidebar.rs:1251 src/model.rs:808 src/ui/library.rs:27
-#: src/ui/search.rs:825
+#: src/ui/search.rs:984
 msgid "Podcasts"
 msgstr "播客"
 
@@ -143,13 +143,13 @@ msgstr "在音乐库中搜索"
 
 #: src/ui/sidebar.rs:1460 src/ui/widgets.rs:1317 src/app.rs:4714
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
-#: src/ui/library.rs:99 src/ui/search.rs:260 src/ui/search.rs:595
-#: src/ui/winamp/playlist.rs:837
+#: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
+#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:837
 msgid "Artist"
 msgstr "艺人"
 
 #. Translators: {publisher} is the podcast's publisher.
-#: src/ui/sidebar.rs:1496 src/ui/search.rs:354
+#: src/ui/sidebar.rs:1496 src/ui/search.rs:513
 #, rust-format
 msgid "Podcast • {publisher}"
 msgstr "播客 • {publisher}"
@@ -166,7 +166,7 @@ msgstr "没有匹配项。"
 #: src/ui/widgets.rs:1364 src/ui/widgets.rs:2447 src/provider/detail.rs:178
 #: src/provider/detail.rs:199 src/provider/detail.rs:256
 #: src/provider/detail.rs:389 src/provider/detail.rs:499
-#: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:509
+#: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:668
 #: src/ui/show.rs:390
 msgid "Play"
 msgstr "播放"
@@ -424,7 +424,7 @@ msgstr "播放歌曲以查看歌词。"
 #: src/ui/collection.rs:2194 src/ui/collection.rs:2220
 #: src/ui/collection.rs:2284 src/ui/collection.rs:2401
 #: src/ui/collection.rs:2427 src/ui/collection.rs:2643 src/ui/home.rs:25
-#: src/ui/library.rs:255 src/ui/search.rs:192 src/ui/show.rs:66
+#: src/ui/library.rs:255 src/ui/search.rs:351 src/ui/show.rs:66
 #: src/ui/show.rs:112 src/ui/show.rs:142
 msgid "You're offline"
 msgstr "当前处于离线状态"
@@ -878,7 +878,7 @@ msgid "Radio"
 msgstr "电台"
 
 #: src/app.rs:4695 src/api/models.rs:299 src/ui/artist.rs:373
-#: src/ui/prerelease.rs:78
+#: src/ui/prerelease.rs:78 src/ui/search.rs:143
 msgid "Album"
 msgstr "专辑"
 
@@ -941,7 +941,7 @@ msgid "Queue cleared"
 msgstr "播放队列已清空"
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:8238 src/app.rs:28490
+#: src/app.rs:8238 src/app.rs:28538
 #, rust-format
 msgid "Queue {date}"
 msgstr "队列 {date}"
@@ -1273,7 +1273,7 @@ msgstr "无法上传封面：{error}。请重试。"
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:28510 src/app/radio.rs:38
+#: src/app.rs:28558 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr "{track} 电台"
@@ -2639,11 +2639,11 @@ msgctxt "filter"
 msgid "All"
 msgstr "全部"
 
-#: src/model.rs:804 src/provider/detail.rs:549 src/ui/search.rs:547
+#: src/model.rs:804 src/provider/detail.rs:549 src/ui/search.rs:706
 msgid "Songs"
 msgstr "歌曲"
 
-#: src/model.rs:809 src/ui/library.rs:32 src/ui/search.rs:387
+#: src/model.rs:809 src/ui/library.rs:32 src/ui/search.rs:546
 msgid "Episodes"
 msgstr "单集"
 
@@ -3143,7 +3143,7 @@ msgid "Music libraries"
 msgstr "音乐资料库"
 
 #. Translators: {owner} is the name of the playlist's owner.
-#: src/ui/home.rs:602 src/ui/search.rs:729
+#: src/ui/home.rs:602 src/ui/search.rs:888
 #, rust-format
 msgid "By {owner}"
 msgstr "创建者：{owner}"
@@ -3630,56 +3630,60 @@ msgstr "包含 {first}、{second} 和 {third}"
 msgid "With {first}, {second}, {third} and more"
 msgstr "包含 {first}、{second}、{third} 等"
 
-#: src/ui/search.rs:30 src/ui/search.rs:208
+#: src/ui/search.rs:30 src/ui/search.rs:367
 msgid "Find songs, artists, albums, playlists, and podcasts."
 msgstr "查找歌曲、艺人、专辑、歌单和播客。"
 
+#: src/ui/search.rs:146
+msgid "Song"
+msgstr "歌曲"
+
 #. Translators: {query} is the text the user searched for.
-#: src/ui/search.rs:167
+#: src/ui/search.rs:326
 #, rust-format
 msgid "No results for “{query}”"
 msgstr "没有“{query}”的相关结果"
 
-#: src/ui/search.rs:169
+#: src/ui/search.rs:328
 msgid "Check the spelling, or try fewer words."
 msgstr "请检查拼写，或减少字词。"
 
-#: src/ui/search.rs:195
+#: src/ui/search.rs:354
 msgid "Connect to the internet to search songs, artists, and playlists."
 msgstr "请连接互联网以搜索歌曲、艺人和播放列表。"
 
-#: src/ui/search.rs:205
+#: src/ui/search.rs:364
 msgid "Search Spotify"
 msgstr "搜索 Spotify"
 
-#: src/ui/search.rs:213
+#: src/ui/search.rs:372
 msgid "Recent searches"
 msgstr "最近搜索"
 
-#: src/ui/search.rs:252
+#: src/ui/search.rs:411
 msgid "Top result"
 msgstr "最佳结果"
 
 #. Translators: {artists} is the album's artist names.
-#: src/ui/search.rs:303
+#: src/ui/search.rs:462
 #, rust-format
 msgid "Album • {artists}"
 msgstr "专辑 • {artists}"
 
 #. Translators: Precedes the song's artist names, which follow as links.
-#: src/ui/search.rs:468
+#: src/ui/search.rs:627
 msgid "Song • "
 msgstr "歌曲 • "
 
-#: src/ui/search.rs:896
+#: src/ui/search.rs:1055
 msgid "All collections"
 msgstr "所有合集"
 
-#: src/ui/search.rs:908
+#: src/ui/search.rs:1067
 msgid "Search in"
 msgstr "搜索范围"
 
-#: src/ui/search.rs:934
+#: src/ui/search.rs:1093
 msgid "Search collection"
 msgstr "搜索合集"
 

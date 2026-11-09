@@ -37,10 +37,14 @@ history below is not a list of tasks to repeat.
   routes directly, while Spotify and Jellyfin retain independent queries.
 - All-provider Search composes Spotify and every saved Jellyfin account without
   creating a synthetic playback provider. Results stay grouped and stamped by
-  source; one source can load or fail independently. Opening a result enters its
-  exact provider-native page, while Back and Forward restore the composed query,
-  filter and results. Live macOS validation covered Spotify and Jellyfin album
-  navigation, playback and return to Search.
+  source; one source can load or fail independently. The All tab uses compact
+  rows with explicit media-type and source labels while dedicated tabs retain
+  their existing layouts. Opening a result enters its exact provider-native
+  page without changing the All-provider catalog scope. Back and Forward
+  restore the composed query, filter and results, and Home returns to the
+  composed Home. Live macOS validation covered the composed Home and Search
+  presentation, Spotify and Jellyfin album navigation, playback and return to
+  Search.
 - All-provider Home composes Spotify shelves with every saved Jellyfin account
   in one source-labelled page while leaving each provider's separate Home
   unchanged. Sources load and fail independently, successful empty sections are

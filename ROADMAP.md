@@ -191,11 +191,15 @@ Search is the first completed all-provider vertical slice. The profile menu
 exposes **All providers** only when another configured catalog exists. Spotify
 and every saved Jellyfin server/account run independently, retain
 `ProviderStamp` identity and render in source-labelled sections. One source's
-error does not hide another source's results. Opening a result prepares its
-exact provider-native destination without changing playback ownership. Back
-and Forward cross that composed-to-native edge without losing the query,
-filter or results. Live macOS validation covered Spotify and Jellyfin album
-navigation, playback and return to the composed search.
+error does not hide another source's results. The **All** tab presents compact
+rows with an explicit media type and exact source, while dedicated tabs retain
+their richer layouts. Opening a result prepares its exact provider-native
+destination without changing playback ownership or the user-owned **All
+providers** catalog scope. Back and Forward cross that composed-to-native edge
+without losing the query, filter or results, and Home returns to the composed
+Home. Live macOS validation covered the composed Home and Search presentation,
+Spotify and Jellyfin album navigation, playback and return to the composed
+search.
 
 ## Completed all-provider Home milestone
 
@@ -213,18 +217,9 @@ library.
 All-provider catalog browsing continues without changing the playback contracts
 that are now stable:
 
-1. Keep **All providers** as the user-owned catalog scope while an exact
-   provider/source detail page is open. Provider-native rendering may prepare
-   that source internally, but must not make the profile menu or global Home
-   behave as though the user switched catalogs. Back returns to the composed
-   origin, and Home returns to the composed Home without reloading it.
-2. Refine the all-provider Search **All** tab into a compact ranked result list,
-   with one row per result and an explicit media type and source. Keep the
-   dedicated Songs, Artists, Albums and Playlists tabs on their existing richer
-   layouts; this is a presentation change, not a new search or ranking policy.
-3. Compose Library after its grouping, sorting and duplicate rules are explicit.
+1. Compose Library after its grouping, sorting and duplicate rules are explicit.
    Separate mode remains the default and must retain its existing behavior.
-4. Keep playback, queue handoff, links, devices and controls owned by the active
+2. Keep playback, queue handoff, links, devices and controls owned by the active
    entry. Browsing combined results must not select an output or initialize an
    unrelated provider runtime.
 

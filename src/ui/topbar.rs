@@ -137,12 +137,26 @@ fn jellyfin_source_name(source: &crate::jellyfin::browser::Source) -> &str {
 fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
     let locale = app.locale;
     let jellyfin_selected = app.jellyfin_selected();
+    let separate = app.catalog_scope() == crate::provider::CatalogScope::Separate;
+    if app.catalog_sources().len() > 1
+        && super::widgets::menu_item_selected(
+            ui,
+            palette,
+            Icon::LayoutGrid,
+            &gettext(locale, "All providers"),
+            !separate,
+        )
+    {
+        app.actions.push(Action::Jellyfin(
+            crate::jellyfin::browser::BrowserAction::SelectAll,
+        ));
+    }
     if super::widgets::menu_item_selected(
         ui,
         palette,
         Icon::Spotify,
         &gettext(locale, "Spotify"),
-        !jellyfin_selected,
+        separate && !jellyfin_selected,
     ) {
         app.actions.push(Action::Jellyfin(
             crate::jellyfin::browser::BrowserAction::Select(Provider::Spotify),
@@ -167,7 +181,7 @@ fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
                 palette,
                 Icon::Jellyfin,
                 jellyfin_source_name(source),
-                jellyfin_selected,
+                separate && jellyfin_selected,
             ) {
                 select_jellyfin_source(app, &source.id);
             }
@@ -191,7 +205,7 @@ fn provider_menu(app: &mut App, ui: &mut egui::Ui, palette: &Palette) {
                             palette,
                             Icon::Jellyfin,
                             jellyfin_source_name(source),
-                            active,
+                            separate && active,
                         ) {
                             select_jellyfin_source(app, &source.id);
                         }

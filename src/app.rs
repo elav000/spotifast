@@ -358,6 +358,14 @@ const PLAY_COUNT_RETRY: Duration = Duration::from_secs(60);
 /// Successful artist overviews are revalidated while viewed, at most every ten minutes.
 const ARTIST_METADATA_REFRESH: Duration = Duration::from_secs(10 * 60);
 
+fn load_catalog_scope(dirs: &AppDirs, restore: bool) -> crate::provider::CatalogScope {
+    restore
+        .then(|| std::fs::read(dirs.state.join("browsing-catalog-scope.json")).ok())
+        .flatten()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
 /// Last successful artist overview, retained while a refresh is pending or fails.
 struct ArtistMetadataRead {
     received_at: Instant,
@@ -377,6 +385,14 @@ struct Immersive {
 
 pub struct App {
     pub jellyfin: crate::jellyfin::browser::Browser,
+    /// Which configured catalogs discovery queries. This composes provider
+    /// adapters; it is not itself a playback provider.
+    pub(crate) catalog_scope: crate::provider::CatalogScope,
+    /// Native destination entered from a composed catalog. It remains until
+    /// Back crosses that edge, even if native navigation goes deeper first.
+    pub(crate) catalog_return: Option<crate::provider::CatalogDestination>,
+    /// The destination Back left, so Forward can cross the same edge again.
+    pub(crate) catalog_forward: Option<crate::provider::CatalogDestination>,
     pub jellyfin_player: crate::jellyfin::transport::Transport,
     jellyfin_epoch: u64,
     jellyfin_end_sequence: u64,
@@ -1266,6 +1282,7 @@ impl App {
             .unwrap_or(Page::Home);
 
         let palette = settings.fixed_palette().unwrap_or_else(Palette::dark);
+        let catalog_scope = load_catalog_scope(&dirs, options.restore_sign_in);
         let mut app = Self {
             jellyfin_player,
             jellyfin_epoch: 0,
@@ -1277,6 +1294,9 @@ impl App {
                 waker.clone(),
                 options.restore_sign_in,
             ),
+            catalog_scope,
+            catalog_return: None,
+            catalog_forward: None,
             custom_themes: theme::Catalog::default(),
             storage_usage: crate::storage::Usage::default(),
             clearing_audio_cache: false,
@@ -6081,6 +6101,26 @@ impl App {
         }
     }
 
+    /// Change the discovery composition without selecting a playback provider.
+    /// The scope is app-owned because it spans every configured provider.
+    pub(crate) fn set_catalog_scope(&mut self, scope: crate::provider::CatalogScope) {
+        if self.catalog_scope == scope {
+            return;
+        }
+        self.catalog_scope = scope;
+        if self.offline {
+            return;
+        }
+        match serde_json::to_vec(&scope) {
+            Ok(bytes) => self.files.write(
+                &self.dirs.state.join("browsing-catalog-scope.json"),
+                bytes,
+                fastframe_file::Access::Default,
+            ),
+            Err(error) => log::warn!("could not save catalog scope: {error}"),
+        }
+    }
+
     /// Called at launch or by the local reload command. Construction and window
     /// attachment never scan theme files.
     pub fn load_custom_themes(&mut self, waker: &Waker) {
@@ -8375,7 +8415,7 @@ impl App {
         false
     }
 
-    fn run_search(&mut self, query: String) {
+    pub(crate) fn run_search(&mut self, query: String) {
         if !query.is_empty()
             && query == self.search.committed
             && !self.search.results.needs_load()
@@ -8414,7 +8454,7 @@ impl App {
     }
 
     /// Searches for what the field holds, ending its run of typing.
-    fn submit_typed_search(&mut self, query: String) {
+    pub(crate) fn submit_typed_search(&mut self, query: String) {
         let run = self.search.edit_run;
         self.search.edit_run += 1;
         let serial = self.search.serial;
@@ -10822,6 +10862,9 @@ impl App {
     }
 
     pub fn can_go_back(&self) -> bool {
+        if self.can_return_to_composed_catalog() {
+            return true;
+        }
         if self.jellyfin_selected() {
             return self.jellyfin.history_index > 0;
         }
@@ -10829,6 +10872,9 @@ impl App {
     }
 
     pub fn can_go_forward(&self) -> bool {
+        if self.can_reenter_catalog_destination() {
+            return true;
+        }
         if self.jellyfin_selected() {
             return self.jellyfin.history_index + 1 < self.jellyfin.history.len();
         }
@@ -13337,6 +13383,7 @@ impl App {
             return;
         }
         match action {
+            Action::OpenCatalogResult(_) => {}
             Action::AddProviderPlaylist { .. } => {}
             Action::OpenProviderArtist { .. } => {}
             Action::RenameProviderPlaylist { target, name } => {
@@ -20849,6 +20896,47 @@ mod tests {
     }
 
     #[test]
+    fn catalog_registry_lists_every_configured_source_without_mixing_identity_and_labels() {
+        use crate::provider::{CatalogSource, Provider, ProviderStamp};
+
+        let mut app = test_app("catalog-source-registry");
+        app.jellyfin.demo("jellyfin-tracks");
+        let first_stamp = ProviderStamp::jellyfin(app.jellyfin.source.as_ref().unwrap());
+        let mut upstairs = app.jellyfin.source.clone().unwrap();
+        upstairs.id = "fedcba9876543210fedcba9876543210".into();
+        upstairs.user_id = "upstairs-user".into();
+        upstairs.nickname = "Upstairs".into();
+        app.jellyfin.servers.push(upstairs.clone());
+
+        assert_eq!(
+            app.catalog_sources(),
+            vec![
+                CatalogSource {
+                    stamp: ProviderStamp::Spotify,
+                    provider: Provider::Spotify,
+                    label: "Spotify".into(),
+                },
+                CatalogSource {
+                    stamp: first_stamp.clone(),
+                    provider: Provider::Jellyfin,
+                    label: "Music server".into(),
+                },
+                CatalogSource {
+                    stamp: ProviderStamp::jellyfin(&upstairs),
+                    provider: Provider::Jellyfin,
+                    label: "Upstairs".into(),
+                },
+            ]
+        );
+
+        app.jellyfin.servers[0].nickname = "Downstairs".into();
+        let renamed = &app.catalog_sources()[1];
+        assert_eq!(renamed.stamp, first_stamp);
+        assert_eq!(renamed.label, "Downstairs");
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn provider_artist_navigation_resolves_its_source_and_switches_catalogs() {
         use crate::{
             jellyfin::{browser::View, catalog::Query},
@@ -26190,6 +26278,196 @@ mod tests {
             crate::jellyfin::browser::View::Libraries
         ));
         app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_catalog_scope_does_not_activate_a_playback_provider() {
+        use crate::{
+            jellyfin::browser::BrowserAction,
+            provider::{CatalogScope, Provider},
+            soloist::{Failure, Status},
+        };
+
+        let mut app = test_app("combined-catalog-does-not-activate-playback");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.provider = Provider::Spotify;
+        app.settings.soloist_enabled = true;
+        app.soloist_status = Status::Failed(Failure::Stopped);
+        app.soloist_retry_at = Some(Instant::now());
+
+        app.apply_jellyfin_action(BrowserAction::SelectAll);
+
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.selected_provider(), Provider::Spotify);
+        assert!(matches!(app.soloist_status, Status::Failed(_)));
+        assert!(app.soloist_retry_at.is_some());
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn opening_a_combined_result_changes_catalog_source_without_pausing_playback() {
+        use crate::{
+            jellyfin::browser::View,
+            model::Action,
+            player::{LocalTrack, Playback},
+            provider::{CatalogDestination, CatalogScope, Provider},
+        };
+
+        let mut app = test_app("combined-result-preserves-playback");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.provider = Provider::Spotify;
+        app.local_ready = true;
+        app.local = LocalState {
+            connected: true,
+            playback: Playback::Playing,
+            track: Some(LocalTrack {
+                uri: "spotify:track:playing".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut upstairs = app.jellyfin.source.clone().unwrap();
+        upstairs.id = "fedcba9876543210fedcba9876543210".into();
+        upstairs.user_id = "upstairs-user".into();
+        upstairs.nickname = "Upstairs".into();
+        app.jellyfin.servers.push(upstairs.clone());
+        app.backend.take_player_commands();
+        app.set_catalog_scope(CatalogScope::All);
+
+        app.apply(
+            Action::OpenCatalogResult(CatalogDestination::Jellyfin {
+                source: Box::new(upstairs),
+                view: View::Tracks {
+                    library_id: String::new(),
+                    library_name: String::new(),
+                    album_id: "album-upstairs".into(),
+                    name: "Upstairs album".into(),
+                },
+            }),
+            &egui::Context::default(),
+        );
+
+        assert!(app.backend.take_player_commands().is_empty());
+        assert_eq!(app.playback_provider(), Some(Provider::Spotify));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn back_and_forward_cross_the_combined_spotify_result_edge() {
+        use crate::{
+            model::{Action, Page, SearchFilter},
+            provider::{CatalogDestination, CatalogScope, Provider},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-spotify-navigation");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.provider = Provider::Jellyfin;
+        app.search.query = "Billy Joel".into();
+        app.search.filter = SearchFilter::Albums;
+        app.set_catalog_scope(CatalogScope::All);
+        let album = Page::Album("spotify-album".into());
+
+        app.apply(
+            Action::OpenCatalogResult(CatalogDestination::Spotify(album.clone())),
+            &ctx,
+        );
+        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.selected_provider(), Provider::Spotify);
+        assert_eq!(app.page(), &album);
+        assert!(app.can_go_back());
+
+        app.apply(Action::Back, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.search.query, "Billy Joel");
+        assert_eq!(app.search.filter, SearchFilter::Albums);
+        assert!(app.can_go_forward());
+
+        app.apply(Action::Forward, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.selected_provider(), Provider::Spotify);
+        assert_eq!(app.page(), &album);
+
+        let artist = Page::Artist("spotify-artist".into());
+        app.apply(Action::Open(artist.clone()), &ctx);
+        app.apply(Action::Back, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.page(), &album);
+        app.apply(Action::Back, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.search.query, "Billy Joel");
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn back_from_a_combined_jellyfin_result_restores_the_combined_search() {
+        use crate::{
+            jellyfin::browser::View,
+            model::{Action, SearchFilter},
+            provider::{CatalogDestination, CatalogScope, Provider},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-jellyfin-navigation");
+        app.jellyfin.demo("jellyfin-tracks");
+        let source = app.jellyfin.source.clone().unwrap();
+        app.jellyfin.provider = Provider::Spotify;
+        app.search.query = "Billy Joel".into();
+        app.search.filter = SearchFilter::Albums;
+        app.set_catalog_scope(CatalogScope::All);
+        let view = View::Tracks {
+            library_id: String::new(),
+            library_name: String::new(),
+            album_id: "jellyfin-album".into(),
+            name: "Billy Joel".into(),
+        };
+
+        app.apply(
+            Action::OpenCatalogResult(CatalogDestination::Jellyfin {
+                source: Box::new(source.clone()),
+                view: view.clone(),
+            }),
+            &ctx,
+        );
+        assert_eq!(app.catalog_scope(), CatalogScope::Separate);
+        assert_eq!(app.selected_provider(), Provider::Jellyfin);
+        assert!(app.jellyfin.source.as_ref().unwrap().same_identity(&source));
+        assert_eq!(app.jellyfin.view, view);
+        assert!(app.can_go_back());
+
+        app.apply(Action::Back, &ctx);
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.search.query, "Billy Joel");
+        assert_eq!(app.search.filter, SearchFilter::Albums);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn catalog_scope_restore_is_separate_from_the_legacy_provider_selection() {
+        use crate::provider::CatalogScope;
+
+        let root = std::env::current_dir()
+            .unwrap()
+            .join("target/catalog-scope-tests")
+            .join(format!("{:032x}", rand::random::<u128>()));
+        std::fs::create_dir_all(&root).unwrap();
+        let dirs = AppDirs {
+            config: root.clone(),
+            state: root.clone(),
+            cache: root.clone(),
+        };
+
+        assert_eq!(load_catalog_scope(&dirs, true), CatalogScope::Separate);
+        std::fs::write(root.join("browsing-catalog-scope.json"), b"not json").unwrap();
+        assert_eq!(load_catalog_scope(&dirs, true), CatalogScope::Separate);
+        std::fs::write(
+            root.join("browsing-catalog-scope.json"),
+            serde_json::to_vec(&CatalogScope::All).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(load_catalog_scope(&dirs, false), CatalogScope::Separate);
+        assert_eq!(load_catalog_scope(&dirs, true), CatalogScope::All);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

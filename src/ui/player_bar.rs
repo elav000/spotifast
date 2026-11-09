@@ -719,7 +719,7 @@ fn transport(app: &mut App, ui: &mut egui::Ui, now: Option<&NowPlaying>, region:
 
     let shuffle_color = if shuffle { palette.accent } else { dim };
     let mut cell = centered(ui, slot(widths[0]));
-    if now.is_some_and(|now| now.stamp.provider() != crate::provider::Provider::Spotify) {
+    if !app.active_provider_can_shuffle() {
         cell.disable();
     }
     let shuffle_button = theme::icon_button(

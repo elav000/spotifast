@@ -9,7 +9,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-08 20:31-0800\n"
+"POT-Creation-Date: 2026-11-08 21:09-0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -31,12 +31,12 @@ msgstr ""
 msgid "Play {name}"
 msgstr ""
 
-#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28548
+#: src/ui/sidebar.rs:320 src/app.rs:4679 src/app.rs:28580
 #: src/ui/collection.rs:2484 src/ui/collection.rs:2670 src/ui/search.rs:145
 msgid "Playlist"
 msgstr ""
 
-#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28553
+#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/app.rs:4653 src/app.rs:28585
 #: src/ui/collection.rs:2663 src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
 msgstr ""
@@ -841,7 +841,7 @@ msgstr ""
 msgid "Couldn't check for updates: {error}"
 msgstr ""
 
-#: src/app.rs:3820 src/provider/playback/spotify.rs:91
+#: src/app.rs:3820 src/provider/playback/spotify.rs:99
 msgid ""
 "The configured Spotify player could not start. Skipped this queued song."
 msgstr ""
@@ -951,7 +951,7 @@ msgid "Queue cleared"
 msgstr ""
 
 #. Translators: Keep {date} unchanged. It is a date in YYYY-MM-DD form.
-#: src/app.rs:8238 src/app.rs:28538
+#: src/app.rs:8238 src/app.rs:28570
 #, rust-format
 msgid "Queue {date}"
 msgstr ""
@@ -1285,7 +1285,7 @@ msgstr ""
 
 #. Translators: Keep {track} unchanged. It is the name of the song,
 #. playlist, album, or artist the radio is based on, not translated.
-#: src/app.rs:28558 src/app/radio.rs:38
+#: src/app.rs:28590 src/app/radio.rs:38
 #, rust-format
 msgid "{track} Radio"
 msgstr ""
@@ -4127,12 +4127,12 @@ msgid ""
 "on GPU acceleration for the virtual machine. Open {url} to read more?"
 msgstr ""
 
-#: src/provider/playback/jellyfin.rs:85
+#: src/provider/playback/jellyfin.rs:93
 msgid ""
 "This queued song's Jellyfin server or account is no longer available. "
 "Skipped it."
 msgstr ""
 
-#: src/provider/playback/spotify.rs:82
+#: src/provider/playback/spotify.rs:90
 msgid "The configured Spotify player is not ready. Skipped this queued song."
 msgstr ""

@@ -22748,7 +22748,7 @@ mod tests {
             "one late copy may be the playlist's own"
         );
 
-        app.manual_queue = vec![a.into()];
+        app.manual_queue = vec![a.into()].into();
         assert_eq!(
             answer(&mut app, &[a; 10]),
             vec![a],

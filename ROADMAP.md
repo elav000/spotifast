@@ -217,8 +217,11 @@ library.
 All-provider catalog browsing continues without changing the playback contracts
 that are now stable:
 
-1. Compose Library after its grouping, sorting and duplicate rules are explicit.
-   Separate mode remains the default and must retain its existing behavior.
+1. Compose Library with provider-stamped entries interleaved by the selected
+   sort. Exact source/account identity remains visible and apparent duplicates
+   remain separate. Separate mode remains the default and must retain its
+   existing behavior. Cross-provider version matching is later work, not a
+   prerequisite or hidden part of this milestone.
 2. Prepare every configured provider included in the startup catalog scope
    through its provider-owned lifecycle hook. **All providers** must initialize
    those runtimes without showing a single-provider splash, selecting an output
@@ -248,6 +251,18 @@ Spotify and Jellyfin metadata, artwork or credentials interchangeable.
   option), original-file downloads, availability indicators and offline account
   behavior before implementation. The cache must remain server/account scoped
   and must not be treated as the mixed queue's playback identity.
+- Investigate optional cross-provider album version grouping after Combined
+  Library has real-world usage. A group is presentation over exact
+  provider-stamped occurrences, never a replacement identity. Queues, history,
+  downloads, favorites, links and provider actions continue to use the exact
+  occurrence. Generic Play resolves at action time: an explicitly selected
+  version wins; otherwise prefer an available downloaded Jellyfin occurrence,
+  then another playable Jellyfin occurrence, then Spotify. Matching evidence
+  retains its source and confidence, and a user can expand the group and bypass
+  a bad match. Do not begin with fuzzy title/artist collapse, persistent
+  canonical IDs or shared metadata ownership; editions, compilations, mirrored
+  servers and incomplete tags need concrete design and regression fixtures
+  first.
 
 Incremental delivery within a partially received HTTP range is deferred. Revisit
 only if timing data shows the Jellyfin server delivers useful body bytes before

@@ -34,7 +34,7 @@ msgstr "Відтворити {name}"
 msgid "Playlist"
 msgstr "Плейліст"
 
-#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/ui/widgets.rs:1125
+#: src/ui/sidebar.rs:330 src/ui/friends.rs:304 src/ui/widgets.rs:1118
 #: src/app.rs:4699 src/app.rs:28994 src/ui/collection.rs:2663
 #: src/ui/home.rs:242 src/ui/keys.rs:380
 msgid "Liked Songs"
@@ -143,7 +143,7 @@ msgstr "Створені вами"
 msgid "Search in Your Library"
 msgstr "Шукати в бібліотеці"
 
-#: src/ui/sidebar.rs:1460 src/ui/widgets.rs:1553 src/app.rs:4760
+#: src/ui/sidebar.rs:1460 src/ui/widgets.rs:1546 src/app.rs:4760
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
 #: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
 #: src/ui/search.rs:754 src/ui/winamp/playlist.rs:842
@@ -165,7 +165,7 @@ msgid "No matches."
 msgstr "Нічого не знайдено."
 
 #: src/ui/sidebar.rs:2179 src/ui/sidebar.rs:2250 src/ui/player_bar.rs:833
-#: src/ui/widgets.rs:1600 src/ui/widgets.rs:2683 src/provider/detail.rs:178
+#: src/ui/widgets.rs:1593 src/ui/widgets.rs:2676 src/provider/detail.rs:178
 #: src/provider/detail.rs:199 src/provider/detail.rs:256
 #: src/provider/detail.rs:389 src/provider/detail.rs:499
 #: src/ui/new_releases.rs:117 src/ui/prerelease.rs:368 src/ui/search.rs:668
@@ -261,8 +261,8 @@ msgstr "Виберіть пісню, альбом або плейліст"
 msgid "Add to playlist"
 msgstr "Додати до плейліста"
 
-#: src/ui/player_bar.rs:605 src/ui/widgets.rs:837 src/ui/widgets.rs:1363
-#: src/ui/widgets.rs:2557
+#: src/ui/player_bar.rs:605 src/ui/widgets.rs:837 src/ui/widgets.rs:1356
+#: src/ui/widgets.rs:2550
 msgid "Save to Liked Songs"
 msgstr "Зберегти в «Пісні, що сподобалися»"
 
@@ -279,8 +279,8 @@ msgstr "Перемішати"
 msgid "Previous"
 msgstr "Попередній"
 
-#: src/ui/player_bar.rs:794 src/ui/lyrics.rs:475 src/ui/widgets.rs:3442
-#: src/ui/widgets.rs:3516 src/ui/widgets.rs:3544 src/app.rs:16274
+#: src/ui/player_bar.rs:794 src/ui/lyrics.rs:475 src/ui/widgets.rs:3435
+#: src/ui/widgets.rs:3509 src/ui/widgets.rs:3537 src/app.rs:16274
 #: src/ui/collection.rs:1151
 msgid "Loading…"
 msgstr "Завантаження…"
@@ -403,7 +403,7 @@ msgid "Next up"
 msgstr "Далі"
 
 #: src/ui/queue.rs:665 src/ui/queue.rs:699 src/ui/widgets.rs:445
-#: src/ui/widgets.rs:3582 src/ui/collection.rs:1534 src/ui/prerelease.rs:286
+#: src/ui/widgets.rs:3575 src/ui/collection.rs:1534 src/ui/prerelease.rs:286
 msgid "Retry"
 msgstr "Повторити спробу"
 
@@ -498,158 +498,158 @@ msgstr "Слухати {song}"
 msgid "Listening now"
 msgstr "Слухає зараз"
 
-#: src/ui/widgets.rs:808 src/ui/widgets.rs:1321
+#: src/ui/widgets.rs:808 src/ui/widgets.rs:1314
 msgid "Play next"
 msgstr "Відтворити далі"
 
-#: src/ui/widgets.rs:819 src/ui/widgets.rs:1332 src/ui/widgets.rs:1622
+#: src/ui/widgets.rs:819 src/ui/widgets.rs:1325 src/ui/widgets.rs:1615
 #: src/provider/detail.rs:274 src/provider/detail.rs:403
 msgid "Add to queue"
 msgstr "Додати до черги"
 
-#: src/ui/widgets.rs:834 src/ui/widgets.rs:1360 src/ui/widgets.rs:2555
+#: src/ui/widgets.rs:834 src/ui/widgets.rs:1353 src/ui/widgets.rs:2548
 msgid "Remove from Liked Songs"
 msgstr "Видалити з «Пісні, що сподобалися»"
 
-#: src/ui/widgets.rs:853 src/ui/widgets.rs:1424 src/ui/keys.rs:334
+#: src/ui/widgets.rs:853 src/ui/widgets.rs:1417 src/ui/keys.rs:334
 msgid "Remove from this playlist"
 msgstr "Видалити з цього плейліста"
 
-#: src/ui/widgets.rs:1089
+#: src/ui/widgets.rs:1082
 msgid "Filter playlists"
 msgstr "Фільтрувати плейлісти"
 
-#: src/ui/widgets.rs:1100 src/ui/dialogs.rs:361
+#: src/ui/widgets.rs:1093 src/ui/dialogs.rs:361
 msgid "New playlist"
 msgstr "Новий плейліст"
 
-#: src/ui/widgets.rs:1142
+#: src/ui/widgets.rs:1135
 msgid "No editable playlists"
 msgstr "Немає плейлістів, які можна змінити"
 
-#: src/ui/widgets.rs:1144
+#: src/ui/widgets.rs:1137
 msgid "No matching playlists"
 msgstr "Немає відповідних плейлістів"
 
-#: src/ui/widgets.rs:1348
+#: src/ui/widgets.rs:1341
 msgid "Remove from queue"
 msgstr "Видалити з черги"
 
-#: src/ui/widgets.rs:1373
+#: src/ui/widgets.rs:1366
 msgid "Save episode"
 msgstr "Зберегти епізод"
 
-#: src/ui/widgets.rs:1398
+#: src/ui/widgets.rs:1391
 msgid "Move up"
 msgstr "Перемістити вгору"
 
-#: src/ui/widgets.rs:1411
+#: src/ui/widgets.rs:1404
 msgid "Move down"
 msgstr "Перемістити вниз"
 
-#: src/ui/widgets.rs:1445
+#: src/ui/widgets.rs:1438
 msgid "Show in this playlist"
 msgstr "Показати в цьому плейлисті"
 
-#: src/ui/widgets.rs:1447
+#: src/ui/widgets.rs:1440
 msgid "Hide in this playlist"
 msgstr "Приховати в цьому плейлисті"
 
-#: src/ui/widgets.rs:1464
+#: src/ui/widgets.rs:1457
 msgid "Go to song radio"
 msgstr "Перейти до радіо пісні"
 
-#: src/ui/widgets.rs:1481 src/ui/widgets.rs:1489
+#: src/ui/widgets.rs:1474 src/ui/widgets.rs:1482
 msgid "Go to artist"
 msgstr "Перейти до виконавця"
 
-#: src/ui/widgets.rs:1508
+#: src/ui/widgets.rs:1501
 msgid "Go to album"
 msgstr "Перейти до альбому"
 
-#: src/ui/widgets.rs:1521
+#: src/ui/widgets.rs:1514
 msgid "Go to podcast"
 msgstr "Перейти до подкасту"
 
-#: src/ui/widgets.rs:1533 src/ui/widgets.rs:1685 src/provider/detail.rs:233
+#: src/ui/widgets.rs:1526 src/ui/widgets.rs:1678 src/provider/detail.rs:233
 #: src/provider/detail.rs:310 src/provider/detail.rs:454
 #: src/provider/detail.rs:565 src/ui/prerelease.rs:270
 msgid "Copy link"
 msgstr "Копіювати посилання"
 
-#: src/ui/widgets.rs:1546
+#: src/ui/widgets.rs:1539
 msgid "Copy details"
 msgstr "Копіювати дані"
 
-#: src/ui/widgets.rs:1550
+#: src/ui/widgets.rs:1543
 msgid "Song title"
 msgstr "Назва пісні"
 
-#: src/ui/widgets.rs:1562
+#: src/ui/widgets.rs:1555
 msgid "Artist and song title"
 msgstr "Виконавець і назва пісні"
 
-#: src/ui/widgets.rs:1576 src/ui/widgets.rs:1693 src/provider/detail.rs:240
+#: src/ui/widgets.rs:1569 src/ui/widgets.rs:1686 src/provider/detail.rs:240
 #: src/provider/detail.rs:317 src/ui/prerelease.rs:274
 msgid "Open in Spotify"
 msgstr "Відкрити в Spotify"
 
-#: src/ui/widgets.rs:1612 src/provider/detail.rs:267 src/provider/detail.rs:396
+#: src/ui/widgets.rs:1605 src/provider/detail.rs:267 src/provider/detail.rs:396
 msgid "Shuffle play"
 msgstr "Перемішати й відтворити"
 
-#: src/ui/widgets.rs:1632
+#: src/ui/widgets.rs:1625
 msgctxt "artist"
 msgid "Unfollow"
 msgstr "Відписатися"
 
-#: src/ui/widgets.rs:1633
+#: src/ui/widgets.rs:1626
 msgctxt "artist"
 msgid "Follow"
 msgstr "Підписатися"
 
-#: src/ui/widgets.rs:1634 src/ui/collection.rs:2534 src/ui/collection.rs:2557
+#: src/ui/widgets.rs:1627 src/ui/collection.rs:2534 src/ui/collection.rs:2557
 #: src/ui/show.rs:242
 msgid "Remove from Your Library"
 msgstr "Видалити з бібліотеки"
 
-#: src/ui/widgets.rs:1635 src/ui/collection.rs:2533
+#: src/ui/widgets.rs:1628 src/ui/collection.rs:2533
 msgid "Add to Your Library"
 msgstr "Додати до бібліотеки"
 
-#: src/ui/widgets.rs:1645 src/ui/dialogs.rs:459
+#: src/ui/widgets.rs:1638 src/ui/dialogs.rs:459
 msgid "Edit details"
 msgstr "Змінити дані"
 
-#: src/ui/widgets.rs:1659 src/ui/dialogs.rs:97
+#: src/ui/widgets.rs:1652 src/ui/dialogs.rs:97
 msgid "Delete"
 msgstr "Видалити"
 
-#: src/ui/widgets.rs:1670
+#: src/ui/widgets.rs:1663
 msgid "Go to playlist radio"
 msgstr "Перейти до радіо плейліста"
 
-#: src/ui/widgets.rs:1671 src/provider/detail.rs:303
+#: src/ui/widgets.rs:1664 src/provider/detail.rs:303
 msgid "Go to album radio"
 msgstr "Перейти до радіо альбому"
 
-#: src/ui/widgets.rs:1672 src/provider/detail.rs:226
+#: src/ui/widgets.rs:1665 src/provider/detail.rs:226
 msgid "Go to artist radio"
 msgstr "Перейти до радіо виконавця"
 
 #. Translators: {title} is a song or episode name, {subtitle} its artists or podcast.
-#: src/ui/widgets.rs:2007
+#: src/ui/widgets.rs:2000
 #, rust-format
 msgid "Play {title}, {subtitle}"
 msgstr "Відтворити {title}, {subtitle}"
 
-#: src/ui/widgets.rs:2602 src/ui/collection.rs:384 src/ui/collection.rs:551
+#: src/ui/widgets.rs:2595 src/ui/collection.rs:384 src/ui/collection.rs:551
 #: src/ui/show.rs:260 src/ui/show.rs:468
 msgid "More"
 msgstr "Більше"
 
 #. Translators: The label beside the pointer while songs are dragged. {name} is the first song's name and {count} how many more songs are dragged with it.
-#: src/ui/widgets.rs:2815
+#: src/ui/widgets.rs:2808
 #, rust-format
 msgid "{name} + {count} more"
 msgid_plural "{name} + {count} more"
@@ -658,89 +658,89 @@ msgstr[1] "{name} + ще {count}"
 msgstr[2] "{name} + ще {count}"
 
 #. Translators: {column} is a column heading of a song list, such as Title.
-#: src/ui/widgets.rs:2933
+#: src/ui/widgets.rs:2926
 #, rust-format
 msgid "Sort by {column}"
 msgstr "Сортувати: {column}"
 
-#: src/ui/widgets.rs:2983
+#: src/ui/widgets.rs:2976
 msgid "Sort by playlist order"
 msgstr "Сортувати в порядку плейліста"
 
-#: src/ui/widgets.rs:3018
+#: src/ui/widgets.rs:3011
 msgid "Original order, reversed"
 msgstr "Зворотний початковий порядок"
 
-#: src/ui/widgets.rs:3031
+#: src/ui/widgets.rs:3024
 msgctxt "column heading"
 msgid "TITLE"
 msgstr "НАЗВА"
 
-#: src/ui/widgets.rs:3060
+#: src/ui/widgets.rs:3053
 msgctxt "column heading"
 msgid "ALBUM"
 msgstr "АЛЬБОМ"
 
-#: src/ui/widgets.rs:3069
+#: src/ui/widgets.rs:3062
 msgctxt "column heading"
 msgid "ADDED BY"
 msgstr "ХТО ДОДАВ"
 
-#: src/ui/widgets.rs:3078
+#: src/ui/widgets.rs:3071
 msgctxt "column heading"
 msgid "DATE ADDED"
 msgstr "ДАТА ДОДАВАННЯ"
 
-#: src/ui/widgets.rs:3087
+#: src/ui/widgets.rs:3080
 msgctxt "column heading"
 msgid "PLAYS"
 msgstr "ПРОСЛУХОВУВАННЯ"
 
-#: src/ui/widgets.rs:3108 src/ui/widgets.rs:3138
+#: src/ui/widgets.rs:3101 src/ui/widgets.rs:3131
 msgid "Sort by duration"
 msgstr "Сортувати за тривалістю"
 
-#: src/ui/widgets.rs:3555 src/app.rs:16485 src/app.rs:16499
+#: src/ui/widgets.rs:3548 src/app.rs:16485 src/app.rs:16499
 msgid "Network connection error. Check your connection."
 msgstr "Помилка мережевого підключення. Перевірте з’єднання."
 
-#: src/ui/widgets.rs:3881
+#: src/ui/widgets.rs:3874
 msgid "Cut"
 msgstr "Вирізати"
 
-#: src/ui/widgets.rs:3886 src/ui/widgets.rs:4345
+#: src/ui/widgets.rs:3879 src/ui/widgets.rs:4338
 msgid "Copy"
 msgstr "Копіювати"
 
-#: src/ui/widgets.rs:3891
+#: src/ui/widgets.rs:3884
 msgid "Paste"
 msgstr "Вставити"
 
-#: src/ui/widgets.rs:3908
+#: src/ui/widgets.rs:3901
 msgid "Select all"
 msgstr "Виділити все"
 
-#: src/ui/widgets.rs:4015
+#: src/ui/widgets.rs:4008
 msgid "Clear"
 msgstr "Очистити"
 
-#: src/ui/widgets.rs:4196
+#: src/ui/widgets.rs:4189
 msgid "Host"
 msgstr "Хост"
 
-#: src/ui/widgets.rs:4213
+#: src/ui/widgets.rs:4206
 msgid "Port"
 msgstr "Порт"
 
-#: src/ui/widgets.rs:4231
+#: src/ui/widgets.rs:4224
 msgid "Username"
 msgstr "Ім’я користувача"
 
-#: src/ui/widgets.rs:4242
+#: src/ui/widgets.rs:4235
 msgid "Password"
 msgstr "Пароль"
 
-#: src/ui/widgets.rs:4260
+#: src/ui/widgets.rs:4253
 msgid ""
 "Proxy login applies to Web requests. Local playback uses this proxy only "
 "without a login."
@@ -748,7 +748,7 @@ msgstr ""
 "Облікові дані проксі застосовуються до вебзапитів. Локальне відтворення "
 "використовує цей проксі, лише якщо облікові дані не вказано."
 
-#: src/ui/widgets.rs:4264
+#: src/ui/widgets.rs:4257
 msgid ""
 "Spotify hostnames are resolved by the proxy. Local playback connects "
 "directly."
@@ -757,7 +757,7 @@ msgstr ""
 "напряму."
 
 #. Translators: shown on the Copy button for a moment after it copied.
-#: src/ui/widgets.rs:4347 src/app.rs:14231
+#: src/ui/widgets.rs:4340 src/app.rs:14231
 msgid "Copied"
 msgstr "Скопійовано"
 

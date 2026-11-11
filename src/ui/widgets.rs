@@ -991,25 +991,18 @@ pub(crate) fn playlist_picker(
     checks: Option<&mut PlaylistChecks>,
 ) -> egui::Response {
     let choices = app.editable_playlists();
-    playlist_choices_with_checks(
-        ui,
-        app,
-        &choices,
-        query,
-        checks,
-        |chosen| match chosen {
-            Some((id, name)) => Action::AddToPlaylist {
-                playlist_id: id.clone(),
-                playlist_name: name.clone(),
-                items: items.to_vec(),
-            },
-            None => Action::ShowDialog(Dialog::CreatePlaylist {
-                name: String::new(),
-                public: false,
-                add_uris: items.iter().map(|item| item.uri().to_owned()).collect(),
-            }),
+    playlist_choices_with_checks(ui, app, &choices, query, checks, |chosen| match chosen {
+        Some((id, name)) => Action::AddToPlaylist {
+            playlist_id: id.clone(),
+            playlist_name: name.clone(),
+            items: items.to_vec(),
         },
-    )
+        None => Action::ShowDialog(Dialog::CreatePlaylist {
+            name: String::new(),
+            public: false,
+            add_uris: items.iter().map(|item| item.uri().to_owned()).collect(),
+        }),
+    })
 }
 
 pub(crate) fn playlist_choices(

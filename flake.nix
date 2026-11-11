@@ -172,6 +172,14 @@
                 export SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
               '';
 
+              # The wrapped Darwin compiler does not add its availability
+              # runtime when Cargo names Rust's arm64-apple-macosx target.
+              # Objective-C @available checks in the Soloist audio bridge use
+              # ___isPlatformVersionAtLeast from this archive.
+              preBuild = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+                export NIX_LDFLAGS="$NIX_LDFLAGS -L${pkgs.llvmPackages.compiler-rt}/lib/darwin -lclang_rt.osx"
+              '';
+
               # The GUI dlopens its Wayland, X11 and GL libraries at run time.
               postFixup =
                 pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''

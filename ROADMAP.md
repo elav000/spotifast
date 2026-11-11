@@ -219,7 +219,12 @@ that are now stable:
 
 1. Compose Library after its grouping, sorting and duplicate rules are explicit.
    Separate mode remains the default and must retain its existing behavior.
-2. Keep playback, queue handoff, links, devices and controls owned by the active
+2. Prepare every configured provider included in the startup catalog scope
+   through its provider-owned lifecycle hook. **All providers** must initialize
+   those runtimes without showing a single-provider splash, selecting an output
+   or starting playback; entering a provider later must not perform its first
+   startup preparation then.
+3. Keep playback, queue handoff, links, devices and controls owned by the active
    entry. Browsing combined results must not select an output or initialize an
    unrelated provider runtime.
 

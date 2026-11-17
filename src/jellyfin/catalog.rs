@@ -19,6 +19,9 @@ impl Kind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Query {
     Playlists,
+    Library {
+        kind: Kind,
+    },
     Shelf {
         library: String,
         kind: Kind,
@@ -80,6 +83,21 @@ pub enum PlaybackEvent {
 }
 
 impl Client {
+    pub async fn library(&self, user: &str, kind: Kind, token: &Token) -> Result<Vec<Item>, Error> {
+        let query = Query::Library { kind };
+        let mut start = 0;
+        let mut items = Vec::new();
+        loop {
+            let page = self.query(user, &query, start, token).await?;
+            let received = page.items.len() as u32;
+            items.extend(page.items);
+            if received == 0 || items.len() as u32 >= page.total_record_count {
+                return Ok(items);
+            }
+            start = start.saturating_add(received);
+        }
+    }
+
     pub async fn set_favorite(
         &self,
         user: &str,
@@ -133,6 +151,7 @@ impl Client {
         let mut descending = false;
         let kind = match query {
             Query::Playlists => Kind::Playlist,
+            Query::Library { kind } => *kind,
             Query::Shelf { library, kind } => {
                 parent = Some(library.as_str());
                 *kind

@@ -203,6 +203,11 @@ pub enum Command {
         request: u64,
         sources: Vec<Source>,
     },
+    LibraryAll {
+        request: u64,
+        sources: Vec<Source>,
+        kind: Kind,
+    },
 }
 
 pub struct Job {
@@ -253,6 +258,11 @@ pub enum Reply {
         request: u64,
         source: Source,
         result: Result<Rows, String>,
+    },
+    CombinedLibrary {
+        request: u64,
+        source: Source,
+        result: Result<Vec<Item>, String>,
     },
     Recent {
         request: u64,
@@ -333,11 +343,27 @@ pub struct CombinedHome {
     pub sources: Vec<CombinedHomeSource>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CombinedLibrarySource {
+    pub source: Source,
+    pub items: Option<Vec<Item>>,
+    pub error: Option<String>,
+    pub loading: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CombinedLibrary {
+    pub request: u64,
+    pub kind: Kind,
+    pub sources: Vec<CombinedLibrarySource>,
+}
+
 pub struct Browser {
     pub enabled: bool,
     pub provider: Provider,
     pub combined_search: CombinedSearch,
     pub combined_home: CombinedHome,
+    pub combined_library: CombinedLibrary,
     pub server_input: String,
     pub source: Option<Source>,
     pub servers: Vec<Source>,
@@ -417,6 +443,7 @@ impl Browser {
             },
             combined_search: CombinedSearch::default(),
             combined_home: CombinedHome::default(),
+            combined_library: CombinedLibrary::default(),
             server_input: String::new(),
             source: None,
             servers: Vec::new(),
@@ -492,6 +519,7 @@ impl Browser {
                     | Reply::CatalogError { .. }
                     | Reply::CombinedSearch { .. }
                     | Reply::CombinedHome { .. }
+                    | Reply::CombinedLibrary { .. }
                     | Reply::Edited { .. }
                     | Reply::Favorited { .. }
                     | Reply::Playlists { .. }
@@ -743,6 +771,31 @@ impl Browser {
                     Err(error) => entry.error = Some(error),
                 }
             }
+            Reply::CombinedLibrary {
+                request,
+                source,
+                result,
+            } => {
+                if request != self.combined_library.request {
+                    return;
+                }
+                let Some(entry) = self
+                    .combined_library
+                    .sources
+                    .iter_mut()
+                    .find(|entry| entry.source.same_identity(&source))
+                else {
+                    return;
+                };
+                entry.loading = false;
+                match result {
+                    Ok(items) => {
+                        entry.items = Some(items);
+                        entry.error = None;
+                    }
+                    Err(error) => entry.error = Some(error),
+                }
+            }
             Reply::Recent {
                 request,
                 source,
@@ -825,6 +878,9 @@ impl Browser {
                 self.servers = servers;
                 if self.combined_home.request != 0 {
                     self.load_all_home(true, proxy);
+                }
+                if self.combined_library.request != 0 {
+                    self.load_all_library(self.combined_library.kind, true, proxy);
                 }
                 let changed = self.source.as_ref().map(|source| &source.id)
                     != active.as_ref().map(|source| &source.id);
@@ -1230,6 +1286,54 @@ impl Browser {
         );
     }
 
+    pub fn load_all_library(&mut self, kind: Kind, force: bool, proxy: &ProxyConfig) {
+        let unchanged = self.combined_library.kind == kind
+            && self.combined_library.sources.len() == self.servers.len()
+            && self
+                .combined_library
+                .sources
+                .iter()
+                .zip(&self.servers)
+                .all(|(entry, source)| entry.source.same_identity(source));
+        if !force
+            && unchanged
+            && (self.servers.is_empty() || !self.combined_library.sources.is_empty())
+        {
+            return;
+        }
+
+        let same_kind = self.combined_library.kind == kind;
+        self.combined_library.request = self.combined_library.request.wrapping_add(1);
+        self.combined_library.kind = kind;
+        self.combined_library.sources = self
+            .servers
+            .iter()
+            .cloned()
+            .map(|source| {
+                let previous = same_kind.then(|| {
+                    self.combined_library
+                        .sources
+                        .iter()
+                        .find(|entry| entry.source.same_identity(&source))
+                });
+                CombinedLibrarySource {
+                    source,
+                    items: previous.flatten().and_then(|entry| entry.items.clone()),
+                    error: None,
+                    loading: true,
+                }
+            })
+            .collect();
+        self.send(
+            proxy,
+            Command::LibraryAll {
+                request: self.combined_library.request,
+                sources: self.servers.clone(),
+                kind,
+            },
+        );
+    }
+
     pub fn open_source_view(&mut self, source: Source, view: View, proxy: &ProxyConfig) {
         if !self
             .servers
@@ -1610,6 +1714,10 @@ pub enum BrowserAction {
         index: Option<usize>,
     },
     PlayAlbum(View),
+    PlayAlbumAt {
+        source: Source,
+        view: View,
+    },
     PlayQueue(usize),
     Queue(String),
     EnqueueItem {
@@ -1668,6 +1776,14 @@ impl crate::app::App {
                     let album_id = view.context_id().unwrap_or("tracks").to_owned();
                     self.jellyfin
                         .browse(view, 0, &self.applied_jellyfin_proxy());
+                    self.jellyfin.play_album = Some(album_id);
+                }
+            }
+            BrowserAction::PlayAlbumAt { source, view } => {
+                if view.is_tracks() {
+                    let album_id = view.context_id().unwrap_or("tracks").to_owned();
+                    self.jellyfin
+                        .open_source_view(source, view, &self.applied_jellyfin_proxy());
                     self.jellyfin.play_album = Some(album_id);
                 }
             }
@@ -3230,6 +3346,123 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert!(!model.combined_home.sources[0].loading);
+    }
+
+    #[test]
+    fn combined_library_keeps_each_sources_result_and_discards_old_replies() {
+        let mut model = model();
+        let first = model.source.clone().unwrap();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        model.servers.push(second.clone());
+
+        model.load_all_library(Kind::Album, false, &ProxyConfig::Off);
+        let request = model.combined_library.request;
+        let album: Item = serde_json::from_value(serde_json::json!({
+            "Id": "album1",
+            "Name": "Fragments"
+        }))
+        .unwrap();
+        model.apply(
+            Reply::CombinedLibrary {
+                request,
+                source: first.clone(),
+                result: Ok(vec![album]),
+            },
+            &ProxyConfig::Off,
+        );
+        model.apply(
+            Reply::CombinedLibrary {
+                request,
+                source: second,
+                result: Err("Upstairs is offline".into()),
+            },
+            &ProxyConfig::Off,
+        );
+
+        assert_eq!(
+            model.combined_library.sources[0]
+                .items
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            model.combined_library.sources[1].error.as_deref(),
+            Some("Upstairs is offline")
+        );
+
+        model.apply(
+            Reply::CombinedLibrary {
+                request: request.wrapping_sub(1),
+                source: first,
+                result: Err("stale".into()),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(model.combined_library.sources[0].error.is_none());
+    }
+
+    #[test]
+    fn combined_library_reuses_rows_until_forced_or_the_shelf_changes() {
+        let mut model = model();
+        let source = model.source.clone().unwrap();
+        model.load_all_library(Kind::Album, false, &ProxyConfig::Off);
+        let request = model.combined_library.request;
+        model.apply(
+            Reply::CombinedLibrary {
+                request,
+                source,
+                result: Ok(Vec::new()),
+            },
+            &ProxyConfig::Off,
+        );
+
+        model.load_all_library(Kind::Album, false, &ProxyConfig::Off);
+        assert_eq!(model.combined_library.request, request);
+        assert!(!model.combined_library.sources[0].loading);
+
+        model.load_all_library(Kind::Album, true, &ProxyConfig::Off);
+        assert_eq!(model.combined_library.request, request.wrapping_add(1));
+        assert!(model.combined_library.sources[0].loading);
+        assert!(model.combined_library.sources[0].items.is_some());
+
+        model.load_all_library(Kind::Artist, false, &ProxyConfig::Off);
+        assert_eq!(model.combined_library.kind, Kind::Artist);
+        assert!(model.combined_library.sources[0].items.is_none());
+    }
+
+    #[test]
+    fn combined_library_refans_when_saved_sources_change() {
+        let mut model = model();
+        let first = model.source.clone().unwrap();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        model.servers.push(second);
+        model.load_all_library(Kind::Playlist, false, &ProxyConfig::Off);
+        let old_request = model.combined_library.request;
+
+        model.apply(
+            Reply::ServersChanged {
+                servers: vec![first.clone()],
+                active: model.source.clone(),
+            },
+            &ProxyConfig::Off,
+        );
+
+        assert_eq!(model.combined_library.sources.len(), 1);
+        assert!(
+            model.combined_library.sources[0]
+                .source
+                .same_identity(&first)
+        );
+        assert!(model.combined_library.sources[0].loading);
+        assert_eq!(model.combined_library.request, old_request.wrapping_add(1));
     }
 
     #[test]

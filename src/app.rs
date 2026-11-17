@@ -3330,6 +3330,13 @@ impl App {
         {
             self.ensure_combined_home_loaded(false);
         }
+        if self.catalog_scope() == crate::provider::CatalogScope::All {
+            self.jellyfin.load_all_library(
+                self.jellyfin.combined_library.kind,
+                false,
+                &self.applied_jellyfin_proxy(),
+            );
+        }
         self.stop_jellyfin_playback_for_inactive_source();
         self.jellyfin.report_playback(
             &self.jellyfin_player.snapshot(),
@@ -6119,6 +6126,13 @@ impl App {
         self.catalog_scope = scope;
         if self.offline {
             return;
+        }
+        if scope == crate::provider::CatalogScope::All {
+            self.jellyfin.load_all_library(
+                self.jellyfin.combined_library.kind,
+                false,
+                &self.applied_jellyfin_proxy(),
+            );
         }
         match serde_json::to_vec(&scope) {
             Ok(bytes) => self.files.write(
@@ -26438,6 +26452,136 @@ mod tests {
             home_request.wrapping_add(1)
         );
         assert!(app.home.generation > spotify_generation);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_library_keeps_stamped_duplicates_and_isolates_source_failures() {
+        use crate::{
+            api::models::{Album, SavedAlbum},
+            jellyfin::browser::CombinedLibrarySource,
+            model::Action,
+            provider::{CatalogScope, ItemReference, LibraryAction, Provider, ProviderStamp},
+            settings::{LibraryShelf, LibrarySort},
+        };
+
+        let ctx = egui::Context::default();
+        let mut app = test_app("combined-library-presentation");
+        app.jellyfin.demo("jellyfin-albums");
+        let first = app.jellyfin.source.clone().unwrap();
+        let album = app.jellyfin.catalog.items[0].clone();
+        let mut second = first.clone();
+        second.id = "fedcba9876543210fedcba9876543210".into();
+        second.user_id = "upstairs-user".into();
+        second.nickname = "Upstairs".into();
+        let mut offline = first.clone();
+        offline.id = "00112233445566778899aabbccddeeff".into();
+        offline.user_id = "offline-user".into();
+        offline.nickname = "Offline".into();
+        app.jellyfin.servers = vec![first.clone(), second.clone(), offline.clone()];
+        app.library.albums = crate::model::PagedList::default();
+        app.library.albums.items.push(SavedAlbum {
+            added_at: None,
+            album: Album {
+                id: "spotify-album".into(),
+                uri: "spotify:album:spotify-album".into(),
+                name: album.name.clone().unwrap(),
+                ..Default::default()
+            },
+        });
+        app.library.albums.loaded_once = true;
+        app.jellyfin.combined_library.kind = crate::jellyfin::catalog::Kind::Album;
+        let mut upstairs_album = album.clone();
+        upstairs_album.id = "upstairs-album".into();
+        app.jellyfin.combined_library.sources = vec![
+            CombinedLibrarySource {
+                source: first.clone(),
+                items: Some(vec![album]),
+                error: None,
+                loading: false,
+            },
+            CombinedLibrarySource {
+                source: second.clone(),
+                items: Some(vec![upstairs_album]),
+                error: None,
+                loading: false,
+            },
+            CombinedLibrarySource {
+                source: offline,
+                items: None,
+                error: Some("offline".into()),
+                loading: false,
+            },
+        ];
+        app.set_catalog_scope(CatalogScope::All);
+
+        let library = app.provider_library().expect("combined Library");
+        assert_eq!(library.shelf, LibraryShelf::Albums);
+        assert_eq!(library.items.len(), 3, "same-name versions remain separate");
+        assert!(library.items.iter().any(|item| {
+            matches!(&item.reference, ItemReference::Spotify { .. })
+                && item.subtitle.ends_with("Spotify")
+        }));
+        assert!(library.items.iter().any(|item| {
+            item.reference.stamp() == ProviderStamp::jellyfin(&first)
+                && item.subtitle.ends_with("Music server")
+        }));
+        assert_eq!(library.error.as_deref(), Some("Offline: offline"));
+        let upstairs = library
+            .items
+            .iter()
+            .find(|item| item.reference.stamp() == ProviderStamp::jellyfin(&second))
+            .expect("Upstairs occurrence");
+        let play = upstairs.play.clone().expect("provider-owned album play");
+        assert!(matches!(
+            &play,
+            Action::Jellyfin(
+                crate::jellyfin::browser::BrowserAction::PlayAlbumAt { source, view }
+            ) if source.same_identity(&second) && view.context_id() == Some("upstairs-album")
+        ));
+        app.apply(play, &ctx);
+        assert!(app.jellyfin.busy, "the saved source starts activating");
+        assert_eq!(app.jellyfin.play_album.as_deref(), Some("upstairs-album"));
+
+        app.settings
+            .library_sort
+            .insert(LibraryShelf::Playlists, LibrarySort::Spotify);
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Shelf(LibraryShelf::Playlists)),
+            &ctx,
+        );
+        assert_eq!(
+            app.provider_library().unwrap().sort,
+            LibrarySort::RecentlyPlayed,
+            "provider-specific custom order cannot order a composed Library"
+        );
+
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Shelf(LibraryShelf::Artists)),
+            &ctx,
+        );
+        assert_eq!(
+            app.jellyfin.combined_library.kind,
+            crate::jellyfin::catalog::Kind::Artist
+        );
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.selected_provider(), Provider::Jellyfin);
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Filter("Bonobo".into())),
+            &ctx,
+        );
+        assert_eq!(app.library.filter, "Bonobo");
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Sort(LibrarySort::Name)),
+            &ctx,
+        );
+        assert!(app.actions.iter().any(|action| matches!(
+            action,
+            Action::SetLibrarySort {
+                shelf: LibraryShelf::Artists,
+                sort: LibrarySort::Name
+            }
+        )));
         app.backend.shutdown();
     }
 

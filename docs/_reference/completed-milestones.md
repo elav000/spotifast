@@ -51,6 +51,13 @@ history below is not a list of tasks to repeat.
   omitted, cached shelves survive until an explicit refresh, and every card
   retains its exact provider/source/account action. Live macOS validation
   covered the interleaved page and navigation into a Jellyfin music library.
+- All-provider Library composes saved Spotify and Jellyfin albums, artists and
+  playlists in the existing left rail. Exact source/account occurrences remain
+  separate and source-labelled in list and grid layouts, including apparent
+  duplicates. Shared filtering, sorting, pinning, open/play actions and Spotify
+  pagination remain intact, while one failed Jellyfin account cannot hide
+  another source's cached rows. Separate-provider Library behavior is
+  unchanged.
 - The playback provider now supplies the shared player bar's album, show and
   artist destinations. Jellyfin keeps source/account identity in its actions
   and linked artist IDs in now-playing metadata, while Spotify retains its

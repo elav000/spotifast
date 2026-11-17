@@ -212,22 +212,29 @@ playing a card does not retarget an unrelated playback provider. Live macOS
 validation covered the interleaved page and navigation into a Jellyfin music
 library.
 
+## Completed all-provider Library milestone
+
+The existing left rail now composes Spotify with every saved Jellyfin
+server/account when catalog scope is **All providers**. Albums, artists and
+playlists stay exact provider-stamped occurrences, interleave through the
+shared sort, and show their source in both list and grid layouts. Apparent
+duplicates remain separate. Filtering, pinning, opening, playing and paged
+Spotify loading continue through the shared sidebar paths. Each Jellyfin
+account loads independently, so a failed account reports its own error without
+hiding Spotify or another server's cached entries. Separate-provider Library
+behavior is unchanged.
+
 ## Next implementation sequence
 
 All-provider catalog browsing continues without changing the playback contracts
 that are now stable:
 
-1. Compose Library with provider-stamped entries interleaved by the selected
-   sort. Exact source/account identity remains visible and apparent duplicates
-   remain separate. Separate mode remains the default and must retain its
-   existing behavior. Cross-provider version matching is later work, not a
-   prerequisite or hidden part of this milestone.
-2. Prepare every configured provider included in the startup catalog scope
+1. Prepare every configured provider included in the startup catalog scope
    through its provider-owned lifecycle hook. **All providers** must initialize
    those runtimes without showing a single-provider splash, selecting an output
    or starting playback; entering a provider later must not perform its first
    startup preparation then.
-3. Keep playback, queue handoff, links, devices and controls owned by the active
+2. Keep playback, queue handoff, links, devices and controls owned by the active
    entry. Browsing combined results must not select an output or initialize an
    unrelated provider runtime.
 

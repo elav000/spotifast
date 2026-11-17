@@ -1308,6 +1308,36 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 loading: false,
             }];
     }
+    if page == Some("combined-library") {
+        app.jellyfin.demo("jellyfin-albums");
+        seed_jellyfin_artwork(app);
+        let source = app.jellyfin.source.clone().unwrap();
+        let album = app.jellyfin.catalog.items[0].clone();
+        let title = album.name.clone().unwrap();
+        if let Some(saved) = app.library.albums.items.first_mut() {
+            saved.album.name = title;
+        }
+        let mut offline = source.clone();
+        offline.id = "fedcba9876543210fedcba9876543210".into();
+        offline.user_id = "offline-user".into();
+        offline.nickname = "Upstairs".into();
+        app.jellyfin.servers = vec![source.clone(), offline.clone()];
+        app.jellyfin.combined_library.sources = vec![
+            crate::jellyfin::browser::CombinedLibrarySource {
+                source,
+                items: Some(vec![album]),
+                error: None,
+                loading: false,
+            },
+            crate::jellyfin::browser::CombinedLibrarySource {
+                source: offline,
+                items: None,
+                error: Some("offline".into()),
+                loading: false,
+            },
+        ];
+        app.set_catalog_scope(crate::provider::CatalogScope::All);
+    }
     if let Some(page) = page.and_then(Page::decode) {
         app.open(page);
     }
@@ -15035,6 +15065,99 @@ mod tests {
             !labels
                 .iter()
                 .any(|(label, _)| label == "Playlist • Spotify • Spotify")
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_library_uses_shared_list_grid_labels_and_spotify_paging() {
+        use crate::{
+            api::models::{Album, SavedAlbum},
+            jellyfin::browser::CombinedLibrarySource,
+            model::{Action, Page},
+            provider::CatalogScope,
+        };
+        let (ctx, mut app) = accessible_app("combined-provider-library");
+        app.jellyfin.demo("jellyfin-albums");
+        let source = app.jellyfin.source.clone().unwrap();
+        let album = app.jellyfin.catalog.items[0].clone();
+        let title = album.name.clone().unwrap();
+        let mut offline = source.clone();
+        offline.id = "fedcba9876543210fedcba9876543210".into();
+        offline.user_id = "offline-user".into();
+        offline.nickname = "Upstairs".into();
+        app.jellyfin.servers = vec![source.clone(), offline.clone()];
+        app.library.albums = crate::model::PagedList::default();
+        app.library.albums.items.push(SavedAlbum {
+            added_at: None,
+            album: Album {
+                id: "spotify-album".into(),
+                uri: "spotify:album:spotify-album".into(),
+                name: title.clone(),
+                ..Default::default()
+            },
+        });
+        app.library.albums.loaded_once = true;
+        app.library.albums.total = Some(2);
+        app.library.albums.next_offset = Some(1);
+        app.jellyfin.combined_library.sources = vec![
+            CombinedLibrarySource {
+                source,
+                items: Some(vec![album]),
+                error: None,
+                loading: false,
+            },
+            CombinedLibrarySource {
+                source: offline,
+                items: None,
+                error: Some("offline".into()),
+                loading: false,
+            },
+        ];
+        app.set_catalog_scope(CatalogScope::All);
+
+        app.actions.clear();
+        let list = view_frame(&ctx, &mut app, vec![], crate::ui::sidebar::show);
+        assert_eq!(
+            list.iter().filter(|(label, _)| label == &title).count(),
+            2,
+            "same-title occurrences stay separate"
+        );
+        assert!(list.iter().any(|(label, _)| label.ends_with("Spotify")));
+        assert!(
+            list.iter()
+                .any(|(label, _)| label.ends_with("Music server"))
+        );
+        assert!(list.iter().any(|(label, _)| label == "Upstairs: offline"));
+        assert!(
+            app.actions
+                .iter()
+                .any(|action| matches!(action, Action::LoadMore(Page::Albums)))
+        );
+
+        app.settings.sidebar_grid = true;
+        let grid = view_frame(&ctx, &mut app, vec![], crate::ui::sidebar::show);
+        assert_eq!(grid.iter().filter(|(label, _)| label == &title).count(), 2);
+        assert!(grid.iter().any(|(label, _)| label.ends_with("Spotify")));
+        assert!(
+            grid.iter()
+                .any(|(label, _)| label.ends_with("Music server"))
+        );
+        app.backend.shutdown();
+    }
+
+    #[test]
+    #[cfg(feature = "demo")]
+    fn combined_library_demo_flag_builds_a_reproducible_mixed_source_rail() {
+        let (_ctx, mut app) = accessible_app("combined-library-demo-page");
+        apply_flags(&mut app, Some("combined-library"), None);
+
+        assert_eq!(app.catalog_scope(), crate::provider::CatalogScope::All);
+        assert_eq!(app.jellyfin.combined_library.sources.len(), 2);
+        assert!(app.jellyfin.combined_library.sources[0].items.is_some());
+        assert_eq!(
+            app.jellyfin.combined_library.sources[1].error.as_deref(),
+            Some("offline")
         );
         app.backend.shutdown();
     }

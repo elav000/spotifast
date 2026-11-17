@@ -45,6 +45,7 @@ pub fn spawn(
             let mut catalog_tasks: [Option<tokio::task::JoinHandle<()>>; 2] = [None, None];
             let mut combined_search_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
             let mut combined_home_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+            let mut combined_library_tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
             let mut worker = Worker {
                 dirs,
                 events,
@@ -86,6 +87,9 @@ pub fn spawn(
                         task.abort();
                     }
                     for task in combined_home_tasks.drain(..) {
+                        task.abort();
+                    }
+                    for task in combined_library_tasks.drain(..) {
                         task.abort();
                     }
                 }
@@ -137,6 +141,33 @@ pub fn spawn(
                             };
                             combined_home_tasks
                                 .push(catalog_runtime.spawn(run_combined_home(task)));
+                        }
+                        continue;
+                    }
+                    Some(CombinedLane::Library) => {
+                        let Command::LibraryAll {
+                            request,
+                            sources,
+                            kind,
+                        } = &job.command
+                        else {
+                            unreachable!();
+                        };
+                        for task in combined_library_tasks.drain(..) {
+                            task.abort();
+                        }
+                        for source in sources.iter().cloned() {
+                            let task = CombinedLibraryTask {
+                                events: worker.events.clone(),
+                                waker: worker.waker.clone(),
+                                generation: job.generation,
+                                request: *request,
+                                source,
+                                proxy: job.proxy.clone(),
+                                kind: *kind,
+                            };
+                            combined_library_tasks
+                                .push(catalog_runtime.spawn(run_combined_library(task)));
                         }
                         continue;
                     }
@@ -213,12 +244,14 @@ fn cancels_catalog(command: &Command) -> bool {
 enum CombinedLane {
     Search,
     Home,
+    Library,
 }
 
 fn combined_lane(command: &Command) -> Option<CombinedLane> {
     match command {
         Command::SearchAll { .. } => Some(CombinedLane::Search),
         Command::HomeAll { .. } => Some(CombinedLane::Home),
+        Command::LibraryAll { .. } => Some(CombinedLane::Library),
         _ => None,
     }
 }
@@ -258,6 +291,16 @@ struct CombinedHomeTask {
     proxy: crate::settings::ProxyConfig,
 }
 
+struct CombinedLibraryTask {
+    events: mpsc::Sender<Event>,
+    waker: Waker,
+    generation: u64,
+    request: u64,
+    source: Source,
+    proxy: crate::settings::ProxyConfig,
+    kind: crate::jellyfin::catalog::Kind,
+}
+
 impl CombinedSearchTask {
     fn emit(
         self,
@@ -280,6 +323,20 @@ impl CombinedHomeTask {
         let _ = self.events.send(Event {
             generation: self.generation,
             reply: Reply::CombinedHome {
+                request: self.request,
+                source: self.source,
+                result,
+            },
+        });
+        self.waker.wake();
+    }
+}
+
+impl CombinedLibraryTask {
+    fn emit(self, result: Result<Vec<Item>, String>) {
+        let _ = self.events.send(Event {
+            generation: self.generation,
+            reply: Reply::CombinedLibrary {
                 request: self.request,
                 source: self.source,
                 result,
@@ -873,7 +930,10 @@ impl Worker {
                 );
                 self.emit(generation, Reply::Connected(source));
             }
-            Command::Browse { .. } | Command::SearchAll { .. } | Command::HomeAll { .. } => {
+            Command::Browse { .. }
+            | Command::SearchAll { .. }
+            | Command::HomeAll { .. }
+            | Command::LibraryAll { .. } => {
                 unreachable!("catalog reads use the cancellable runtime")
             }
             Command::Recent {
@@ -1015,6 +1075,26 @@ async fn run_combined_home(task: CombinedHomeTask) {
         let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
             .map_err(|error| error.to_string())?;
         load_home(&client, &source, &token).await
+    }
+    .await;
+    task.emit(result);
+}
+
+async fn run_combined_library(task: CombinedLibraryTask) {
+    let source = task.source.clone();
+    let credential_source = source.clone();
+    let result = async {
+        let token =
+            tokio::task::spawn_blocking(move || credentials(credential_source, CredentialOp::Read))
+                .await
+                .map_err(|_| "Could not read the saved Jellyfin sign-in.".to_owned())??
+                .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
+        let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
+            .map_err(|error| error.to_string())?;
+        client
+            .library(&source.user_id, task.kind, &token)
+            .await
+            .map_err(|error| error.to_string())
     }
     .await;
     task.emit(result);
@@ -1468,7 +1548,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_home_and_search_have_independent_cancellation_lanes() {
+    fn combined_catalog_reads_have_independent_cancellation_lanes() {
         let home = Command::HomeAll {
             request: 1,
             sources: vec![source()],
@@ -1479,10 +1559,17 @@ mod tests {
             term: "Bonobo".into(),
             kind: None,
         };
+        let library = Command::LibraryAll {
+            request: 3,
+            sources: vec![source()],
+            kind: crate::jellyfin::catalog::Kind::Album,
+        };
 
         assert_eq!(combined_lane(&home), Some(CombinedLane::Home));
         assert_eq!(combined_lane(&search), Some(CombinedLane::Search));
+        assert_eq!(combined_lane(&library), Some(CombinedLane::Library));
         assert_ne!(combined_lane(&home), combined_lane(&search));
+        assert_ne!(combined_lane(&home), combined_lane(&library));
         assert_eq!(combined_lane(&Command::Select(Provider::Spotify)), None);
     }
 

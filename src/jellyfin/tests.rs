@@ -168,6 +168,47 @@ async fn artist_item_request_returns_overview_and_primary_image_metadata() {
     assert!(!first_line.contains("private-token"));
 }
 
+#[tokio::test]
+async fn library_request_collects_every_page_for_one_media_kind() {
+    let first = serde_json::json!({
+        "Items": [{"Id": "album1", "Name": "First"}],
+        "TotalRecordCount": 2,
+        "StartIndex": 0
+    })
+    .to_string();
+    let second = serde_json::json!({
+        "Items": [{"Id": "album2", "Name": "Second"}],
+        "TotalRecordCount": 2,
+        "StartIndex": 1
+    })
+    .to_string();
+    let first: &'static str = Box::leak(first.into_boxed_str());
+    let second: &'static str = Box::leak(second.into_boxed_str());
+    let (address, requests) = server(vec![(200, first), (200, second)]).await;
+
+    let items = client(&address)
+        .library("user1", crate::jellyfin::catalog::Kind::Album, &token())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        items
+            .iter()
+            .filter_map(|item| item.name.as_deref())
+            .collect::<Vec<_>>(),
+        ["First", "Second"]
+    );
+    let requests = requests.await.unwrap();
+    assert!(requests[0].lines().next().unwrap().contains("StartIndex=0"));
+    assert!(requests[1].lines().next().unwrap().contains("StartIndex=1"));
+    for request in requests {
+        let first_line = request.lines().next().unwrap();
+        assert!(first_line.contains("IncludeItemTypes=MusicAlbum"));
+        assert!(first_line.contains("Recursive=true"));
+        assert!(!first_line.contains("private-token"));
+    }
+}
+
 #[test]
 fn normalizes_local_addresses_and_preserves_reverse_proxy_path() {
     assert_eq!(

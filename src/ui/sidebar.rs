@@ -1368,10 +1368,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let art = EntryArt::of(app);
     let mut loading = false;
     let mut error: Option<String> = None;
-    let mut more_page: Option<Page> = None;
+    let mut load_more: Option<Action> = None;
     if let Some(data) = provider {
         loading = data.loading;
         error = data.error;
+        load_more = data.load_more;
         for item in data.items {
             if !needle.is_empty()
                 && !item.name.to_lowercase().contains(&needle)
@@ -1445,7 +1446,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 loading = app.library.albums.loading && app.library.albums.items.is_empty();
                 error = app.library.albums.error.clone();
                 if app.library.albums.error.is_none() && app.library.albums.can_load_more() {
-                    more_page = Some(Page::Albums);
+                    load_more = Some(Action::LoadMore(Page::Albums));
                 }
             }
             Filter::Artists => {
@@ -1475,7 +1476,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 loading = app.library.artists.loading && app.library.artists.items.is_empty();
                 error = app.library.artists.error.clone();
                 if app.library.artists.error.is_none() && app.library.artists.can_load_more() {
-                    more_page = Some(Page::Artists);
+                    load_more = Some(Action::LoadMore(Page::Artists));
                 }
             }
             Filter::Podcasts => {
@@ -1512,7 +1513,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 loading = app.library.shows.loading && app.library.shows.items.is_empty();
                 error = app.library.shows.error.clone();
                 if app.library.shows.error.is_none() && app.library.shows.can_load_more() {
-                    more_page = Some(Page::Podcasts);
+                    load_more = Some(Action::LoadMore(Page::Podcasts));
                 }
             }
         }
@@ -1568,9 +1569,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     pinned_rows,
                     grid_art,
                 );
-                if let Some(page) = more_page {
-                    super::widgets::load_more_when_near_end(ui, app, page, true);
-                }
+                super::widgets::load_action_when_near_end(ui, app, load_more.clone());
                 ui.add_space(grid_art.map_or(0.0, |rect| ui.max_rect().bottom() - rect.top()));
                 return;
             }
@@ -1871,9 +1870,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                     }
                 }
             }
-            if let Some(page) = more_page {
-                super::widgets::load_more_when_near_end(ui, app, page, true);
-            }
+            super::widgets::load_action_when_near_end(ui, app, load_more);
         },
     );
 }

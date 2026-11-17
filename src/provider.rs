@@ -962,16 +962,21 @@ impl crate::app::App {
             }));
         }
 
-        let supported_sorts = [
-            LibrarySort::Library,
-            LibrarySort::RecentlyPlayed,
-            LibrarySort::Name,
-        ];
+        let supported_sorts = match shelf {
+            LibraryShelf::Artists => vec![LibrarySort::Library, LibrarySort::Name],
+            _ => vec![
+                LibrarySort::Library,
+                LibrarySort::RecentlyPlayed,
+                LibrarySort::Name,
+            ],
+        };
         let selected_sort = crate::ui::sidebar::selected_sort(self, shelf);
         let sort = if supported_sorts.contains(&selected_sort) {
             selected_sort
-        } else {
+        } else if supported_sorts.contains(&LibrarySort::RecentlyPlayed) {
             LibrarySort::RecentlyPlayed
+        } else {
+            LibrarySort::Library
         };
         let load_more = match shelf {
             LibraryShelf::Albums
@@ -1003,7 +1008,7 @@ impl crate::app::App {
                 LibraryShelf::Artists,
                 LibraryShelf::Playlists,
             ],
-            sorts: supported_sorts.to_vec(),
+            sorts: supported_sorts,
         }
     }
 

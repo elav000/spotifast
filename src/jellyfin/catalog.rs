@@ -83,12 +83,22 @@ pub enum PlaybackEvent {
 }
 
 impl Client {
+    pub async fn library_page(
+        &self,
+        user: &str,
+        kind: Kind,
+        start: u32,
+        token: &Token,
+    ) -> Result<Page<Item>, Error> {
+        self.query(user, &Query::Library { kind }, start, token)
+            .await
+    }
+
     pub async fn library(&self, user: &str, kind: Kind, token: &Token) -> Result<Vec<Item>, Error> {
-        let query = Query::Library { kind };
         let mut start = 0;
         let mut items = Vec::new();
         loop {
-            let page = self.query(user, &query, start, token).await?;
+            let page = self.library_page(user, kind, start, token).await?;
             let received = page.items.len() as u32;
             items.extend(page.items);
             if received == 0 || items.len() as u32 >= page.total_record_count {

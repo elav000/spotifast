@@ -26719,6 +26719,11 @@ mod tests {
             app.jellyfin.combined_library.kind,
             crate::jellyfin::catalog::Kind::Artist
         );
+        assert_eq!(
+            app.provider_library().unwrap().sorts,
+            [LibrarySort::Library, LibrarySort::Name],
+            "combined artists must not offer a recency sort without artist recency data"
+        );
         assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.selected_provider(), Provider::Jellyfin);
         app.apply(

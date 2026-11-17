@@ -333,12 +333,12 @@ impl CombinedHomeTask {
 }
 
 impl CombinedLibraryTask {
-    fn emit(self, result: Result<Vec<Item>, String>) {
+    fn emit(&self, result: Result<crate::jellyfin::Page<Item>, String>) {
         let _ = self.events.send(Event {
             generation: self.generation,
             reply: Reply::CombinedLibrary {
                 request: self.request,
-                source: self.source,
+                source: self.source.clone(),
                 result,
             },
         });
@@ -1083,7 +1083,7 @@ async fn run_combined_home(task: CombinedHomeTask) {
 async fn run_combined_library(task: CombinedLibraryTask) {
     let source = task.source.clone();
     let credential_source = source.clone();
-    let result = async {
+    let result: Result<(Client, Token), String> = async {
         let token =
             tokio::task::spawn_blocking(move || credentials(credential_source, CredentialOp::Read))
                 .await
@@ -1091,13 +1091,36 @@ async fn run_combined_library(task: CombinedLibraryTask) {
                 .ok_or("Saved sign-in is unavailable. Sign out, then connect again.")?;
         let client = Client::new(&source.server_url, &source.device_id, &task.proxy)
             .map_err(|error| error.to_string())?;
-        client
-            .library(&source.user_id, task.kind, &token)
-            .await
-            .map_err(|error| error.to_string())
+        Ok((client, token))
     }
     .await;
-    task.emit(result);
+    let (client, token) = match result {
+        Ok(ready) => ready,
+        Err(error) => {
+            task.emit(Err(error));
+            return;
+        }
+    };
+    let mut start = 0;
+    loop {
+        let page = match client
+            .library_page(&source.user_id, task.kind, start, &token)
+            .await
+        {
+            Ok(page) => page,
+            Err(error) => {
+                task.emit(Err(error.to_string()));
+                return;
+            }
+        };
+        let received = page.items.len() as u32;
+        let total = page.total_record_count;
+        task.emit(Ok(page));
+        start = start.saturating_add(received);
+        if received == 0 || start >= total {
+            return;
+        }
+    }
 }
 
 async fn load_home(client: &Client, source: &Source, token: &Token) -> Result<Rows, String> {

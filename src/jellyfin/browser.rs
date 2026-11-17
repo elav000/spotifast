@@ -262,7 +262,7 @@ pub enum Reply {
     CombinedLibrary {
         request: u64,
         source: Source,
-        result: Result<Vec<Item>, String>,
+        result: Result<Page<Item>, String>,
     },
     Recent {
         request: u64,
@@ -787,13 +787,30 @@ impl Browser {
                 else {
                     return;
                 };
-                entry.loading = false;
                 match result {
-                    Ok(items) => {
-                        entry.items = Some(items);
+                    Ok(page) => {
+                        if page.start_index == 0 {
+                            entry.items = Some(page.items);
+                        } else if entry.items.as_ref().map(Vec::len)
+                            == Some(page.start_index as usize)
+                        {
+                            entry.items.get_or_insert_default().extend(page.items);
+                        } else {
+                            entry.loading = false;
+                            entry.error = Some(
+                                "Jellyfin returned an incomplete Library page. Refresh the Library."
+                                    .into(),
+                            );
+                            return;
+                        }
+                        entry.loading = entry.items.as_ref().map(Vec::len).unwrap_or_default()
+                            < page.total_record_count as usize;
                         entry.error = None;
                     }
-                    Err(error) => entry.error = Some(error),
+                    Err(error) => {
+                        entry.loading = false;
+                        entry.error = Some(error);
+                    }
                 }
             }
             Reply::Recent {
@@ -3349,7 +3366,7 @@ mod tests {
     }
 
     #[test]
-    fn combined_library_keeps_each_sources_result_and_discards_old_replies() {
+    fn combined_library_publishes_pages_before_the_source_finishes() {
         let mut model = model();
         let first = model.source.clone().unwrap();
         let mut second = first.clone();
@@ -3369,9 +3386,48 @@ mod tests {
             Reply::CombinedLibrary {
                 request,
                 source: first.clone(),
-                result: Ok(vec![album]),
+                result: Ok(Page {
+                    items: vec![album],
+                    start_index: 0,
+                    total_record_count: 2,
+                }),
             },
             &ProxyConfig::Off,
+        );
+        assert!(model.combined_library.sources[0].loading);
+        assert_eq!(
+            model.combined_library.sources[0]
+                .items
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
+        let second_album: Item = serde_json::from_value(serde_json::json!({
+            "Id": "album2",
+            "Name": "Migration"
+        }))
+        .unwrap();
+        model.apply(
+            Reply::CombinedLibrary {
+                request,
+                source: first.clone(),
+                result: Ok(Page {
+                    items: vec![second_album],
+                    start_index: 1,
+                    total_record_count: 2,
+                }),
+            },
+            &ProxyConfig::Off,
+        );
+        assert!(!model.combined_library.sources[0].loading);
+        assert_eq!(
+            model.combined_library.sources[0]
+                .items
+                .as_ref()
+                .unwrap()
+                .len(),
+            2
         );
         model.apply(
             Reply::CombinedLibrary {
@@ -3382,14 +3438,6 @@ mod tests {
             &ProxyConfig::Off,
         );
 
-        assert_eq!(
-            model.combined_library.sources[0]
-                .items
-                .as_ref()
-                .unwrap()
-                .len(),
-            1
-        );
         assert_eq!(
             model.combined_library.sources[1].error.as_deref(),
             Some("Upstairs is offline")
@@ -3416,7 +3464,11 @@ mod tests {
             Reply::CombinedLibrary {
                 request,
                 source,
-                result: Ok(Vec::new()),
+                result: Ok(Page {
+                    items: Vec::new(),
+                    start_index: 0,
+                    total_record_count: 0,
+                }),
             },
             &ProxyConfig::Off,
         );

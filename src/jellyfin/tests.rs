@@ -2,6 +2,25 @@ use super::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
+fn recent_tracks_rank_every_linked_artist_once_by_newest_play() {
+    let mut artists: Vec<Item> =
+        serde_json::from_str(r#"[{"Id":"older"},{"Id":"newer"},{"Id":"missing"}]"#).unwrap();
+    let recent: Vec<Item> = serde_json::from_str(
+        r#"[
+            {"Id":"newest-track","ArtistItems":[{"Id":"newer"},{"Id":"older"}]},
+            {"Id":"older-track","ArtistItems":[{"Id":"older"}]}
+        ]"#,
+    )
+    .unwrap();
+
+    catalog::rank_artists_by_recent_tracks(&mut artists, &recent);
+
+    assert_eq!(artists[0].details.recent_rank, Some(0));
+    assert_eq!(artists[1].details.recent_rank, Some(0));
+    assert_eq!(artists[2].details.recent_rank, None);
+}
+
+#[test]
 fn item_keeps_linked_artist_records_and_overview() {
     let item: Item = serde_json::from_str(
         r#"{"Id":"song","Name":"Song","Artists":["Artist"],"ArtistItems":[{"Id":"artist1","Name":"Artist"}],"Overview":"Artist biography"}"#,

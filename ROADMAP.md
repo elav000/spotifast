@@ -222,7 +222,10 @@ duplicates remain separate. Filtering, pinning, opening, playing and paged
 Spotify loading continue through the shared sidebar paths. Each Jellyfin
 account loads independently, so a failed account reports its own error without
 hiding Spotify or another server's cached entries. Separate-provider Library
-behavior is unchanged.
+behavior is unchanged. The composed rail names its stable grouping **Source
+order** and offers an ephemeral **All sources** selector for Spotify or an exact
+saved server/account. Filtering the rail never changes catalog scope, playback
+ownership or the provider selected for navigation.
 
 ## Next implementation sequence
 

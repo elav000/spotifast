@@ -65,6 +65,10 @@ pub struct Details {
     pub overview: Option<String>,
     pub date_created: Option<String>,
     pub can_delete: Option<bool>,
+    /// Provider-derived order within the bounded recent-play history. This is
+    /// presentation metadata and is never read from or written to Jellyfin.
+    #[serde(skip)]
+    pub recent_rank: Option<usize>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +77,22 @@ pub struct UserData {
     pub last_played_date: Option<String>,
     pub play_count: Option<u32>,
     pub is_favorite: Option<bool>,
+}
+
+/// Jellyfin records play time on audio items, not on their linked artists.
+/// Convert the newest-first recent-track page into an artist order without an
+/// artist-by-artist request. A collaboration keeps the newest rank for every
+/// linked artist.
+pub fn rank_artists_by_recent_tracks(artists: &mut [Item], recent: &[Item]) {
+    let mut ranks = std::collections::HashMap::new();
+    for (rank, track) in recent.iter().enumerate() {
+        for artist in &track.artist_items {
+            ranks.entry(artist.id.as_str()).or_insert(rank);
+        }
+    }
+    for artist in artists {
+        artist.details.recent_rank = ranks.get(artist.id.as_str()).copied();
+    }
 }
 
 #[derive(Clone, Copy, Debug)]

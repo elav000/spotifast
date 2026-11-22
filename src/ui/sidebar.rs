@@ -34,6 +34,8 @@ struct Entry {
     /// How deep inside folders the row sits, for the indent.
     depth: u8,
     added_at: Option<i64>,
+    /// Provider-owned rank in its bounded recent-play history.
+    recent_rank: Option<usize>,
 }
 
 impl Entry {
@@ -341,6 +343,7 @@ fn liked_entry(app: &App) -> Entry {
         folder: None,
         depth: 0,
         added_at: None,
+        recent_rank: None,
     }
 }
 
@@ -372,23 +375,32 @@ fn sort_menu(
     shelf: Filter,
     selected: LibrarySort,
     supported: Option<&[LibrarySort]>,
+    source_order: bool,
 ) {
     let locale = app.locale;
+    let library_order_label = if source_order {
+        gettext(locale, "Source order").into_owned()
+    } else {
+        gettext(locale, "Library order").into_owned()
+    };
     let labels = [
-        (LibrarySort::Library, gettext(locale, "Library order")),
+        (LibrarySort::Library, library_order_label),
         (
             LibrarySort::RecentlyPlayed,
-            gettext(locale, "Recently played"),
+            gettext(locale, "Recently played").into_owned(),
         ),
-        (LibrarySort::Name, gettext(locale, "Name")),
+        (LibrarySort::Name, gettext(locale, "Name").into_owned()),
         (
             LibrarySort::RecentlyAdded,
-            gettext(locale, "Recently added"),
+            gettext(locale, "Recently added").into_owned(),
         ),
-        (LibrarySort::Local, gettext(locale, "Local custom order")),
+        (
+            LibrarySort::Local,
+            gettext(locale, "Local custom order").into_owned(),
+        ),
         (
             LibrarySort::Spotify,
-            gettext(locale, "Spotify custom order"),
+            gettext(locale, "Spotify custom order").into_owned(),
         ),
     ];
     let label = &labels
@@ -399,7 +411,7 @@ fn sort_menu(
     let response = ui.add(
         egui::Button::image_and_text(
             Icon::ChevronDown.image(app.palette.text, 15.0),
-            egui::RichText::new(label.as_ref()).font(theme::medium(13.0)),
+            egui::RichText::new(label).font(theme::medium(13.0)),
         )
         .wrap()
         .fill(app.palette.surface)
@@ -424,7 +436,9 @@ fn sort_menu(
                 let provider = supported.is_some();
                 if supported.is_some_and(|sorts| !sorts.contains(sort))
                     || !sort.supports(shelf)
-                    || (*sort == LibrarySort::Library && shelf == Filter::Playlists)
+                    || (*sort == LibrarySort::Library
+                        && shelf == Filter::Playlists
+                        && !source_order)
                     || (*sort == LibrarySort::Local && app.settings.sidebar_order.is_empty())
                 {
                     continue;
@@ -440,6 +454,80 @@ fn sort_menu(
                     } else {
                         Action::SetLibrarySort { shelf, sort: *sort }
                     });
+                }
+            }
+        });
+}
+
+fn source_menu(
+    app: &mut App,
+    ui: &mut egui::Ui,
+    selected: Option<&crate::provider::ProviderStamp>,
+    sources: &[crate::provider::CatalogSource],
+) {
+    let all_sources = gettext(app.locale, "All sources").into_owned();
+    let label = selected
+        .and_then(|selected| {
+            sources
+                .iter()
+                .find(|source| &source.stamp == selected)
+                .map(|source| source.label.clone())
+        })
+        .unwrap_or_else(|| all_sources.clone());
+    let response = ui.add(
+        egui::Button::image_and_text(
+            Icon::ChevronDown.image(app.palette.text, 15.0),
+            egui::RichText::new(label).font(theme::medium(13.0)),
+        )
+        .wrap()
+        .fill(app.palette.surface)
+        .corner_radius(12)
+        .min_size(vec2(0.0, 28.0)),
+    );
+    egui::Popup::menu(&response)
+        .frame(super::widgets::menu_frame(&app.palette))
+        .show(|ui| {
+            let width = sources
+                .iter()
+                .map(|source| {
+                    ui.painter()
+                        .layout_no_wrap(
+                            source.label.clone(),
+                            theme::regular(13.5),
+                            app.palette.text,
+                        )
+                        .size()
+                        .x
+                })
+                .fold(140.0_f32, f32::max)
+                + 72.0;
+            ui.set_width(width.min(ui.ctx().content_rect().width() - 24.0));
+            if super::widgets::menu_item_selected(
+                ui,
+                &app.palette,
+                Icon::Library,
+                &all_sources,
+                selected.is_none(),
+            ) {
+                app.actions.push(Action::ProviderLibrary(
+                    crate::provider::LibraryAction::Source(None),
+                ));
+            }
+            for source in sources {
+                let icon = match source.stamp.provider() {
+                    crate::provider::Provider::Spotify => Icon::Spotify,
+                    crate::provider::Provider::Jellyfin => Icon::Jellyfin,
+                };
+                if super::widgets::menu_item_selected(
+                    ui,
+                    &app.palette,
+                    icon,
+                    &source.label,
+                    selected == Some(&source.stamp),
+                ) {
+                    app.actions.push(Action::ProviderLibrary(
+                        crate::provider::LibraryAction::Source(Some(source.stamp.clone())),
+                    ));
                 }
             }
         });
@@ -503,6 +591,9 @@ fn order_entries(app: &App, shelf: Filter, sort: LibrarySort, entries: &mut [Ent
                 .user_id()
                 .map(|id| format!("spotify:user:{id}:collection"));
             entries.sort_by_cached_key(|entry| {
+                if let Some(rank) = entry.recent_rank {
+                    return rank;
+                }
                 let key = if entry.liked {
                     liked_uri.as_deref()
                 } else {
@@ -851,6 +942,7 @@ fn folder_rows(app: &App, user_id: &str, entries: &mut Vec<Entry>) {
                     folder: Some((id.clone(), collapsed, count)),
                     depth,
                     added_at: None,
+                    recent_rank: None,
                 });
                 if collapsed {
                     hidden_from = Some(depth);
@@ -1028,6 +1120,7 @@ fn playlist_entry(
         folder: None,
         depth,
         added_at: None,
+        recent_rank: None,
     }
 }
 
@@ -1277,7 +1370,11 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             filter,
             sort,
             provider.as_ref().map(|data| data.sorts.as_slice()),
+            provider.as_ref().is_some_and(|data| data.source_order),
         );
+        if let Some(data) = provider.as_ref().filter(|data| !data.sources.is_empty()) {
+            source_menu(app, ui, data.source.as_ref(), &data.sources);
+        }
         if provider.is_none() && filter == Filter::Playlists {
             // Translators: Library filter for playlists created by the signed-in user.
             let label = gettext(locale, "By You");
@@ -1370,6 +1467,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
     let mut error: Option<String> = None;
     let mut load_more: Option<Action> = None;
     if let Some(data) = provider {
+        let recent_ranks = data.recent_ranks;
         loading = data.loading;
         error = data.error;
         load_more = data.load_more;
@@ -1380,6 +1478,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
             {
                 continue;
             }
+            let recent_rank = recent_ranks.get(&item.reference).copied();
             entries.push(Entry {
                 image: item.artwork.clone(),
                 grid_image: item.artwork.clone(),
@@ -1397,6 +1496,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                 folder: None,
                 depth: 0,
                 added_at: None,
+                recent_rank,
             });
         }
     } else {
@@ -1441,6 +1541,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                         folder: None,
                         depth: 0,
                         added_at: saved_time(saved.added_at.as_deref()),
+                        recent_rank: None,
                     });
                 }
                 loading = app.library.albums.loading && app.library.albums.items.is_empty();
@@ -1471,6 +1572,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                         folder: None,
                         depth: 0,
                         added_at: None,
+                        recent_rank: None,
                     });
                 }
                 loading = app.library.artists.loading && app.library.artists.items.is_empty();
@@ -1508,6 +1610,7 @@ fn contents(app: &mut App, ui: &mut egui::Ui, grid_art: Option<Rect>) {
                         folder: None,
                         depth: 0,
                         added_at: saved_time(saved.added_at.as_deref()),
+                        recent_rank: None,
                     });
                 }
                 loading = app.library.shows.loading && app.library.shows.items.is_empty();
@@ -2874,6 +2977,40 @@ mod ordering_tests {
         order_entries(&app, Filter::Playlists, LibrarySort::Name, &mut entries);
         assert_eq!(ids(&entries), ["a", "b", "c", "d"]);
         assert_eq!(ids(&rows(&app)), ["a", "b", "c", "d"]);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn recent_sort_uses_provider_owned_ranks_for_composed_rows() {
+        let mut app = app("provider-recent-ranks");
+        let mut entries = rows(&app);
+        for (entry, rank) in entries.iter_mut().zip([Some(2), None, Some(0), Some(1)]) {
+            entry.recent_rank = rank;
+            entry.provider = Some(crate::provider::LibraryItem {
+                reference: crate::provider::ItemReference::Spotify {
+                    uri: entry.uri.clone(),
+                },
+                name: entry.name.clone(),
+                subtitle: entry.subtitle.clone(),
+                artwork: None,
+                open: Action::Open(Page::Home),
+                play: None,
+                kind: crate::provider::MediaKind::Playlist,
+                menu: Vec::new(),
+                round: false,
+                selected: false,
+                current: false,
+            });
+        }
+
+        order_entries(
+            &app,
+            Filter::Playlists,
+            LibrarySort::RecentlyPlayed,
+            &mut entries,
+        );
+
+        assert_eq!(ids(&entries), ["c", "d", "a", "b"]);
         app.backend.shutdown();
     }
 

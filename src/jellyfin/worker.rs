@@ -1101,18 +1101,43 @@ async fn run_combined_library(task: CombinedLibraryTask) {
             return;
         }
     };
+    // Artist user data does not inherit track plays in Jellyfin. Fetch one
+    // bounded recent-audio page alongside the first artist page so deriving
+    // the order adds no serial round trip. A history failure must not make the
+    // library itself unavailable.
+    let (recent, mut first_page) = if task.kind == crate::jellyfin::catalog::Kind::Artist {
+        let (recent, page) = tokio::join!(
+            client.query(
+                &source.user_id,
+                &crate::jellyfin::catalog::Query::Recent,
+                0,
+                &token,
+            ),
+            client.library_page(&source.user_id, task.kind, 0, &token),
+        );
+        (recent.ok().map(|page| page.items), Some(page))
+    } else {
+        (None, None)
+    };
     let mut start = 0;
     loop {
-        let page = match client
-            .library_page(&source.user_id, task.kind, start, &token)
-            .await
-        {
+        let result = if let Some(page) = first_page.take() {
+            page
+        } else {
+            client
+                .library_page(&source.user_id, task.kind, start, &token)
+                .await
+        };
+        let mut page = match result {
             Ok(page) => page,
             Err(error) => {
                 task.emit(Err(error.to_string()));
                 return;
             }
         };
+        if let Some(recent) = &recent {
+            crate::jellyfin::catalog::rank_artists_by_recent_tracks(&mut page.items, recent);
+        }
         let received = page.items.len() as u32;
         let total = page.total_record_count;
         task.emit(Ok(page));

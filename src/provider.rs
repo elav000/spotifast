@@ -254,6 +254,10 @@ pub struct LibraryItem {
 
 pub struct LibraryData {
     pub items: Vec<LibraryItem>,
+    /// Provider-owned newest-first ranks for the selected shelf. Shared UI
+    /// sorts these opaque identities without knowing how each catalog records
+    /// playback history.
+    pub recent_ranks: std::collections::HashMap<ItemReference, usize>,
     /// Provider-owned continuation for the shared sidebar's current shelf.
     pub load_more: Option<crate::model::Action>,
     pub collections: Vec<(String, String)>,
@@ -267,13 +271,26 @@ pub struct LibraryData {
     pub shelf: crate::settings::LibraryShelf,
     pub shelves: Vec<crate::settings::LibraryShelf>,
     pub sorts: Vec<crate::settings::LibrarySort>,
+    /// Sources available to a composed Library. Empty for native provider views.
+    pub sources: Vec<CatalogSource>,
+    /// The effective composed-Library source filter. `None` means all sources.
+    pub source: Option<ProviderStamp>,
+    /// The stable ordering mode groups a composed Library by source.
+    pub source_order: bool,
 }
+
+const COMBINED_LIBRARY_SORTS: [crate::settings::LibrarySort; 3] = [
+    crate::settings::LibrarySort::Library,
+    crate::settings::LibrarySort::RecentlyPlayed,
+    crate::settings::LibrarySort::Name,
+];
 
 #[derive(Clone, Debug)]
 pub enum LibraryAction {
     Filter(String),
     Shelf(crate::settings::LibraryShelf),
     Sort(crate::settings::LibrarySort),
+    Source(Option<ProviderStamp>),
     Collection(String),
     Refresh,
 }
@@ -752,6 +769,7 @@ impl crate::app::App {
             .collect();
         Some(LibraryData {
             items,
+            recent_ranks: std::collections::HashMap::new(),
             load_more: None,
             collections: self
                 .jellyfin
@@ -788,42 +806,101 @@ impl crate::app::App {
                 crate::settings::LibrarySort::RecentlyPlayed,
                 crate::settings::LibrarySort::Name,
             ],
+            sources: Vec::new(),
+            source: None,
+            source_order: false,
         })
     }
 
     fn combined_library(&self) -> LibraryData {
         use crate::{
             api::models::{join_names, pick_image},
+            i18n::gettext,
             model::{Action, Page},
-            settings::{LibraryShelf, LibrarySort},
+            settings::LibraryShelf,
         };
 
-        let shelf = match self.jellyfin.combined_library.kind {
-            MediaKind::Artist => LibraryShelf::Artists,
-            MediaKind::Playlist => LibraryShelf::Playlists,
-            _ => LibraryShelf::Albums,
-        };
+        let shelf = self.combined_library_shelf();
         let art = self.art_px(320.0);
         let mut items = Vec::new();
+        let mut recent_ranks = std::collections::HashMap::new();
         let mut loading = false;
         let mut errors = Vec::new();
+        let sources = self.catalog_sources();
+        let selected_source = self
+            .library_source
+            .as_ref()
+            .filter(|selected| sources.iter().any(|source| &source.stamp == *selected))
+            .cloned();
+        let include_spotify = selected_source
+            .as_ref()
+            .is_none_or(|source| *source == ProviderStamp::Spotify);
 
-        match shelf {
-            LibraryShelf::Playlists => {
-                match &self.library.playlists {
-                    crate::model::Loadable::Loaded(playlists) => {
-                        items.extend(playlists.iter().map(|playlist| LibraryItem {
-                            reference: ItemReference::Spotify {
-                                uri: playlist.uri.clone(),
-                            },
-                            name: playlist.name.clone(),
-                            subtitle: source_subtitle(playlist.owner_name(), "Spotify"),
-                            artwork: pick_image(&playlist.images, art).map(str::to_owned),
+        if include_spotify {
+            match shelf {
+                LibraryShelf::Artists => {
+                    for (rank, play) in self.recents_view.iter().enumerate() {
+                        for artist in &play.track.artists {
+                            if let Some(uri) = artist.uri.as_ref().filter(|uri| !uri.is_empty()) {
+                                recent_ranks
+                                    .entry(ItemReference::Spotify { uri: uri.clone() })
+                                    .or_insert(rank);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    for (rank, uri) in self.recent_contexts.iter().enumerate() {
+                        recent_ranks.insert(ItemReference::Spotify { uri: uri.clone() }, rank);
+                    }
+                }
+            }
+            match shelf {
+                LibraryShelf::Playlists => {
+                    match &self.library.playlists {
+                        crate::model::Loadable::Loaded(playlists) => {
+                            items.extend(playlists.iter().map(|playlist| LibraryItem {
+                                reference: ItemReference::Spotify {
+                                    uri: playlist.uri.clone(),
+                                },
+                                name: playlist.name.clone(),
+                                subtitle: source_subtitle(playlist.owner_name(), "Spotify"),
+                                artwork: pick_image(&playlist.images, art).map(str::to_owned),
+                                open: Action::OpenCatalogResult(CatalogDestination::Spotify(
+                                    Page::Playlist(playlist.id.clone()),
+                                )),
+                                play: Some(Action::PlayContext {
+                                    uri: playlist.uri.clone(),
+                                    offset_uri: None,
+                                    offset_index: None,
+                                }),
+                                kind: MediaKind::Playlist,
+                                menu: Vec::new(),
+                                round: false,
+                                selected: false,
+                                current: self.playing_context_uri().as_deref()
+                                    == Some(playlist.uri.as_str()),
+                            }));
+                        }
+                        crate::model::Loadable::Loading | crate::model::Loadable::NotLoaded => {
+                            loading = true
+                        }
+                        crate::model::Loadable::Failed(error) => {
+                            errors.push(format!("Spotify: {error}"))
+                        }
+                    }
+                    if let Some(user) = &self.user {
+                        let uri = format!("spotify:user:{}:collection", user.id);
+                        items.push(LibraryItem {
+                            reference: ItemReference::Spotify { uri: uri.clone() },
+                            name: gettext(self.locale, "Liked Songs").into_owned(),
+                            subtitle: source_subtitle(&gettext(self.locale, "Playlist"), "Spotify"),
+                            artwork: None,
                             open: Action::OpenCatalogResult(CatalogDestination::Spotify(
-                                Page::Playlist(playlist.id.clone()),
+                                Page::LikedSongs,
                             )),
                             play: Some(Action::PlayContext {
-                                uri: playlist.uri.clone(),
+                                uri: uri.clone(),
                                 offset_uri: None,
                                 offset_index: None,
                             }),
@@ -831,119 +908,96 @@ impl crate::app::App {
                             menu: Vec::new(),
                             round: false,
                             selected: false,
+                            current: self.playing_context_uri().as_deref() == Some(uri.as_str()),
+                        });
+                    }
+                }
+                LibraryShelf::Albums => {
+                    items.extend(self.library.albums.items.iter().map(|saved| {
+                        let album = &saved.album;
+                        let artists =
+                            join_names(album.artists.iter().map(|artist| artist.name.as_str()));
+                        LibraryItem {
+                            reference: ItemReference::Spotify {
+                                uri: album.uri.clone(),
+                            },
+                            name: album.name.clone(),
+                            subtitle: source_subtitle(&artists, "Spotify"),
+                            artwork: pick_image(&album.images, art).map(str::to_owned),
+                            open: Action::OpenCatalogResult(CatalogDestination::Spotify(
+                                Page::Album(album.id.clone()),
+                            )),
+                            play: Some(Action::PlayContext {
+                                uri: album.uri.clone(),
+                                offset_uri: None,
+                                offset_index: None,
+                            }),
+                            kind: MediaKind::Album,
+                            menu: Vec::new(),
+                            round: false,
+                            selected: false,
                             current: self.playing_context_uri().as_deref()
-                                == Some(playlist.uri.as_str()),
-                        }));
-                    }
-                    crate::model::Loadable::Loading | crate::model::Loadable::NotLoaded => {
-                        loading = true
-                    }
-                    crate::model::Loadable::Failed(error) => {
-                        errors.push(format!("Spotify: {error}"))
+                                == Some(album.uri.as_str()),
+                        }
+                    }));
+                    loading |= self.library.albums.loading;
+                    if let Some(error) = &self.library.albums.error {
+                        errors.push(format!("Spotify: {error}"));
                     }
                 }
-                if let Some(user) = &self.user {
-                    let uri = format!("spotify:user:{}:collection", user.id);
-                    items.push(LibraryItem {
-                        reference: ItemReference::Spotify { uri: uri.clone() },
-                        name: crate::i18n::gettext(self.locale, "Liked Songs").into_owned(),
-                        subtitle: source_subtitle(
-                            &crate::i18n::gettext(self.locale, "Playlist"),
-                            "Spotify",
-                        ),
-                        artwork: None,
-                        open: Action::OpenCatalogResult(CatalogDestination::Spotify(
-                            Page::LikedSongs,
-                        )),
-                        play: Some(Action::PlayContext {
-                            uri: uri.clone(),
-                            offset_uri: None,
-                            offset_index: None,
-                        }),
-                        kind: MediaKind::Playlist,
-                        menu: Vec::new(),
-                        round: false,
-                        selected: false,
-                        current: self.playing_context_uri().as_deref() == Some(uri.as_str()),
-                    });
-                }
-            }
-            LibraryShelf::Albums => {
-                items.extend(self.library.albums.items.iter().map(|saved| {
-                    let album = &saved.album;
-                    let artists =
-                        join_names(album.artists.iter().map(|artist| artist.name.as_str()));
-                    LibraryItem {
+                LibraryShelf::Artists => {
+                    items.extend(self.library.artists.items.iter().map(|artist| LibraryItem {
                         reference: ItemReference::Spotify {
-                            uri: album.uri.clone(),
+                            uri: artist.uri.clone(),
                         },
-                        name: album.name.clone(),
-                        subtitle: source_subtitle(&artists, "Spotify"),
-                        artwork: pick_image(&album.images, art).map(str::to_owned),
-                        open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Album(
-                            album.id.clone(),
+                        name: artist.name.clone(),
+                        subtitle: source_subtitle(&gettext(self.locale, "Artist"), "Spotify"),
+                        artwork: pick_image(&artist.images, art).map(str::to_owned),
+                        open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Artist(
+                            artist.id.clone(),
                         ))),
                         play: Some(Action::PlayContext {
-                            uri: album.uri.clone(),
+                            uri: artist.uri.clone(),
                             offset_uri: None,
                             offset_index: None,
                         }),
-                        kind: MediaKind::Album,
+                        kind: MediaKind::Artist,
                         menu: Vec::new(),
-                        round: false,
+                        round: true,
                         selected: false,
-                        current: self.playing_context_uri().as_deref() == Some(album.uri.as_str()),
+                        current: self.playing_context_uri().as_deref() == Some(artist.uri.as_str()),
+                    }));
+                    loading |= self.library.artists.loading;
+                    if let Some(error) = &self.library.artists.error {
+                        errors.push(format!("Spotify: {error}"));
                     }
-                }));
-                loading |= self.library.albums.loading;
-                if let Some(error) = &self.library.albums.error {
-                    errors.push(format!("Spotify: {error}"));
                 }
+                LibraryShelf::Podcasts => unreachable!("combined Library has music shelves"),
             }
-            LibraryShelf::Artists => {
-                items.extend(self.library.artists.items.iter().map(|artist| LibraryItem {
-                    reference: ItemReference::Spotify {
-                        uri: artist.uri.clone(),
-                    },
-                    name: artist.name.clone(),
-                    subtitle: source_subtitle(
-                        &crate::i18n::gettext(self.locale, "Artist"),
-                        "Spotify",
-                    ),
-                    artwork: pick_image(&artist.images, art).map(str::to_owned),
-                    open: Action::OpenCatalogResult(CatalogDestination::Spotify(Page::Artist(
-                        artist.id.clone(),
-                    ))),
-                    play: Some(Action::PlayContext {
-                        uri: artist.uri.clone(),
-                        offset_uri: None,
-                        offset_index: None,
-                    }),
-                    kind: MediaKind::Artist,
-                    menu: Vec::new(),
-                    round: true,
-                    selected: false,
-                    current: self.playing_context_uri().as_deref() == Some(artist.uri.as_str()),
-                }));
-                loading |= self.library.artists.loading;
-                if let Some(error) = &self.library.artists.error {
-                    errors.push(format!("Spotify: {error}"));
-                }
-            }
-            LibraryShelf::Podcasts => unreachable!("combined Library has music shelves"),
         }
 
         for source in &self.jellyfin.combined_library.sources {
+            let stamp = ProviderStamp::jellyfin(&source.source);
+            if selected_source
+                .as_ref()
+                .is_some_and(|selected| selected != &stamp)
+            {
+                continue;
+            }
             loading |= source.loading;
             if let Some(error) = &source.error {
                 errors.push(format!("{}: {error}", source.source.nickname));
             }
-            items.extend(source.items.iter().flatten().map(|item| {
+            items.extend(source.items.iter().flatten().map(|catalog_item| {
+                let recent_rank = catalog_item.details.recent_rank;
                 let mut item = self.jellyfin_search_item(
                     &source.source,
-                    item,
+                    catalog_item,
                     self.jellyfin.combined_library.kind,
                 );
+                if let Some(rank) = recent_rank {
+                    recent_ranks.insert(item.reference.clone(), rank);
+                }
                 item.subtitle = source_subtitle(&item.subtitle, &source.source.nickname);
                 if item.play.is_none()
                     && let crate::model::Action::OpenCatalogResult(CatalogDestination::Jellyfin {
@@ -962,30 +1016,20 @@ impl crate::app::App {
             }));
         }
 
-        let supported_sorts = match shelf {
-            LibraryShelf::Artists => vec![LibrarySort::Library, LibrarySort::Name],
-            _ => vec![
-                LibrarySort::Library,
-                LibrarySort::RecentlyPlayed,
-                LibrarySort::Name,
-            ],
-        };
-        let selected_sort = crate::ui::sidebar::selected_sort(self, shelf);
-        let sort = if supported_sorts.contains(&selected_sort) {
-            selected_sort
-        } else if supported_sorts.contains(&LibrarySort::RecentlyPlayed) {
-            LibrarySort::RecentlyPlayed
-        } else {
-            LibrarySort::Library
-        };
+        let supported_sorts = COMBINED_LIBRARY_SORTS.to_vec();
+        let sort = self.combined_library_sort(shelf);
         let load_more = match shelf {
             LibraryShelf::Albums
-                if self.library.albums.error.is_none() && self.library.albums.can_load_more() =>
+                if include_spotify
+                    && self.library.albums.error.is_none()
+                    && self.library.albums.can_load_more() =>
             {
                 Some(Action::LoadMore(Page::Albums))
             }
             LibraryShelf::Artists
-                if self.library.artists.error.is_none() && self.library.artists.can_load_more() =>
+                if include_spotify
+                    && self.library.artists.error.is_none()
+                    && self.library.artists.can_load_more() =>
             {
                 Some(Action::LoadMore(Page::Artists))
             }
@@ -993,6 +1037,7 @@ impl crate::app::App {
         };
         LibraryData {
             items,
+            recent_ranks,
             load_more,
             collections: Vec::new(),
             collection: None,
@@ -1009,11 +1054,34 @@ impl crate::app::App {
                 LibraryShelf::Playlists,
             ],
             sorts: supported_sorts,
+            sources,
+            source: selected_source,
+            source_order: true,
         }
     }
 
     pub fn jellyfin_selected(&self) -> bool {
         self.jellyfin.enabled && self.jellyfin.provider == Provider::Jellyfin
+    }
+
+    fn combined_library_sort(
+        &self,
+        shelf: crate::settings::LibraryShelf,
+    ) -> crate::settings::LibrarySort {
+        let selected = crate::ui::sidebar::selected_sort(self, shelf);
+        if COMBINED_LIBRARY_SORTS.contains(&selected) {
+            selected
+        } else {
+            crate::settings::LibrarySort::RecentlyPlayed
+        }
+    }
+
+    fn combined_library_shelf(&self) -> crate::settings::LibraryShelf {
+        match self.jellyfin.combined_library.kind {
+            MediaKind::Artist => crate::settings::LibraryShelf::Artists,
+            MediaKind::Playlist => crate::settings::LibraryShelf::Playlists,
+            _ => crate::settings::LibraryShelf::Albums,
+        }
     }
 
     pub fn jellyfin_library_item(
@@ -1841,6 +1909,12 @@ impl crate::app::App {
         if self.catalog_scope() == CatalogScope::All {
             match action {
                 LibraryAction::Shelf(shelf) => {
+                    let current_shelf = self.combined_library_shelf();
+                    let sort = self.combined_library_sort(current_shelf);
+                    if sort.supports(shelf) {
+                        self.actions
+                            .push(crate::model::Action::SetLibrarySort { shelf, sort });
+                    }
                     let kind = match shelf {
                         crate::settings::LibraryShelf::Artists => MediaKind::Artist,
                         crate::settings::LibraryShelf::Playlists => MediaKind::Playlist,
@@ -1852,14 +1926,11 @@ impl crate::app::App {
                 LibraryAction::Filter(value) => self.library.filter = value,
                 LibraryAction::Sort(sort) => {
                     self.actions.push(crate::model::Action::SetLibrarySort {
-                        shelf: match self.jellyfin.combined_library.kind {
-                            MediaKind::Artist => crate::settings::LibraryShelf::Artists,
-                            MediaKind::Playlist => crate::settings::LibraryShelf::Playlists,
-                            _ => crate::settings::LibraryShelf::Albums,
-                        },
+                        shelf: self.combined_library_shelf(),
                         sort,
                     })
                 }
+                LibraryAction::Source(source) => self.library_source = source,
                 LibraryAction::Refresh => self.jellyfin.load_all_library(
                     self.jellyfin.combined_library.kind,
                     true,
@@ -1899,6 +1970,7 @@ impl crate::app::App {
             }
             LibraryAction::Collection(id) => self
                 .apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::SelectLibrary(id)),
+            LibraryAction::Source(_) => {}
             LibraryAction::Refresh => {
                 if let Some(library) = self.jellyfin.catalog.library.clone() {
                     let filter = self.jellyfin.catalog.filter.clone();

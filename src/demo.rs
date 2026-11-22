@@ -15035,6 +15035,8 @@ mod tests {
 
         app.actions.clear();
         let list = view_frame(&ctx, &mut app, vec![], crate::ui::sidebar::show);
+        assert!(list.iter().any(|(label, _)| label == "Source order"));
+        assert!(list.iter().any(|(label, _)| label == "All sources"));
         assert_eq!(
             list.iter().filter(|(label, _)| label == &title).count(),
             2,

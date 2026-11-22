@@ -396,6 +396,9 @@ pub struct App {
     pub(crate) catalog_return: Option<crate::provider::CatalogEdge>,
     /// The destination Back left, so Forward can cross the same edge again.
     pub(crate) catalog_forward: Option<crate::provider::CatalogEdge>,
+    /// Ephemeral source filter for the composed Library rail. This changes
+    /// presentation only, never catalog scope or playback ownership.
+    pub(crate) library_source: Option<crate::provider::ProviderStamp>,
     pub jellyfin_player: crate::jellyfin::transport::Transport,
     jellyfin_epoch: u64,
     jellyfin_end_sequence: u64,
@@ -1301,6 +1304,7 @@ impl App {
             catalog_page: crate::provider::CatalogPage::Home,
             catalog_return: None,
             catalog_forward: None,
+            library_source: None,
             custom_themes: theme::Catalog::default(),
             storage_usage: crate::storage::Usage::default(),
             clearing_audio_cache: false,
@@ -26513,9 +26517,24 @@ mod tests {
                 loading: false,
             },
         ];
+
+        let single = app.provider_library().expect("single-provider Library");
+        assert!(single.sources.is_empty());
+        assert!(single.source.is_none());
+        assert!(!single.source_order);
         app.set_catalog_scope(CatalogScope::All);
 
         let library = app.provider_library().expect("combined Library");
+        assert_eq!(
+            library
+                .sources
+                .iter()
+                .map(|source| source.label.as_str())
+                .collect::<Vec<_>>(),
+            ["Spotify", "Music server", "Upstairs", "Offline"]
+        );
+        assert_eq!(library.source, None);
+        assert!(library.source_order);
         assert_eq!(library.shelf, LibraryShelf::Albums);
         assert_eq!(library.items.len(), 3, "same-name versions remain separate");
         assert!(library.items.iter().any(|item| {
@@ -26543,6 +26562,66 @@ mod tests {
         assert!(app.jellyfin.busy, "the saved source starts activating");
         assert_eq!(app.jellyfin.play_album.as_deref(), Some("upstairs-album"));
 
+        app.jellyfin.combined_library.sources[1].error = Some("partial".into());
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Source(Some(ProviderStamp::jellyfin(
+                &second,
+            )))),
+            &ctx,
+        );
+        let upstairs_only = app.provider_library().expect("filtered combined Library");
+        assert_eq!(upstairs_only.source, Some(ProviderStamp::jellyfin(&second)));
+        assert_eq!(upstairs_only.items.len(), 1);
+        assert!(
+            upstairs_only
+                .items
+                .iter()
+                .all(|item| item.reference.stamp() == ProviderStamp::jellyfin(&second))
+        );
+        assert_eq!(upstairs_only.error.as_deref(), Some("Upstairs: partial"));
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.selected_provider(), Provider::Jellyfin);
+
+        app.jellyfin
+            .servers
+            .retain(|source| !source.same_identity(&second));
+        app.jellyfin
+            .combined_library
+            .sources
+            .retain(|source| !source.source.same_identity(&second));
+        let fallback = app.provider_library().expect("fallback combined Library");
+        assert_eq!(fallback.source, None, "a removed source falls back to all");
+        assert_eq!(fallback.items.len(), 2);
+
+        let first_stamp = ProviderStamp::jellyfin(&first);
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Source(Some(first_stamp.clone()))),
+            &ctx,
+        );
+        assert_eq!(app.provider_library().unwrap().source, Some(first_stamp));
+
+        app.settings
+            .library_sort
+            .insert(LibraryShelf::Albums, LibrarySort::RecentlyPlayed);
+        app.settings
+            .library_sort
+            .insert(LibraryShelf::Artists, LibrarySort::Name);
+        app.apply(
+            Action::ProviderLibrary(LibraryAction::Shelf(LibraryShelf::Artists)),
+            &ctx,
+        );
+        app.apply_actions(&ctx);
+        assert_eq!(
+            app.provider_library().unwrap().sort,
+            LibrarySort::RecentlyPlayed,
+            "a supported composed-Library sort follows the pill pivot"
+        );
+        assert_eq!(
+            app.provider_library().unwrap().source,
+            Some(ProviderStamp::jellyfin(&first)),
+            "the effective source filter is unchanged"
+        );
+
         app.settings
             .library_sort
             .insert(LibraryShelf::Playlists, LibrarySort::Spotify);
@@ -26566,8 +26645,12 @@ mod tests {
         );
         assert_eq!(
             app.provider_library().unwrap().sorts,
-            [LibrarySort::Library, LibrarySort::Name],
-            "combined artists must not offer a recency sort without artist recency data"
+            [
+                LibrarySort::Library,
+                LibrarySort::RecentlyPlayed,
+                LibrarySort::Name
+            ],
+            "combined artists expose the provider-derived recency order"
         );
         assert_eq!(app.catalog_scope(), CatalogScope::All);
         assert_eq!(app.selected_provider(), Provider::Jellyfin);

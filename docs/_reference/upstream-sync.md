@@ -4,11 +4,12 @@ description: Keep the Jellyfin fork current with upstream while preserving clear
 ---
 
 The Jellyfin fork's `main` is based on upstream
-`crmne/spotifast:main` at `d0c2f052030b2f53158f7deb5df8fbba37eb68dc`.
+`crmne/spotifast:main` at `eaaf3c6c12be1f97bc0043a3686d9b407df216f8`.
 Fork-only commits are rebased on that upstream ancestry, keeping GitHub's
 ahead/behind count meaningful while preserving a linear history. The recovery
-ref for the 2026-11-10 sync is
-`recovery/pre-upstream-2026-11-10-d0fefafc`. Earlier recovery refs are
+ref for the 2026-11-22 sync is
+`recovery/pre-upstream-2026-11-22-7ed7fba1`. Earlier recovery refs are
+`recovery/pre-upstream-2026-11-10-d0fefafc`,
 `recovery/pre-upstream-2026-11-04-45a0f74`,
 `recovery/pre-upstream-2026-10-28-837c52d`,
 `recovery/pre-upstream-2026-10-25-e9ec4f4`,

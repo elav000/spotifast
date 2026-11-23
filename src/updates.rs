@@ -32,9 +32,6 @@ use std::sync::Mutex;
 /// The version this build is.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Where the release files are.
-const DOWNLOADS: &str = "https://github.com/crmne/spotifast/releases/download";
-
 type UpdaterCache = Mutex<Option<(crate::settings::ProxyConfig, Updater)>>;
 static UPDATER: UpdaterCache = Mutex::new(None);
 
@@ -265,7 +262,12 @@ fn route(
     saved: impl Fn(&str) -> String,
 ) -> Option<Route> {
     let managed = managed?;
-    let file = |name: &str| format!("{DOWNLOADS}/v{version}/{name}");
+    let file = |name: &str| {
+        format!(
+            "https://github.com/{}/releases/download/v{version}/{name}",
+            CONFIG.repository
+        )
+    };
     // The release's own files carry the version into a path and a command.
     let release_file = plain_version(version) && matches!(arch, "x86_64" | "aarch64");
     match managed.manager {
@@ -579,7 +581,7 @@ mod tests {
                     saved
                 ),
                 Some(Route::Rpm {
-                    command: "sudo dnf install https://github.com/crmne/spotifast/releases/download/v0.18.0/spotifast-0.18.0-1.aarch64.rpm".into()
+                    command: "sudo dnf install https://github.com/elav000/spotifast/releases/download/v0.18.0/spotifast-0.18.0-1.aarch64.rpm".into()
                 }),
                 "{vendor:?}"
             );
@@ -603,7 +605,7 @@ mod tests {
             deb,
             Route::Deb {
                 download:
-                    "https://github.com/crmne/spotifast/releases/download/v0.18.0/spotifast_0.18.0_arm64.deb"
+                    "https://github.com/elav000/spotifast/releases/download/v0.18.0/spotifast_0.18.0_arm64.deb"
                         .into(),
                 command: "sudo apt install ~/Downloads/spotifast_0.18.0_arm64.deb".into(),
             }
@@ -619,7 +621,7 @@ mod tests {
         assert_eq!(
             flatpak.download(),
             Some(
-                "https://github.com/crmne/spotifast/releases/download/v0.18.0/spotifast-v0.18.0-x86_64.flatpak"
+                "https://github.com/elav000/spotifast/releases/download/v0.18.0/spotifast-v0.18.0-x86_64.flatpak"
             )
         );
         assert_eq!(

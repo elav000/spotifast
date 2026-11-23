@@ -297,6 +297,7 @@ fn rows(app: &App, now: Option<&NowPlaying>) -> (Vec<Row>, QueuePresentation) {
                 play: queued.map(|_| actions.play.clone()),
                 navigation: actions.navigation.clone(),
                 label: label(rows.len() + 1, &track.artists.join(", "), &track.title),
+                title: track.title.clone(),
                 duration_ms: track.duration_ms.min(u32::MAX as u64) as u32,
                 current: queued.is_none(),
                 queued,
@@ -958,6 +959,10 @@ mod tests {
         );
         assert_eq!(queue.manual_len, 3);
         assert!(mini[0].current);
+        let QueueEntry::Provider(first) = &main.rows[0] else {
+            panic!("expected a provider queue row");
+        };
+        assert_eq!(mini[1].title, first.0.title);
         assert_eq!(
             mini[1].uri, mini[2].uri,
             "duplicate occurrences remain visible"

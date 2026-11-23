@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:11-0800\n"
+"POT-Creation-Date: 2026-11-22 16:12-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Traditional Chinese\n"
@@ -153,7 +153,7 @@ msgstr "在音樂庫中搜尋"
 #: src/ui/sidebar.rs:1562 src/ui/widgets.rs:1546 src/app.rs:4771
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
 #: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
-#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:842
+#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:843
 msgid "Artist"
 msgstr "藝人"
 
@@ -3957,8 +3957,8 @@ msgstr "選擇面板"
 msgid "Big window"
 msgstr "大視窗"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:822
-#: src/ui/winamp/playlist.rs:836
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:837
 msgid "Song info"
 msgstr "歌曲資訊"
 
@@ -4024,45 +4024,45 @@ msgstr "跳至：{position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "開啟大視窗"
 
-#: src/ui/winamp/playlist.rs:765
+#: src/ui/winamp/playlist.rs:766
 msgid "Remove selected"
 msgstr "移除所選項目"
 
-#: src/ui/winamp/playlist.rs:776
+#: src/ui/winamp/playlist.rs:777
 msgid "Remove all"
 msgstr "全部移除"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:789
+#: src/ui/winamp/playlist.rs:790
 msgctxt "selection"
 msgid "All"
 msgstr "全選"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:791
+#: src/ui/winamp/playlist.rs:792
 msgctxt "selection"
 msgid "None"
 msgstr "全不選"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:793
+#: src/ui/winamp/playlist.rs:794
 msgctxt "selection"
 msgid "Invert"
 msgstr "反向選取"
 
-#: src/ui/winamp/playlist.rs:855
+#: src/ui/winamp/playlist.rs:856
 msgid "Load list"
 msgstr "載入清單"
 
-#: src/ui/winamp/playlist.rs:864
+#: src/ui/winamp/playlist.rs:865
 msgid "No playlists yet"
 msgstr "還沒有播放清單"
 
-#: src/ui/winamp/playlist.rs:879
+#: src/ui/winamp/playlist.rs:880
 msgid "Save list"
 msgstr "儲存清單"
 
-#: src/ui/winamp/playlist.rs:881
+#: src/ui/winamp/playlist.rs:882
 msgid "Save the queue as a new playlist"
 msgstr "將待播清單儲存為新的播放清單"
 
@@ -4255,20 +4255,6 @@ msgstr ""
 msgid "The configured Spotify player is not ready. Skipped this queued song."
 msgstr "已設定的 Spotify 播放器尚未就緒。已略過播放佇列中的這首歌曲。"
 
-#, rust-format
-#~ msgid ""
-#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
-#~ msgstr "刪除「{name}」？這會從你的 Jellyfin 伺服器移除此播放清單。"
-
-#, rust-format
-#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
-#~ msgstr "要刪除「{name}」嗎？你可以在 90 天內從 Spotify 復原。"
-
-#, rust-format
-#~ msgid "“{name}” will no longer appear in Your Library."
-#~ msgstr "「{name}」將不再顯示於你的音樂庫。"
-
-#, rust-format
 #~ msgid "Built with love by {name}"
 #~ msgstr "由 {name} 用心打造"
 
@@ -4279,26 +4265,11 @@ msgstr "已設定的 Spotify 播放器尚未就緒。已略過播放佇列中的
 #~ msgid "Following"
 #~ msgstr "追蹤中"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr "已安裝的面板位於 {folder}。可在 Winamp Skin Museum 找到更多面板。"
+#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
+#~ msgstr "要刪除「{name}」嗎？你可以在 90 天內從 Spotify 復原。"
 
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr "目前外觀：{skin}。每次開啟迷你播放器都會換一個。"
-
-#, rust-format
-#~ msgid ""
-#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
-#~ "save, and sign in again."
-#~ msgstr ""
-#~ "如果 Spotify 顯示「Invalid redirect URI」，請將 {uri} 原樣新增到你的應用程"
-#~ "式，儲存後重新登入。"
-
-#~ msgid "Music source"
-#~ msgstr "音樂來源"
+#~ msgid "“{name}” will no longer appear in Your Library."
+#~ msgstr "「{name}」將不再顯示於你的音樂庫。"
 
 #~ msgid "You can only change this computer's queue."
 #~ msgstr "只能變更這台電腦的待播清單。"
@@ -4756,6 +4727,28 @@ msgstr "已設定的 Spotify 播放器尚未就緒。已略過播放佇列中的
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "減少歌詞動畫"
+
+#~ msgid ""
+#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
+#~ msgstr "刪除「{name}」？這會從你的 Jellyfin 伺服器移除此播放清單。"
+
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr "已安裝的面板位於 {folder}。可在 Winamp Skin Museum 找到更多面板。"
+
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr "目前外觀：{skin}。每次開啟迷你播放器都會換一個。"
+
+#~ msgid ""
+#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
+#~ "save, and sign in again."
+#~ msgstr ""
+#~ "如果 Spotify 顯示「Invalid redirect URI」，請將 {uri} 原樣新增到你的應用程"
+#~ "式，儲存後重新登入。"
+
+#~ msgid "Music source"
+#~ msgstr "音樂來源"
 
 #~ msgid "Size: 2x, 3x, 4x"
 #~ msgstr "大小：2x、3x、4x"

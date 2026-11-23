@@ -410,9 +410,9 @@ random token). Use the command rather than the channel itself.
 ## Updates
 
 The Windows installer, Mac app, AppImage, and portable Windows and Linux
-downloads can update from the Tumlo release channel. When Tumlo finds a signed release there, it
-downloads it in the background (not on a metered connection or without
-internet) and the green button at the top reads **Update ready**. Click it
+downloads can update from the Tumlo release channel. When Tumlo finds a
+signed release there, it downloads it in the background on an unmetered
+connection. The green button at the top then reads **Update ready**. Click it
 and choose **Restart to update** to install it now; otherwise it installs
 the next time Tumlo starts, before its window opens, and the new
 version opens in its place. Nothing restarts while you listen.

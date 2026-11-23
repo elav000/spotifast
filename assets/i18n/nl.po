@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:11-0800\n"
+"POT-Creation-Date: 2026-11-22 16:12-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Dutch\n"
@@ -153,7 +153,7 @@ msgstr "Zoeken in je bibliotheek"
 #: src/ui/sidebar.rs:1562 src/ui/widgets.rs:1546 src/app.rs:4771
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
 #: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
-#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:842
+#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:843
 msgid "Artist"
 msgstr "Artiest"
 
@@ -4113,8 +4113,8 @@ msgstr "Skin kiezen"
 msgid "Big window"
 msgstr "Groot venster"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:822
-#: src/ui/winamp/playlist.rs:836
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:837
 msgid "Song info"
 msgstr "Nummerinfo"
 
@@ -4180,45 +4180,45 @@ msgstr "Spoelen naar: {position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "Groot venster openen"
 
-#: src/ui/winamp/playlist.rs:765
+#: src/ui/winamp/playlist.rs:766
 msgid "Remove selected"
 msgstr "Selectie verwijderen"
 
-#: src/ui/winamp/playlist.rs:776
+#: src/ui/winamp/playlist.rs:777
 msgid "Remove all"
 msgstr "Alles verwijderen"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:789
+#: src/ui/winamp/playlist.rs:790
 msgctxt "selection"
 msgid "All"
 msgstr "Alles"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:791
+#: src/ui/winamp/playlist.rs:792
 msgctxt "selection"
 msgid "None"
 msgstr "Niets"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:793
+#: src/ui/winamp/playlist.rs:794
 msgctxt "selection"
 msgid "Invert"
 msgstr "Omkeren"
 
-#: src/ui/winamp/playlist.rs:855
+#: src/ui/winamp/playlist.rs:856
 msgid "Load list"
 msgstr "Lijst laden"
 
-#: src/ui/winamp/playlist.rs:864
+#: src/ui/winamp/playlist.rs:865
 msgid "No playlists yet"
 msgstr "Nog geen playlists"
 
-#: src/ui/winamp/playlist.rs:879
+#: src/ui/winamp/playlist.rs:880
 msgid "Save list"
 msgstr "Lijst opslaan"
 
-#: src/ui/winamp/playlist.rs:881
+#: src/ui/winamp/playlist.rs:882
 msgid "Save the queue as a new playlist"
 msgstr "De wachtrij opslaan als nieuwe playlist"
 
@@ -4422,23 +4422,6 @@ msgstr ""
 "De geconfigureerde Spotify-speler is niet gereed. Dit nummer in de wachtrij "
 "is overgeslagen."
 
-#, rust-format
-#~ msgid ""
-#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
-#~ msgstr ""
-#~ "‘{name}’ verwijderen? De playlist wordt verwijderd van je Jellyfin-server."
-
-#, rust-format
-#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
-#~ msgstr ""
-#~ "“{name}” verwijderen? Je kunt de playlist 90 dagen lang herstellen via "
-#~ "Spotify."
-
-#, rust-format
-#~ msgid "“{name}” will no longer appear in Your Library."
-#~ msgstr "“{name}” verschijnt niet meer in Jouw bibliotheek."
-
-#, rust-format
 #~ msgid "Built with love by {name}"
 #~ msgstr "Met liefde gemaakt door {name}"
 
@@ -4449,30 +4432,13 @@ msgstr ""
 #~ msgid "Following"
 #~ msgstr "Volgend"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
 #~ msgstr ""
-#~ "Geïnstalleerde skins staan in {folder}. Vind er meer in het Winamp Skin "
-#~ "Museum."
+#~ "“{name}” verwijderen? Je kunt de playlist 90 dagen lang herstellen via "
+#~ "Spotify."
 
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "Nu te zien: {skin}. Elke keer dat de minispeler opent, wordt een andere "
-#~ "gekozen."
-
-#, rust-format
-#~ msgid ""
-#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
-#~ "save, and sign in again."
-#~ msgstr ""
-#~ "Zegt Spotify “Invalid redirect URI”, voeg dan {uri} precies zo toe aan je "
-#~ "app, sla op en log opnieuw in."
-
-#~ msgid "Music source"
-#~ msgstr "Muziekbron"
+#~ msgid "“{name}” will no longer appear in Your Library."
+#~ msgstr "“{name}” verschijnt niet meer in Jouw bibliotheek."
 
 #~ msgid "You can only change this computer's queue."
 #~ msgstr "Je kunt alleen de wachtrij van deze computer wijzigen."
@@ -4977,6 +4943,33 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "Songtekstbeweging verminderen"
+
+#~ msgid ""
+#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
+#~ msgstr ""
+#~ "‘{name}’ verwijderen? De playlist wordt verwijderd van je Jellyfin-server."
+
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "Geïnstalleerde skins staan in {folder}. Vind er meer in het Winamp Skin "
+#~ "Museum."
+
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "Nu te zien: {skin}. Elke keer dat de minispeler opent, wordt een andere "
+#~ "gekozen."
+
+#~ msgid ""
+#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
+#~ "save, and sign in again."
+#~ msgstr ""
+#~ "Zegt Spotify “Invalid redirect URI”, voeg dan {uri} precies zo toe aan je "
+#~ "app, sla op en log opnieuw in."
+
+#~ msgid "Music source"
+#~ msgstr "Muziekbron"
 
 #~ msgid "Size: 2x, 3x, 4x"
 #~ msgstr "Grootte: 2x, 3x, 4x"

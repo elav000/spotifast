@@ -23017,7 +23017,7 @@ mod tests {
         app.auth = AuthStatus::Connected {
             username: "test".into(),
         };
-        app.manual_queue = vec!["spotify:track:b".into()];
+        app.manual_queue = vec!["spotify:track:b".into()].into();
         app.queue = loaded_queue("spotify:track:a", &["spotify:track:b", "spotify:track:c"]);
         app.backend.take_player_commands();
         let seq = app.queue_seq;

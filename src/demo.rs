@@ -1781,10 +1781,9 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             | "update-rpm" | "update-flatpak" | "update-appimage" => {
                 use crate::updates::{Manager, Notice, Route};
                 let version = "0.18.0";
+                let repository = crate::updates::CONFIG.repository;
                 let file = |name: &str| {
-                    format!(
-                        "https://github.com/crmne/spotifast/releases/download/v{version}/{name}"
-                    )
+                    format!("https://github.com/{repository}/releases/download/v{version}/{name}")
                 };
                 let managed = |manager, command: Option<&str>| Route::Managed {
                     manager,
@@ -1825,7 +1824,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 };
                 app.update = Some(crate::updates::Release {
                     version: version.into(),
-                    url: format!("https://github.com/crmne/spotifast/releases/tag/v{version}"),
+                    url: format!("https://github.com/{repository}/releases/tag/v{version}"),
                 });
                 app.update_support = Some(Err(Notice {
                     reason: reason.to_string(),

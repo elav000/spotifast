@@ -6,7 +6,7 @@ msgstr ""
 "Project-Id-Version: Spotifast\n"
 "Report-Msgid-Bugs-To: https://github.com/crmne/spotifast/issues/new?"
 "template=translation.yml\n"
-"POT-Creation-Date: 2026-11-22 16:11-0800\n"
+"POT-Creation-Date: 2026-11-22 16:12-0800\n"
 "PO-Revision-Date: 2026-09-09 13:30+0000\n"
 "Last-Translator: Spotifast contributors\n"
 "Language-Team: Japanese\n"
@@ -153,7 +153,7 @@ msgstr "ライブラリ内を検索"
 #: src/ui/sidebar.rs:1562 src/ui/widgets.rs:1546 src/app.rs:4771
 #: src/provider/detail.rs:656 src/ui/artist.rs:259 src/ui/home.rs:885
 #: src/ui/library.rs:99 src/ui/search.rs:144 src/ui/search.rs:419
-#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:842
+#: src/ui/search.rs:754 src/ui/winamp/playlist.rs:843
 msgid "Artist"
 msgstr "アーティスト"
 
@@ -4093,8 +4093,8 @@ msgstr "スキンを選択"
 msgid "Big window"
 msgstr "大きいウインドウ"
 
-#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:822
-#: src/ui/winamp/playlist.rs:836
+#: src/ui/winamp/mod.rs:941 src/ui/winamp/playlist.rs:823
+#: src/ui/winamp/playlist.rs:837
 msgid "Song info"
 msgstr "曲の情報"
 
@@ -4160,45 +4160,45 @@ msgstr "シーク先：{position}/{duration} ({percent}%)"
 msgid "Open the big window"
 msgstr "大きいウインドウを開く"
 
-#: src/ui/winamp/playlist.rs:765
+#: src/ui/winamp/playlist.rs:766
 msgid "Remove selected"
 msgstr "選択した曲を削除"
 
-#: src/ui/winamp/playlist.rs:776
+#: src/ui/winamp/playlist.rs:777
 msgid "Remove all"
 msgstr "すべて削除"
 
 #. Translators: Selects every song in the list.
-#: src/ui/winamp/playlist.rs:789
+#: src/ui/winamp/playlist.rs:790
 msgctxt "selection"
 msgid "All"
 msgstr "すべて"
 
 #. Translators: Clears the selection of songs in the list.
-#: src/ui/winamp/playlist.rs:791
+#: src/ui/winamp/playlist.rs:792
 msgctxt "selection"
 msgid "None"
 msgstr "なし"
 
 #. Translators: Selects the songs that are not selected, and clears the rest.
-#: src/ui/winamp/playlist.rs:793
+#: src/ui/winamp/playlist.rs:794
 msgctxt "selection"
 msgid "Invert"
 msgstr "反転"
 
-#: src/ui/winamp/playlist.rs:855
+#: src/ui/winamp/playlist.rs:856
 msgid "Load list"
 msgstr "リストを読み込む"
 
-#: src/ui/winamp/playlist.rs:864
+#: src/ui/winamp/playlist.rs:865
 msgid "No playlists yet"
 msgstr "プレイリストはまだありません"
 
-#: src/ui/winamp/playlist.rs:879
+#: src/ui/winamp/playlist.rs:880
 msgid "Save list"
 msgstr "リストを保存"
 
-#: src/ui/winamp/playlist.rs:881
+#: src/ui/winamp/playlist.rs:882
 msgid "Save the queue as a new playlist"
 msgstr "再生待ちリストを新しいプレイリストとして保存"
 
@@ -4397,21 +4397,6 @@ msgstr ""
 "設定済みのSpotifyプレーヤーの準備ができていません。キュー内のこの曲をスキップ"
 "しました。"
 
-#, rust-format
-#~ msgid ""
-#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
-#~ msgstr ""
-#~ "「{name}」を削除しますか？Jellyfinサーバーからプレイリストが削除されます。"
-
-#, rust-format
-#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
-#~ msgstr "「{name}」を削除しますか？90日以内ならSpotifyから復元できます。"
-
-#, rust-format
-#~ msgid "“{name}” will no longer appear in Your Library."
-#~ msgstr "「{name}」はマイライブラリに表示されなくなります。"
-
-#, rust-format
 #~ msgid "Built with love by {name}"
 #~ msgstr "{name}が心を込めて制作"
 
@@ -4422,29 +4407,11 @@ msgstr ""
 #~ msgid "Following"
 #~ msgstr "フォロー中"
 
-#, rust-format
-#~ msgid ""
-#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
-#~ msgstr ""
-#~ "インストール済みのスキンは{folder}にあります。Winamp Skin Museumでさらに見"
-#~ "つけられます。"
+#~ msgid "Delete “{name}”? You can recover it from Spotify for 90 days."
+#~ msgstr "「{name}」を削除しますか？90日以内ならSpotifyから復元できます。"
 
-#, rust-format
-#~ msgid ""
-#~ "Now showing {skin}. Another one is picked each time the mini player opens."
-#~ msgstr ""
-#~ "現在のスキン: {skin}。ミニプレイヤーを開くたびに別のスキンが選ばれます。"
-
-#, rust-format
-#~ msgid ""
-#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
-#~ "save, and sign in again."
-#~ msgstr ""
-#~ "Spotifyに「Invalid redirect URI」と表示された場合は、{uri}をそのままアプリ"
-#~ "に追加して保存し、もう一度ログインしてください。"
-
-#~ msgid "Music source"
-#~ msgstr "音楽ソース"
+#~ msgid "“{name}” will no longer appear in Your Library."
+#~ msgstr "「{name}」はマイライブラリに表示されなくなります。"
 
 #~ msgid "You can only change this computer's queue."
 #~ msgstr "変更できるのはこのコンピューターの再生待ちリストだけです。"
@@ -4944,6 +4911,32 @@ msgstr ""
 
 #~ msgid "Reduce lyrics motion"
 #~ msgstr "歌詞の動きを減らす"
+
+#~ msgid ""
+#~ "Delete “{name}”? This removes the playlist from your Jellyfin server."
+#~ msgstr ""
+#~ "「{name}」を削除しますか？Jellyfinサーバーからプレイリストが削除されます。"
+
+#~ msgid ""
+#~ "Installed skins are in {folder}. Find more at the Winamp Skin Museum."
+#~ msgstr ""
+#~ "インストール済みのスキンは{folder}にあります。Winamp Skin Museumでさらに見"
+#~ "つけられます。"
+
+#~ msgid ""
+#~ "Now showing {skin}. Another one is picked each time the mini player opens."
+#~ msgstr ""
+#~ "現在のスキン: {skin}。ミニプレイヤーを開くたびに別のスキンが選ばれます。"
+
+#~ msgid ""
+#~ "If Spotify says “Invalid redirect URI”, add {uri} to your app exactly, "
+#~ "save, and sign in again."
+#~ msgstr ""
+#~ "Spotifyに「Invalid redirect URI」と表示された場合は、{uri}をそのままアプリ"
+#~ "に追加して保存し、もう一度ログインしてください。"
+
+#~ msgid "Music source"
+#~ msgstr "音楽ソース"
 
 #~ msgid "Size: 2x, 3x, 4x"
 #~ msgstr "サイズ：2x、3x、4x"

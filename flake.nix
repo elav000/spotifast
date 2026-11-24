@@ -149,7 +149,12 @@
               nativeCheckInputs = pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.dbus ];
               # It starts an orphan process from a copied binary, which never
               # comes up in the build sandbox. CI runs it outside Nix.
-              checkFlags = [ "--skip=soloist::tests::reclaims_a_leftover_soloist_from_this_installation" ];
+              checkFlags = [ "--skip=soloist::tests::reclaims_a_leftover_soloist_from_this_installation" ]
+                # Darwin builders cannot execute the setuid /bin/ps used by
+                # the watcher's PID check. Native tests still exercise it.
+                ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+                  "--skip=soloist::owned::tests::a_child_dies_with_its_killed_parent"
+                ];
               buildInputs =
                 pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux (
                   with pkgs;

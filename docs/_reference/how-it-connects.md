@@ -249,6 +249,10 @@ out, or a reconnection that gives up stops it.
   app waits for it. After the prompt is approved and the window becomes active
   again, Spotifast retries only the timed-out reads, so an existing sign-in is
   restored without another browser approval.
+  On macOS, Tumlo saves Spotify, Soloist, Jellyfin and proxy credentials in
+  separate records under `me.lavenderfarms.tumlo`. It moves older Keychain
+  records when it reads them and verifies the new record before deleting its
+  predecessor. macOS may ask for permission to read the older record once.
   Version 0.7.1 still uses the older unencrypted files.
   See [migration, sign-out, and storage protection](/settings-and-files/).
 - Downloaded audio and artwork, in the cache directory, within the budget

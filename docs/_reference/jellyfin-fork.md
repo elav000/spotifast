@@ -96,8 +96,10 @@ Connected browsing uses the existing central page and shared UI modules, with
 provider actions applied in `App`, following upstream's UI contract.
 
 Non-secret state files are `jellyfin-account.json`, `browsing-provider.json` and
-`jellyfin-revoked` under `AppDirs.state`. Tokens use the separate protected-store
-service `rocks.spotifast.Spotifast.jellyfin`, keyed by source and user. Metadata
+`jellyfin-revoked` under `AppDirs.state`. Tokens use the app's protected-store
+service, keyed by source and user. macOS uses `me.lavenderfarms.tumlo` and moves
+older records when they are read. Jellyfin sees Tumlo's configured name and
+the existing device ID on each request. Metadata
 pages live under `AppDirs.cache/jellyfin/<source-id>/`, with a versioned envelope
 that also validates server/user identity. No token is serialized into those files.
 

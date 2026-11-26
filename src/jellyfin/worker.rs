@@ -1,20 +1,20 @@
 //! Jellyfin backend worker. Owns network, protected credentials and disk work.
-use keyring_core::api::CredentialStoreApi;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{
-    Arc,
+    Arc, LazyLock, Mutex, Weak,
     atomic::{AtomicU64, Ordering},
     mpsc,
 };
 
 use crate::{
     backend::Waker,
+    credentials::{NativeStore, PREVIOUS_SERVICE},
     jellyfin::{Account, Challenge, Client, Error, Item, Token, browser::*},
     paths::AppDirs,
 };
 
-const SERVICE: &str = crate::brand::CREDENTIAL_SERVICE;
 const LEGACY_SERVICE: &str = "rocks.spotifast.Spotifast.jellyfin";
 
 pub fn spawn(
@@ -1364,92 +1364,72 @@ enum CredentialOp {
     Delete,
 }
 
+type AccountLocks = HashMap<String, Weak<Mutex<()>>>;
+
+fn credential_lock(account: &str) -> Arc<Mutex<()>> {
+    static LOCKS: LazyLock<Mutex<AccountLocks>> = LazyLock::new(Mutex::default);
+    let mut locks = LOCKS.lock().unwrap_or_else(|error| error.into_inner());
+    locks.retain(|_, lock| lock.strong_count() != 0);
+    if let Some(lock) = locks.get(account).and_then(Weak::upgrade) {
+        return lock;
+    }
+    let lock = Arc::default();
+    locks.insert(account.to_owned(), Arc::downgrade(&lock));
+    lock
+}
+
 fn credentials(source: Source, operation: CredentialOp) -> Result<Option<Token>, String> {
     // OS calls can block on an inaccessible store. Keep them off both the UI
     // and network runtime, with a bounded wait for a useful error.
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let result = native_credentials(&source, operation);
+        let legacy_account = format!("{}:{}", source.id, source.user_id);
+        let account = format!("jellyfin:{legacy_account}");
+        // Home, Library and sign-in restoration can reach the same account
+        // together. Keep its move, saves and deletion ordered.
+        let lock = credential_lock(&account);
+        let _guard = lock.lock().unwrap_or_else(|error| error.into_inner());
+        let result = native_credentials(&account, &legacy_account, operation);
         let _ = tx.send(result);
     });
     rx.recv_timeout(std::time::Duration::from_secs(20))
         .map_err(|_| "The credential store did not respond. Unlock it and try again.".to_owned())?
 }
 
-fn native_credentials(source: &Source, operation: CredentialOp) -> Result<Option<Token>, String> {
-    #[cfg(target_os = "linux")]
-    let store = zbus_secret_service_keyring_store::Store::new();
-    #[cfg(target_os = "macos")]
-    let store = apple_native_keyring_store::keychain::Store::new();
-    #[cfg(windows)]
-    let store = windows_native_keyring_store::Store::new();
-    let account = format!("jellyfin:{}:{}", source.id, source.user_id);
-    let legacy_account = format!("{}:{}", source.id, source.user_id);
-    let store = store
-        .map_err(|_| "Could not open the credential store. Unlock it and try again.".to_owned())?;
-    let entry = store
-        .build(SERVICE, &account, None)
-        .map_err(|_| "Could not open the credential store. Unlock it and try again.".to_owned())?;
+fn native_credentials(
+    account: &str,
+    legacy_account: &str,
+    operation: CredentialOp,
+) -> Result<Option<Token>, String> {
+    let mut store = NativeStore::default();
+    let previous = [
+        (PREVIOUS_SERVICE, account),
+        (LEGACY_SERVICE, legacy_account),
+    ];
     match operation {
-        CredentialOp::Read => match entry.get_secret() {
-            Ok(bytes) => String::from_utf8(bytes)
-                .ok()
-                .and_then(|value| Token::new(value).ok())
-                .ok_or_else(|| "Saved Jellyfin sign-in is invalid.".to_owned())
-                .map(Some),
-            Err(keyring_core::Error::NoEntry) => {
-                let old = store
-                    .build(LEGACY_SERVICE, &legacy_account, None)
-                    .map_err(|_| {
-                        "Could not read Jellyfin sign-in. Unlock the credential store and retry."
-                            .to_owned()
-                    })?;
-                match old.get_secret() {
-                    Ok(bytes) => {
-                        let token = String::from_utf8(bytes.clone())
-                            .ok()
-                            .and_then(|value| Token::new(value).ok())
-                            .ok_or_else(|| "Saved Jellyfin sign-in is invalid.".to_owned())?;
-                        crate::credentials::migrate_record(
-                            &bytes,
-                            |secret| entry.set_secret(secret).is_ok(),
-                            |secret| entry.get_secret().ok().as_deref() == Some(secret),
-                            || {
-                                let _ = entry.delete_credential();
-                            },
-                            || {
-                                let _ = old.delete_credential();
-                            },
-                        );
-                        Ok(Some(token))
-                    }
-                    Err(keyring_core::Error::NoEntry) => Ok(None),
-                    Err(_) => Err(
-                        "Could not read Jellyfin sign-in. Unlock the credential store and retry."
-                            .into(),
-                    ),
-                }
-            }
-            Err(_) => Err(
-                "Could not read Jellyfin sign-in. Unlock the credential store and retry.".into(),
-            ),
-        },
-        CredentialOp::Write(value) => entry
-            .set_secret(value.as_bytes())
+        CredentialOp::Read => store
+            .read_record(account, &previous)
+            .map_err(|_| {
+                "Could not read Jellyfin sign-in. Unlock the credential store and retry.".to_owned()
+            })?
+            .map(|bytes| {
+                String::from_utf8(bytes)
+                    .ok()
+                    .and_then(|value| Token::new(value).ok())
+                    .ok_or_else(|| "Saved Jellyfin sign-in is invalid.".to_owned())
+            })
+            .transpose(),
+        CredentialOp::Write(value) => store
+            .write_record(account, value.as_bytes())
             .map(|()| None)
             .map_err(|_| "Could not save Jellyfin sign-in in the credential store.".into()),
-        CredentialOp::Delete => match entry.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => {
-                if let Ok(old) = store.build(LEGACY_SERVICE, &legacy_account, None) {
-                    let _ = old.delete_credential();
-                }
-                Ok(None)
-            }
-            Err(_) => Err(
+        CredentialOp::Delete => store
+            .delete_record(account, &previous)
+            .map(|()| None)
+            .map_err(|_| {
                 "Sign-in was revoked locally, but the credential store could not delete its token."
-                    .into(),
-            ),
-        },
+                    .into()
+            }),
     }
 }
 
@@ -1762,7 +1742,8 @@ mod tests {
     #[test]
     #[ignore = "manual temporary-token round trip against the unlocked native store"]
     fn native_store_round_trip() {
-        let source = source();
+        let mut source = source();
+        source.id = format!("{:032x}", rand::random::<u128>());
         credentials(
             source.clone(),
             CredentialOp::Write("temporary-test-token".into()),

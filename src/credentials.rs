@@ -1,4 +1,4 @@
-//! Durable Spotify grants and proxy passwords in the platform credential store.
+//! Durable grants and proxy passwords in the platform credential store.
 //!
 //! All native calls run on one dedicated thread. A locked store cannot hold
 //! the UI, command loop, or runtime shutdown hostage. Generation checks reject
@@ -19,14 +19,18 @@ use sha2::{Digest, Sha256};
 
 use crate::{auth::StoredToken, paths::AppDirs};
 
+pub(crate) const PREVIOUS_SERVICE: &str = "rocks.tumlo.Tumlo.credentials";
+#[cfg(target_os = "macos")]
 const SERVICE: &str = crate::brand::CREDENTIAL_SERVICE;
+#[cfg(not(target_os = "macos"))]
+const SERVICE: &str = PREVIOUS_SERVICE;
 const LEGACY_SERVICE: &str = "rocks.spotifast.Spotifast";
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Copy a credential to its new namespace and remove the legacy record only
 /// after the copy reads back byte-for-byte. Failed verification clears the
 /// partial destination so the legacy record remains the recoverable source.
-pub(crate) fn migrate_record(
+fn migrate_record(
     secret: &[u8],
     write_new: impl FnOnce(&[u8]) -> bool,
     verify_new: impl FnOnce(&[u8]) -> bool,
@@ -288,17 +292,14 @@ trait ProtectedStore: Send {
 }
 
 #[derive(Default)]
-struct NativeStore {
+pub(crate) struct NativeStore {
     store: Option<Arc<keyring_core::api::CredentialStore>>,
 }
 
 impl NativeStore {
-    fn entry(&mut self, key: &str) -> Result<keyring_core::Entry, Error> {
-        self.entry_with(&format!("spotify:{key}"), None)
-    }
-
     fn entry_with(
         &mut self,
+        service: &str,
         key: &str,
         modifiers: Option<&std::collections::HashMap<&str, &str>>,
     ) -> Result<keyring_core::Entry, Error> {
@@ -314,70 +315,99 @@ impl NativeStore {
         self.store
             .as_ref()
             .ok_or(Error::Unavailable)?
-            .build(SERVICE, key, modifiers)
+            .build(service, key, modifiers)
             .map_err(|error| native_error("entry", error))
     }
 
     fn entry_in(&mut self, service: &str, key: &str) -> Result<keyring_core::Entry, Error> {
-        if self.store.is_none() {
-            #[cfg(target_os = "linux")]
-            let store = zbus_secret_service_keyring_store::Store::new();
-            #[cfg(target_os = "macos")]
-            let store = apple_native_keyring_store::keychain::Store::new();
-            #[cfg(windows)]
-            let store = windows_native_keyring_store::Store::new();
-            self.store = Some(store.map_err(|error| native_error("open", error))?);
+        self.entry_with(service, key, None)
+    }
+
+    pub(crate) fn read_record(
+        &mut self,
+        account: &str,
+        previous: &[(&str, &str)],
+    ) -> Result<Option<Vec<u8>>, Error> {
+        let current = self.entry_in(SERVICE, account)?;
+        match current.get_secret() {
+            Ok(secret) => return Ok(Some(secret)),
+            Err(keyring_core::Error::NoEntry) => {}
+            Err(error) => return Err(native_error("read", error)),
         }
-        self.store
-            .as_ref()
-            .ok_or(Error::Unavailable)?
-            .build(service, key, None)
-            .map_err(|error| native_error("entry", error))
+        for &(service, old_account) in previous {
+            if (service, old_account) == (SERVICE, account) {
+                continue;
+            }
+            let old = self.entry_in(service, old_account)?;
+            let secret = match old.get_secret() {
+                Ok(secret) => secret,
+                Err(keyring_core::Error::NoEntry) => continue,
+                Err(error) => return Err(native_error("read legacy", error)),
+            };
+            // Keep using the previous record if moving it fails. A later
+            // launch can retry without asking for a new service sign-in.
+            migrate_record(
+                &secret,
+                |value| current.set_secret(value).is_ok(),
+                |value| current.get_secret().ok().as_deref() == Some(value),
+                || {
+                    let _ = current.delete_credential();
+                },
+                || {
+                    let _ = old.delete_credential();
+                },
+            );
+            return Ok(Some(secret));
+        }
+        Ok(None)
+    }
+
+    pub(crate) fn write_record(&mut self, account: &str, secret: &[u8]) -> Result<(), Error> {
+        self.entry_in(SERVICE, account)?
+            .set_secret(secret)
+            .map_err(|error| native_error("write", error))
+    }
+
+    pub(crate) fn delete_record(
+        &mut self,
+        account: &str,
+        previous: &[(&str, &str)],
+    ) -> Result<(), Error> {
+        let mut result = self.delete_entry(SERVICE, account);
+        for &(service, old_account) in previous {
+            if (service, old_account) != (SERVICE, account) {
+                let deleted = self.delete_entry(service, old_account);
+                result = result.and(deleted);
+            }
+        }
+        result
+    }
+
+    fn delete_entry(&mut self, service: &str, account: &str) -> Result<(), Error> {
+        match self.entry_in(service, account)?.delete_credential() {
+            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+            Err(error) => Err(native_error("delete", error)),
+        }
     }
 }
 
 impl ProtectedStore for NativeStore {
     fn read(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
-        match self.entry(key)?.get_secret() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring_core::Error::NoEntry) => {
-                // Read the old service on first use after rebranding. Copy the
-                // value into Tumlo's namespace, verify it, and only then
-                // remove the old record. If copying fails, keep using the old
-                // value so the next launch can retry without signing out.
-                let legacy = match self.entry_in(LEGACY_SERVICE, key)?.get_secret() {
-                    Ok(secret) => secret,
-                    Err(keyring_core::Error::NoEntry) => return Ok(None),
-                    Err(error) => return Err(native_error("read legacy", error)),
-                };
-                let current = self.entry(key)?;
-                let old = self.entry_in(LEGACY_SERVICE, key)?;
-                migrate_record(
-                    &legacy,
-                    |secret| current.set_secret(secret).is_ok(),
-                    |secret| current.get_secret().ok().as_deref() == Some(secret),
-                    || {
-                        let _ = current.delete_credential();
-                    },
-                    || {
-                        let _ = old.delete_credential();
-                    },
-                );
-                Ok(Some(legacy))
-            }
-            Err(error) => Err(native_error("read", error)),
-        }
+        let account = format!("spotify:{key}");
+        self.read_record(
+            &account,
+            &[(PREVIOUS_SERVICE, &account), (LEGACY_SERVICE, key)],
+        )
     }
     #[cfg(not(windows))]
     fn write(&mut self, key: &str, secret: &[u8]) -> Result<(), Error> {
-        self.entry(key)?
-            .set_secret(secret)
-            .map_err(|error| native_error("write", error))
+        self.write_record(&format!("spotify:{key}"), secret)
     }
     #[cfg(windows)]
     fn write(&mut self, key: &str, secret: &[u8]) -> Result<(), Error> {
-        let enterprise = self.entry(key)?;
+        let enterprise = self.entry_in(SERVICE, &format!("spotify:{key}"))?;
         let local = self.entry_with(
+            SERVICE,
             key,
             Some(&std::collections::HashMap::from([("persistence", "Local")])),
         )?;
@@ -393,10 +423,11 @@ impl ProtectedStore for NativeStore {
         )
     }
     fn delete(&mut self, key: &str) -> Result<(), Error> {
-        match self.entry(key)?.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(error) => Err(native_error("delete", error)),
-        }
+        let account = format!("spotify:{key}");
+        self.delete_record(
+            &account,
+            &[(PREVIOUS_SERVICE, &account), (LEGACY_SERVICE, key)],
+        )
     }
 }
 
@@ -1672,6 +1703,18 @@ mod tests {
         tokio::task::spawn_blocking(move || {
             let mut native = NativeStore::default();
             assert_eq!(native.read(&key).unwrap(), None);
+            #[cfg(target_os = "macos")]
+            {
+                let previous = native
+                    .entry_in(PREVIOUS_SERVICE, &format!("spotify:{key}"))
+                    .unwrap();
+                previous.set_secret(b"dummy-migration").unwrap();
+                assert_eq!(native.read(&key).unwrap().unwrap(), b"dummy-migration");
+                assert!(matches!(
+                    previous.get_secret(),
+                    Err(keyring_core::Error::NoEntry)
+                ));
+            }
             native.write(&key, b"dummy-probe").unwrap();
             assert_eq!(
                 native.read(&key).unwrap().as_deref(),
@@ -1713,6 +1756,75 @@ mod tests {
                     .is_none()
             );
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_spotify_record_migrates_to_the_new_service_and_sign_out_clears_every_namespace() {
+        let mut store = NativeStore {
+            store: Some(keyring_core::mock::Store::new().unwrap()),
+        };
+        let previous = store
+            .entry_in("rocks.tumlo.Tumlo.credentials", "spotify:dummy-record")
+            .unwrap();
+        let original = store
+            .entry_in("rocks.spotifast.Spotifast", "dummy-record")
+            .unwrap();
+        let current = store
+            .entry_in("me.lavenderfarms.tumlo", "spotify:dummy-record")
+            .unwrap();
+        previous.set_secret(b"dummy-newer").unwrap();
+        original.set_secret(b"dummy-older").unwrap();
+
+        assert_eq!(store.read("dummy-record").unwrap().unwrap(), b"dummy-newer");
+        assert_eq!(current.get_secret().unwrap(), b"dummy-newer");
+        assert!(matches!(
+            previous.get_secret(),
+            Err(keyring_core::Error::NoEntry)
+        ));
+
+        store.delete("dummy-record").unwrap();
+        assert!(matches!(
+            current.get_secret(),
+            Err(keyring_core::Error::NoEntry)
+        ));
+        assert!(matches!(
+            original.get_secret(),
+            Err(keyring_core::Error::NoEntry)
+        ));
+        assert_eq!(store.read("dummy-record").unwrap(), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn migrating_a_jellyfin_record_keeps_other_server_accounts_separate() {
+        let mut store = NativeStore {
+            store: Some(keyring_core::mock::Store::new().unwrap()),
+        };
+        let old_service = "rocks.spotifast.Spotifast.jellyfin";
+        let account = "jellyfin:server-a:listener";
+        let previous = [
+            (PREVIOUS_SERVICE, account),
+            (old_service, "server-a:listener"),
+        ];
+        let original = store.entry_in(old_service, "server-a:listener").unwrap();
+        let other = store
+            .entry_in(PREVIOUS_SERVICE, "jellyfin:server-b:listener")
+            .unwrap();
+        original.set_secret(b"dummy-server-a").unwrap();
+        other.set_secret(b"dummy-server-b").unwrap();
+
+        assert_eq!(
+            store.read_record(account, &previous).unwrap().unwrap(),
+            b"dummy-server-a"
+        );
+        assert!(matches!(
+            original.get_secret(),
+            Err(keyring_core::Error::NoEntry)
+        ));
+        store.delete_record(account, &previous).unwrap();
+        assert_eq!(store.read_record(account, &previous).unwrap(), None);
+        assert_eq!(other.get_secret().unwrap(), b"dummy-server-b");
     }
 
     /// Stands in for DPAPI: reversible, and opens only under its own context.

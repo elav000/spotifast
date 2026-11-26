@@ -81,10 +81,12 @@ caches stay, since they belong to no account.
 The following credential storage is available since 0.8.0.
 
 Durable grants use **Secret Service on Linux**, **Keychain on macOS**, and
-**Credential Manager on Windows**, under the service name
-`rocks.spotifast.Spotifast`. Entries are separated by application state
-location and grant type; Web grants carry their Client ID and must verify as
-the same account. Playback and receiver activation require that account too.
+**Credential Manager on Windows**. Tumlo uses `me.lavenderfarms.tumlo` in
+Keychain. Older records move to this service after a successful read and
+verification. Spotify entries are separated by application state location and
+grant type. Jellyfin entries are separated by saved server and user. Web grants
+carry their Client ID and must verify as the same account. Playback and
+receiver activation require that account too.
 Non-secret settings and session data remain readable JSON. Native credential
 protection reduces exposure from copying ordinary application files. It does
 not protect a usable session from arbitrary code running as the same user;

@@ -11,6 +11,6 @@ mod tests {
         assert_eq!(PRODUCT_NAME, "Tumlo");
         assert_eq!(PRODUCT_SLUG, "tumlo");
         assert!(MACOS_BUNDLE_ID.ends_with(".Tumlo"));
-        assert_eq!(CREDENTIAL_SERVICE, format!("{MACOS_BUNDLE_ID}.credentials"));
+        assert_eq!(CREDENTIAL_SERVICE, "me.lavenderfarms.tumlo");
     }
 }

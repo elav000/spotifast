@@ -3,4 +3,4 @@
 name = "Tumlo"
 slug = "tumlo"
 macos_bundle_id = "rocks.tumlo.Tumlo"
-credential_service = "rocks.tumlo.Tumlo.credentials"
+credential_service = "me.lavenderfarms.tumlo"

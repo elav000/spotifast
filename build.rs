@@ -60,7 +60,6 @@ fn main() {
     let slug = field("slug");
     let bundle_id = field("macos_bundle_id");
     let credential_service = field("credential_service");
-    assert!(credential_service.starts_with(&bundle_id));
     let generated = format!(
         "pub const PRODUCT_NAME: &str = {name:?};\npub const PRODUCT_SLUG: &str = {slug:?};\npub const MACOS_BUNDLE_ID: &str = {bundle_id:?};\npub const CREDENTIAL_SERVICE: &str = {credential_service:?};\n"
     );

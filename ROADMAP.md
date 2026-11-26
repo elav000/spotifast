@@ -261,18 +261,6 @@ Spotify and Jellyfin metadata, artwork or credentials interchangeable.
   option), original-file downloads, availability indicators and offline account
   behavior before implementation. The cache must remain server/account scoped
   and must not be treated as the mixed queue's playback identity.
-- Investigate optional cross-provider album version grouping after Combined
-  Library has real-world usage. A group is presentation over exact
-  provider-stamped occurrences, never a replacement identity. Queues, history,
-  downloads, favorites, links and provider actions continue to use the exact
-  occurrence. Generic Play resolves at action time: an explicitly selected
-  version wins; otherwise prefer an available downloaded Jellyfin occurrence,
-  then another playable Jellyfin occurrence, then Spotify. Matching evidence
-  retains its source and confidence, and a user can expand the group and bypass
-  a bad match. Do not begin with fuzzy title/artist collapse, persistent
-  canonical IDs or shared metadata ownership; editions, compilations, mirrored
-  servers and incomplete tags need concrete design and regression fixtures
-  first.
 
 Incremental delivery within a partially received HTTP range is deferred. Revisit
 only if timing data shows the Jellyfin server delivers useful body bytes before

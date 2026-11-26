@@ -165,6 +165,17 @@ packaging carry an `Assisted-by:` trailer naming the tool and model, with a
 person responsible for them: commits that change the spec or this build
 carry one.
 
+## Local macOS signing
+
+When rebuilding on the same Mac, use the same code-signing identity so macOS
+can recognize the updated app when it accesses Keychain. Record the
+certificate fingerprint for this checkout with
+`git config --local tumlo.macos-signing-identity FINGERPRINT`. The private key
+stays in Keychain. `packaging/macos/bundle.sh` uses that identity for local
+builds, and `CODESIGN_IDENTITY` still selects Developer ID signing for
+distribution. Switching from an ad-hoc signature may require approving access
+to old entries once.
+
 ## Automatic macOS notarization
 
 The macOS release job builds the app first, then selects

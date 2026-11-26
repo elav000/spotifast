@@ -3,8 +3,9 @@
 #
 #   packaging/macos/bundle.sh <binary> <output.app> <version>
 #
-# Set CODESIGN_IDENTITY to sign with a Developer ID; the default is an ad-hoc
-# signature, which arm64 requires before the app will launch at all.
+# Set CODESIGN_IDENTITY for Developer ID signing. A checkout can also record
+# a local signing certificate in Git config to keep its Keychain access across
+# builds. Other local builds get an ad-hoc signature.
 #
 # The .icns is generated here from the committed 1024px PNG, because iconutil
 # only exists on macOS. The Info.plist template lives next to this script.
@@ -53,6 +54,9 @@ iconutil -c icns "$iconset" -o "$app/Contents/Resources/$slug.icns"
 if [ -n "${CODESIGN_IDENTITY:-}" ]; then
     codesign --force --timestamp --options runtime \
         --sign "$CODESIGN_IDENTITY" "$app"
+elif local_identity="$(git -C "$root" config --local --get tumlo.macos-signing-identity 2>/dev/null)" \
+    && [ -n "$local_identity" ]; then
+    codesign --force --timestamp=none --options runtime --sign "$local_identity" "$app"
 else
     codesign --force --sign - "$app"
 fi

@@ -185,7 +185,8 @@ impl Client {
         let base = normalize_server(server)?;
         let http = crate::http::build_collection_client(proxy).map_err(|_| Error::Configuration)?;
         let authorization = format!(
-            "MediaBrowser Client=\"Spotifast\", Device=\"Desktop\", DeviceId=\"{device_id}\", Version=\"{}\"",
+            "MediaBrowser Client=\"{}\", Device=\"Desktop\", DeviceId=\"{device_id}\", Version=\"{}\"",
+            crate::brand::PRODUCT_NAME,
             env!("CARGO_PKG_VERSION")
         );
         Ok(Self {

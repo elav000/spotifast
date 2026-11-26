@@ -121,7 +121,9 @@ The rebrand is complete for the app identity, artwork, README, About
 attribution and fork links. `brand.toml` is the source for the display name,
 macOS bundle ID and credential namespace; verified migration keeps existing
 Spotifast Spotify and Jellyfin credentials. Legacy package, executable and
-update asset names remain for compatibility. The fork has no GitHub releases,
+update asset names remain for compatibility. Jellyfin sessions report the
+configured Tumlo client name and keep their existing device identity. The
+fork has no GitHub releases,
 and release publishing or release metadata migration is out of scope unless
 the maintainer asks for one.
 
@@ -244,9 +246,6 @@ Spotify and Jellyfin metadata, artwork or credentials interchangeable.
 
 - Plex or other sources can follow Combined provider browsing through the same
   identity and capability contracts.
-- Report Tumlo's configured brand name in Jellyfin client sessions instead of
-  the legacy Spotifast name, while preserving the stable device/session identity
-  Jellyfin uses for activity and playback continuity.
 - On macOS, investigate exposing AirPlay and other system media routes beside
   CoreAudio devices through the shared playback-output capability. Keep route
   discovery and selection platform-specific, apply it only to app-owned local

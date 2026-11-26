@@ -298,6 +298,7 @@ async fn quick_connect_keeps_device_identity_and_exchanges_approved_secret() {
     assert!(requests[3].starts_with("POST /jellyfin/Users/AuthenticateWithQuickConnect "));
     assert!(requests[3].ends_with(r#"{"Secret":"temporary-secret"}"#));
     for request in &requests {
+        assert!(request.contains(&format!("Client=\"{}\"", crate::brand::PRODUCT_NAME)));
         assert!(request.contains("DeviceId=\"stable-device\""));
         assert!(!request.contains("private-token"));
     }

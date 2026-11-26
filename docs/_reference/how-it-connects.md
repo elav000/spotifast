@@ -859,7 +859,8 @@ Soloist if it was enabled and verifies its device through the same account
 check. The combined catalog stays visible during startup, and searches pick up
 results from each account as it becomes available. Finding Soloist's device
 makes it available for the next Spotify play request. Device selection or
-playback begins when the listener asks for it.
+playback begins when the listener asks for it. Pressing Play on the saved song
+while Soloist is reconnecting keeps the request until its device is verified.
 
 On Linux with PipeWire, the managed child is given a private input through
 `--pipewire-device`. Native PipeWire streams apply the existing equalizer and

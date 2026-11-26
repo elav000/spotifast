@@ -2174,6 +2174,7 @@ impl App {
         self.soloist_retry_at = None;
         self.soloist_status = crate::soloist::Status::Starting;
         self.soloist_status_at = Instant::now();
+        log::info!("Starting configured Soloist");
         self.backend.send(Command::Soloist {
             enabled: true,
             key: None,
@@ -3906,6 +3907,7 @@ impl App {
                     );
                 }
                 if ready {
+                    log::info!("Soloist is ready for Spotify device verification");
                     self.devices_fetched_at = None;
                     self.refresh_devices();
                 }
@@ -4005,6 +4007,7 @@ impl App {
         self.soloist_device_id = device.as_ref().and_then(|device| device.id.clone());
         self.backend.send(Command::SoloistDevice(device));
         if newly_bound && let Some(id) = self.soloist_device_id.clone() {
+            log::info!("Soloist device verified");
             self.soloist_settled = true;
             self.soloist_retry_at = None;
             self.soloist_bound_at = Some(Instant::now());
@@ -4705,6 +4708,12 @@ impl App {
     /// Whether the player bar shows the remembered track without live playback.
     fn resume_only(&self) -> bool {
         self.resume_track.is_some() && self.now_playing_live().is_none()
+    }
+
+    fn has_combined_soloist_resume(&self) -> bool {
+        self.catalog_scope() == crate::provider::CatalogScope::All
+            && self.settings.soloist_enabled
+            && self.resume_only()
     }
 
     /// Loads the remembered context so Previous and Next work before playback.
@@ -11964,6 +11973,9 @@ impl App {
             self.apply_jellyfin_action(crate::jellyfin::browser::BrowserAction::Resume);
             return;
         }
+        if self.has_combined_soloist_resume() && self.resume_last() {
+            return;
+        }
         let playing = self.now_playing().map(|now| now.playing);
         match self.target() {
             Target::Local => {
@@ -13417,14 +13429,14 @@ impl App {
         // Covers buttons, row double-clicks, keyboard/media shortcuts and IPC
         // before any optimistic state or queued request can change.
         let held = self.soloist_recovering()
-            && matches!(
+            && (matches!(
                 &action,
                 Action::PlayContext { .. }
                     | Action::PlayEpisode { .. }
                     | Action::PlayUris { .. }
                     | Action::PlayFromRow { .. }
                     | Action::ShufflePlay(_)
-            );
+            ) || (matches!(&action, Action::TogglePlay) && self.has_combined_soloist_resume()));
         if self.soloist_waiting()
             && !held
             && matches!(
@@ -26257,6 +26269,79 @@ mod tests {
         assert!(app.queued_play.is_none());
         assert_eq!(app.selected_device.as_deref(), Some("own"));
         assert_eq!(app.backend.take_remote_play_requests().len(), 1);
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn combined_startup_holds_resume_until_soloist_is_verified() {
+        use crate::{provider::CatalogScope, soloist::Status};
+
+        let mut app = test_app("combined-startup-soloist-resume-waiting");
+        app.backend.set_offline(true);
+        app.catalog_scope = CatalogScope::All;
+        app.settings.soloist_enabled = true;
+        app.handle_auth(AuthStatus::Connected {
+            username: "listener".into(),
+        });
+        app.resume_track = Some("spotify:track:saved".into());
+        app.resume_position_ms = 12_000;
+
+        app.apply(Action::TogglePlay, &egui::Context::default());
+
+        assert_eq!(
+            app.queued_play.as_ref().map(|play| play.position_ms),
+            Some(12_000)
+        );
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        app.soloist_status = Status::Ready {
+            name: "Owned Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.handle_api(ApiResponse::Devices(Ok(vec![Device {
+            id: Some("own".into()),
+            name: "Owned Soloist".into(),
+            ..Default::default()
+        }])));
+
+        assert!(app.targets_own_soloist());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote { action: RemoteAction::Play, device_id: Some(id), play: Some(play), .. }]
+                if id == "own" && play.uris == ["spotify:track:saved"] && play.position_ms == 12_000
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn an_idle_spotify_snapshot_leaves_the_saved_track_resumable_on_soloist() {
+        use crate::{provider::CatalogScope, soloist::Status};
+
+        let mut app = test_app("combined-startup-soloist-resume-idle");
+        app.backend.set_offline(true);
+        app.catalog_scope = CatalogScope::All;
+        app.settings.soloist_enabled = true;
+        app.resume_track = Some("spotify:track:saved".into());
+        app.resume_position_ms = 12_000;
+        app.soloist_status = Status::Ready {
+            name: "Owned Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.soloist_device_id = Some("own".into());
+        app.remote = Some(RemoteSnapshot {
+            state: PlaybackState::default(),
+            received_at: Instant::now(),
+        });
+
+        app.apply(Action::TogglePlay, &egui::Context::default());
+
+        assert!(app.targets_own_soloist());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote { action: RemoteAction::Play, device_id: Some(id), play: Some(play), .. }]
+                if id == "own" && play.uris == ["spotify:track:saved"] && play.position_ms == 12_000
+        ));
         app.backend.shutdown();
     }
 

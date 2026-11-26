@@ -227,19 +227,15 @@ order** and offers an ephemeral **All sources** selector for Spotify or an exact
 saved server/account. Filtering the rail never changes catalog scope, playback
 ownership or the provider selected for navigation.
 
-## Next implementation sequence
+## Completed all-provider startup milestone
 
-All-provider catalog browsing continues without changing the playback contracts
-that are now stable:
-
-1. Prepare every configured provider included in the startup catalog scope
-   through its provider-owned lifecycle hook. **All providers** must initialize
-   those runtimes without showing a single-provider splash, selecting an output
-   or starting playback; entering a provider later must not perform its first
-   startup preparation then.
-2. Keep playback, queue handoff, links, devices and controls owned by the active
-   entry. Browsing combined results must not select an output or initialize an
-   unrelated provider runtime.
+When Tumlo reopens in **All providers**, the combined Home is visible while
+Spotify and Jellyfin restore independently. Jellyfin reads every saved source
+for Home and Library. Spotify starts the configured Soloist player after its
+account connects and binds the verified device in the background. An explicit
+playback or device action chooses the output. Provider-native details still
+use the exact source that supplied the result, and the active entry owns its
+queue, links, devices and transport controls.
 
 Shared cache policy is a separate decision. Combined browsing must not make
 Spotify and Jellyfin metadata, artwork or credentials interchangeable.

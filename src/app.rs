@@ -1870,7 +1870,8 @@ impl App {
     }
 
     pub fn show_soloist_onboarding(&self) -> bool {
-        self.selected_provider().supports_soloist()
+        self.catalog_scope() == crate::provider::CatalogScope::Separate
+            && self.selected_provider().supports_soloist()
             && self.soloist_onboarding != crate::settings::SoloistOnboarding::Complete
             && crate::soloist::install::supported()
             && self.is_connected()
@@ -1886,7 +1887,9 @@ impl App {
     /// app away: a stopped player is a banner over a working library.
     pub fn soloist_view(&self) -> SoloistView {
         use crate::soloist::Status;
-        if self.show_soloist_onboarding() {
+        if self.catalog_scope() == crate::provider::CatalogScope::All {
+            SoloistView::App
+        } else if self.show_soloist_onboarding() {
             SoloistView::Setup
         } else if !self.soloist_waiting()
             || self.soloist_settled
@@ -1902,7 +1905,7 @@ impl App {
     /// listener, so a song chosen now waits for it.
     pub fn soloist_recovering(&self) -> bool {
         use crate::soloist::Status;
-        self.soloist_waiting()
+        self.spotify_play_waiting()
             && self.soloist_view() == SoloistView::App
             && match self.soloist_status {
                 Status::NeedsKey => false,
@@ -2138,7 +2141,21 @@ impl App {
     /// built-in player while the chosen player is starting or needs help.
     pub fn soloist_waiting(&self) -> bool {
         self.selected_provider().supports_soloist()
-            && self.settings.soloist_enabled
+            && !(self.catalog_scope() == crate::provider::CatalogScope::All
+                && self.jellyfin_player.controls_output())
+            && self.soloist_pending()
+    }
+
+    fn spotify_play_waiting(&self) -> bool {
+        if self.catalog_scope() == crate::provider::CatalogScope::All {
+            self.soloist_pending()
+        } else {
+            self.soloist_waiting()
+        }
+    }
+
+    fn soloist_pending(&self) -> bool {
+        self.settings.soloist_enabled
             && !(matches!(self.soloist_status, crate::soloist::Status::Ready { .. })
                 && self.soloist_device_id.is_some())
     }
@@ -3991,14 +4008,13 @@ impl App {
             self.soloist_settled = true;
             self.soloist_retry_at = None;
             self.soloist_bound_at = Some(Instant::now());
-            // Restoring a Spotify occurrence starts its provider runtime in
-            // the background. If Soloist was this account's last explicit
-            // output choice, restore that target as soon as it binds so a
-            // later Play does not fall back to another Spotify device. This
-            // selects the target without transferring or starting playback.
-            let restore_target = self.user_id().is_some_and(|account| {
-                self.device_history.last_choice(account) == Some(id.as_str())
-            });
+            // Separate scope restores the account's last explicit target on
+            // bind. Combined scope leaves that choice to an explicit action.
+            let select_on_bind = self.catalog_scope() == crate::provider::CatalogScope::Separate;
+            let restore_target = select_on_bind
+                && self.user_id().is_some_and(|account| {
+                    self.device_history.last_choice(account) == Some(id.as_str())
+                });
             if restore_target {
                 self.selected_device = Some(id.clone());
             }
@@ -4028,7 +4044,8 @@ impl App {
                 self.transfer_remote(id, play);
             } else if resume {
                 self.transfer_remote(id, true);
-            } else if !self.local.is_active()
+            } else if select_on_bind
+                && !self.local.is_active()
                 && self.selected_device.is_none()
                 && self
                     .remote_fresh()
@@ -4044,9 +4061,16 @@ impl App {
         match &status {
             AuthStatus::Connected { .. } => {
                 self.sign_in_url = None;
-                self.activate_selected_provider();
+                self.prepare_signed_in_catalog();
                 self.restore_provider_queue();
+                let combined_search = (self.catalog_scope() == crate::provider::CatalogScope::All
+                    && !self.search.committed.is_empty())
+                .then(|| (self.search.committed.clone(), self.search.committed_run));
                 self.reset_data();
+                if let Some((query, run)) = combined_search {
+                    self.run_search(query);
+                    self.search.committed_run = run;
+                }
                 // `Me` follows and reads the cache, even for the same
                 // account signing in again.
                 self.account_caches_due = true;
@@ -5149,7 +5173,7 @@ impl App {
     fn tick(&mut self, ctx: &egui::Context) {
         self.poll_custom_themes(ctx);
         self.retry_soloist_when_due(ctx);
-        if self.queued_play.is_some() && self.soloist_waiting() && !self.soloist_recovering() {
+        if self.queued_play.is_some() && self.spotify_play_waiting() && !self.soloist_recovering() {
             self.soloist_give_up();
         }
         if self.soloist_view() == SoloistView::Loading {
@@ -11359,7 +11383,7 @@ impl App {
     /// in one ordered exchange: two independent requests race, and shuffle
     /// sometimes lost.
     fn play_request(&mut self, request: PlayRequest, shuffle_first: bool) {
-        self.play_request_on(request, shuffle_first, self.target());
+        self.play_request_on(request, shuffle_first, self.spotify_play_target());
     }
 
     /// Start Spotify through a specific engine Tumlo owns. Mixed-provider
@@ -11371,7 +11395,13 @@ impl App {
         shuffle_first: bool,
         target: Target,
     ) {
-        if self.soloist_waiting() && !self.soloist_recovering() {
+        if self.catalog_scope() == crate::provider::CatalogScope::All
+            && matches!(self.soloist_status, crate::soloist::Status::Off)
+            && self.is_connected()
+        {
+            self.start_configured_soloist();
+        }
+        if self.spotify_play_waiting() && !self.soloist_recovering() {
             return;
         }
         self.jellyfin_player.suspend();
@@ -11410,11 +11440,29 @@ impl App {
     }
 
     fn start_play(&mut self, request: PlayRequest, shuffle_first: bool) {
-        self.start_play_on(request, shuffle_first, self.target());
+        self.start_play_on(request, shuffle_first, self.spotify_play_target());
+    }
+
+    /// Background binding leaves the output alone. Resolve the prepared
+    /// player when a Spotify play is actually requested.
+    fn spotify_play_target(&self) -> Target {
+        if self.settings.soloist_enabled
+            && let Some(id) = &self.soloist_device_id
+            && self.selected_device.is_none()
+            && !self.local.is_active()
+            && (self.remote_elsewhere().is_none()
+                || self.user_id().is_some_and(|account| {
+                    self.device_history.last_choice(account) == Some(id.as_str())
+                }))
+        {
+            Target::Remote(Some(id.clone()))
+        } else {
+            self.target()
+        }
     }
 
     fn start_play_on(&mut self, request: PlayRequest, shuffle_first: bool, target: Target) {
-        if self.soloist_waiting() && !self.soloist_recovering() {
+        if self.spotify_play_waiting() && !self.soloist_recovering() {
             self.clear_play_pending();
             return;
         }
@@ -11493,9 +11541,14 @@ impl App {
         });
         self.queue_start_pending = Some(target.clone());
         // Held for Soloist, never handed to the built-in player meanwhile.
-        if self.soloist_waiting() {
+        if self.spotify_play_waiting() {
             self.queued_play = Some(request);
             return;
+        }
+        if let Target::Remote(Some(id)) = &target
+            && self.soloist_device_id.as_ref() == Some(id)
+        {
+            self.selected_device = Some(id.clone());
         }
         match target {
             Target::Local if !self.local.connected => {
@@ -26500,6 +26553,98 @@ mod tests {
             app.jellyfin.view,
             crate::jellyfin::browser::View::Libraries
         ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn all_provider_startup_prepares_soloist_without_selecting_an_output() {
+        use crate::{
+            provider::{CatalogScope, Provider},
+            settings::SoloistOnboarding,
+            soloist::Status,
+        };
+
+        let mut app = test_app("all-provider-startup-soloist");
+        app.backend.set_offline(true);
+        app.jellyfin.demo("jellyfin-tracks");
+        let selected = app.selected_provider();
+        let source = app.jellyfin.source.clone();
+        app.catalog_scope = CatalogScope::All;
+        app.settings.soloist_enabled = true;
+        app.soloist_onboarding = SoloistOnboarding::Complete;
+        app.user = Some(crate::api::models::User {
+            id: "listener".into(),
+            ..Default::default()
+        });
+        app.device_history.record("listener", "owned-soloist");
+
+        app.handle_auth(AuthStatus::Connected {
+            username: "listener".into(),
+        });
+
+        assert!(matches!(app.soloist_status, Status::Starting));
+        assert_eq!(app.catalog_scope(), CatalogScope::All);
+        assert_eq!(app.selected_provider(), selected);
+        assert_eq!(app.jellyfin.source, source);
+        assert_eq!(app.soloist_view(), SoloistView::App);
+        assert!(app.provider_runtime_needed(Provider::Spotify));
+
+        app.devices = vec![Device {
+            id: Some("owned-soloist".into()),
+            name: "Tumlo Soloist".into(),
+            ..Default::default()
+        }];
+        app.soloist_status = Status::Ready {
+            name: "Tumlo Soloist".into(),
+            version: "test".into(),
+            expires: u64::MAX,
+        };
+        app.bind_soloist_device();
+
+        assert_eq!(app.soloist_device_id.as_deref(), Some("owned-soloist"));
+        assert_eq!(app.selected_device, None);
+        assert!(app.backend.take_remote_play_requests().is_empty());
+        assert!(app.backend.take_transfer_requests().is_empty());
+        assert!(app.backend.take_player_commands().is_empty());
+
+        app.select_provider(Provider::Spotify);
+        assert!(matches!(app.soloist_status, Status::Ready { .. }));
+        assert_eq!(app.selected_device, None);
+        app.apply(
+            Action::PlayUris {
+                uris: vec!["spotify:track:chosen".into()],
+                index: 0,
+            },
+            &egui::Context::default(),
+        );
+
+        assert!(app.targets_own_soloist());
+        assert!(matches!(
+            app.backend.take_remote_play_requests().as_slice(),
+            [ApiRequest::Remote { action: RemoteAction::Play, device_id: Some(id), .. }]
+                if id == "owned-soloist"
+        ));
+        app.backend.shutdown();
+    }
+
+    #[test]
+    fn spotify_sign_in_replays_a_combined_search_entered_at_startup() {
+        let mut app = test_app("combined-search-during-spotify-startup");
+        app.backend.set_offline(true);
+        app.catalog_scope = crate::provider::CatalogScope::All;
+        app.apply(
+            Action::Search("Miles Davis".into()),
+            &egui::Context::default(),
+        );
+        let serial = app.search.serial;
+
+        app.handle_auth(AuthStatus::Connected {
+            username: "listener".into(),
+        });
+
+        assert_eq!(app.search.committed, "Miles Davis");
+        assert!(app.search.serial > serial);
+        assert!(app.search.catalogue_pending);
         app.backend.shutdown();
     }
 

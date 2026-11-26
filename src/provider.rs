@@ -449,7 +449,7 @@ impl crate::app::App {
         use crate::jellyfin::browser::View;
         use crate::model::Page;
 
-        if self.catalog_scope() == CatalogScope::All && self.catalog_return.is_none() {
+        if self.shows_combined_catalog() {
             let (route, key) = match self.catalog_page {
                 CatalogPage::Home => (CentralPage::CombinedHome, "combined:home"),
                 CatalogPage::Search => (CentralPage::CombinedSearch, "combined:search"),
@@ -602,6 +602,10 @@ impl crate::app::App {
 
     pub fn catalog_scope(&self) -> CatalogScope {
         self.catalog_scope
+    }
+
+    pub(crate) fn shows_combined_catalog(&self) -> bool {
+        self.catalog_scope() == CatalogScope::All && self.catalog_return.is_none()
     }
 
     /// Snapshot every configured catalog occurrence. Spotify has one

@@ -327,6 +327,7 @@ pub struct CombinedSearch {
     pub term: String,
     pub kind: Option<Kind>,
     pub sources: Vec<CombinedSearchSource>,
+    waiting_for_accounts: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -858,6 +859,15 @@ impl Browser {
                 provider,
             } => {
                 self.servers = servers;
+                if std::mem::take(&mut self.combined_search.waiting_for_accounts)
+                    && !self.servers.is_empty()
+                {
+                    self.search_all(
+                        self.combined_search.term.clone(),
+                        self.combined_search.kind,
+                        proxy,
+                    );
+                }
                 self.error = None;
                 if !self.selection_changed {
                     self.provider = provider;
@@ -1231,6 +1241,7 @@ impl Browser {
         self.combined_search.request = self.combined_search.request.wrapping_add(1);
         self.combined_search.term = term.trim().to_owned();
         self.combined_search.kind = kind;
+        self.combined_search.waiting_for_accounts = self.servers.is_empty();
         self.combined_search.sources = self
             .servers
             .iter()
@@ -1257,6 +1268,7 @@ impl Browser {
         self.combined_search.request = self.combined_search.request.wrapping_add(1);
         self.combined_search.term = term;
         self.combined_search.kind = None;
+        self.combined_search.waiting_for_accounts = false;
         self.combined_search.sources.clear();
     }
 
@@ -3190,6 +3202,30 @@ mod tests {
             &ProxyConfig::Off,
         );
         assert!(model.error.is_none());
+    }
+
+    #[test]
+    fn restoring_saved_accounts_replays_a_combined_search_entered_at_startup() {
+        let mut model = model();
+        let source = model.source.take().unwrap();
+        model.servers.clear();
+        model.search_all("Miles Davis".into(), Some(Kind::Artist), &ProxyConfig::Off);
+
+        model.apply(
+            Reply::Restored {
+                source: Some(source.clone()),
+                servers: vec![source.clone()],
+                provider: Provider::Spotify,
+            },
+            &ProxyConfig::Off,
+        );
+
+        assert_eq!(model.combined_search.term, "Miles Davis");
+        assert_eq!(model.combined_search.kind, Some(Kind::Artist));
+        assert!(matches!(
+            model.combined_search.sources.as_slice(),
+            [entry] if entry.source == source && entry.loading
+        ));
     }
 
     #[test]

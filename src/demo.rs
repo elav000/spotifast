@@ -15020,6 +15020,38 @@ mod tests {
     }
 
     #[test]
+    fn restored_combined_home_is_visible_before_either_provider_connects() {
+        use crate::{
+            backend::AuthStatus,
+            provider::{CatalogScope, Provider},
+        };
+        use egui::accesskit::Role;
+
+        let (ctx, mut app) = accessible_app("combined-cold-start");
+        app.jellyfin.demo("jellyfin-tracks");
+        app.jellyfin.source = None;
+        app.jellyfin.servers.clear();
+        app.catalog_scope = CatalogScope::All;
+        app.auth = AuthStatus::Starting;
+        app.user = None;
+        app.settings.soloist_enabled = true;
+
+        for provider in [Provider::Jellyfin, Provider::Spotify] {
+            app.jellyfin.provider = provider;
+            let tree = accessible_frame(&ctx, &mut app, vec![]);
+            accessible_node(&tree, "Refresh", Role::Button);
+        }
+        app.auth = AuthStatus::Connected {
+            username: "listener".into(),
+        };
+        app.user = Some(crate::api::models::User::default());
+        app.soloist_status = crate::soloist::Status::Starting;
+        let tree = accessible_frame(&ctx, &mut app, vec![]);
+        accessible_node(&tree, "Refresh", Role::Button);
+        app.backend.shutdown();
+    }
+
+    #[test]
     fn combined_search_keeps_saved_sources_visibly_separate() {
         use crate::{
             jellyfin::{Page, browser::CombinedSearchSource, catalog::Kind},

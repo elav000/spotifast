@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use super::{Provider, ProviderContinuation, ProviderQueueItem, ProviderStamp};
+use super::{CatalogScope, Provider, ProviderContinuation, ProviderQueueItem, ProviderStamp};
 use crate::app::App;
 
 #[path = "playback/jellyfin.rs"]
@@ -102,6 +102,15 @@ impl App {
         self.activate_provider(self.selected_provider());
     }
 
+    /// Jellyfin restores through its own worker as soon as the proxy is ready.
+    /// Spotify's configured player needs the Spotify sign-in to settle first.
+    pub(crate) fn prepare_signed_in_catalog(&mut self) {
+        match self.catalog_scope() {
+            CatalogScope::All => spotify::activate(self),
+            CatalogScope::Separate => self.activate_selected_provider(),
+        }
+    }
+
     fn activate_provider(&mut self, provider: Provider) {
         match provider {
             Provider::Spotify => spotify::activate(self),
@@ -137,7 +146,8 @@ impl App {
     /// any saved occurrence. Provider engines use this to decide whether a
     /// background retry still serves visible state.
     pub(crate) fn provider_runtime_needed(&self, provider: Provider) -> bool {
-        self.selected_provider() == provider
+        self.catalog_scope() == CatalogScope::All
+            || self.selected_provider() == provider
             || self
                 .mixed_queue
                 .iter()

@@ -53,6 +53,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     for path in winamp::dropped_skins(ctx) {
         app.actions.push(Action::InstallSkin(path));
     }
+    let combined = app.shows_combined_catalog();
     if app.jellyfin.enabled {
         fastframe_titlebar::drag(
             ui,
@@ -67,13 +68,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             {
                 player_bar::show(app, ui);
             }
-            if app.settings.sidebar_visible && app.jellyfin.source.is_some() {
+            if app.settings.sidebar_visible && (combined || app.jellyfin.source.is_some()) {
                 sidebar::show(app, ui);
             }
             if app.show_queue_panel {
                 queue::side_panel(app, ui);
             }
-            if app.jellyfin.source.is_some() {
+            if combined || app.jellyfin.source.is_some() {
                 central(app, ui);
             } else {
                 jellyfin::show(app, ui);
@@ -91,7 +92,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let signed_in = app.is_connected() && app.user.is_some();
     let connecting = matches!(app.auth, AuthStatus::Connecting | AuthStatus::Starting)
         || (app.is_connected() && app.user.is_none());
-    if !signed_in {
+    if !signed_in && !combined {
         if app.jellyfin_player.controls_output() {
             player_bar::show(app, ui);
             if app.show_queue_panel {
@@ -399,7 +400,7 @@ fn central(app: &mut App, ui: &mut egui::Ui) {
             // One banner at a time: a song that will not play matters more
             // than a slow app, which waits its turn.
             if app.dialog.is_none() && route != CentralPage::Settings {
-                if app.soloist_waiting() {
+                if !app.shows_combined_catalog() && app.soloist_waiting() {
                     soloist::banner(app, ui);
                 } else if app.audio_key_banner {
                     audio_key_banner(app, ui);
